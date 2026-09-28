@@ -8,6 +8,7 @@
   "language": "pl",
   "sound_feedback": true,
   "show_overlay": true,
+  "show_live_preview": false,
   "require_text_field": true,
   "stream_realtime": true,
   "auto_stop_silence_seconds": 0,

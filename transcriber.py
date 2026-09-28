@@ -7,13 +7,26 @@ import logging
 
 logger = logging.getLogger("Transcriber")
 
-# Predefiniowane wyrażenia regularne do usuwania artefaktów i halucynacji Whisper (np. z filmów YouTube)
+# Predefiniowane wyrażenia regularne do usuwania artefaktów i halucynacji Whisper (np. z filmów YouTube, TikTok, Reels)
 HALLUCINATION_PATTERNS = [
-    # Dziękuję / Dzięki za uwagę / za oglądanie / za wysłuchanie / pomoc (z 'ę' lub 'e' lub 'emy')
+    # 1. Dziękuję / Dzięki za uwagę / za oglądanie / za wysłuchanie / pomoc (z 'ę' lub 'e' lub 'emy')
     r'\b[Dd]ziękuj(emy|[eę])(\s+bardzo|\s+państwu|\s+serdecznie)*(\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie|pomoc))?[.!,]?\s*',
     r'\b([Ww]ielkie\s+)?[Dd]zięki(\s+bardzo|\s+serdecznie)*(\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie))?[.!,]?\s*',
     r'\b[Bb]ardzo\s+dziękuj(emy|[eę])[.!,]?\s*',
-    # Outra YouTube i napisy
+
+    # 2. Obserwacje / zaobserwujcie / TikTok / Instagram / YouTube
+    r'\b((wielkie\s+)?dzięki|(bardzo\s+)?dziękuj[eę])?\s*za\s+obserwac[ji][eęia][.!,]?\s*',
+    r'\bzaobserwuj(cie)?(\s+(mój|nasz)?\s*(profil|kanał|konto|tiktoka|tik\s*tok|instagrama?))?(\s+po\s+więcej)?[.!,]?\s*',
+    r'\bobserwuj(cie)?(\s+(nas|mój\s+profil|nasz\s+profil))?(\s+po\s+więcej)?[.!,]?\s*',
+    r'\b(zostaw|daj)\s+(suba|lajka|obserwację|łapkę|komentarz)[.!,]?\s*',
+    r'\bkliknij\s+(w\s+)?dzwoneczek[.!,]?\s*',
+    r'\blink\s+w\s+opis(ie)?[.!,]?\s*',
+    r'\budostępnij(cie)?(\s+(ten\s+film|rolkę|materiał))?[.!,]?\s*',
+    r'\bpo\s+więcej\s+(informacji|materiałów|filmów|wiedzy)[.!,]?\s*',
+    r'\bwpadajcie\s+na\s+(mojego|naszego)?\s*(tiktoka|tik\s*toka|instagrama|yt|youtube)[.!,]?\s*',
+    r'\b(obejrzyj|zobacz)\s+(kolejny|następny)\s+(film|odcinek|materiał)[.!,]?\s*',
+
+    # 3. Outra YouTube i napisy
     r'\b[Nn]apisy\s+(stworzone|przygotowane|wykonane|tłumaczenie).*?([.!?]|$)',
     r'\b[Ss]ubskrybuj(cie)?(\s+mój)?\s+(kanał|profil)[.!,]?\s*',
     r'\b[Zz]ostaw\s+(suba|lajka|łapkę\s+w\s+górę)[.!,]?\s*',
@@ -27,7 +40,8 @@ HALLUCINATION_PATTERNS = [
     r'\b[Tt]hanks\s+for\s+watching[.!,]?\s*',
     r'\b[Ss]ubscribe\s+(to\s+my\s+channel)?[.!,]?\s*',
     r'\b[Ss]ee\s+you\s+next\s+time[.!,]?\s*',
-    # Samotne powitania/pożegnania-widma wtrącone na ciszy
+
+    # 4. Samotne powitania/pożegnania-widma wtrącone na ciszy
     r'\b[Dd]zień\s+dobry(\s+państwu)?[.!,]?\s*',
     r'\b[Dd]o\s+widzenia(\s+państwu)?[.!,]?\s*'
 ]
@@ -35,7 +49,7 @@ HALLUCINATION_PATTERNS = [
 def clean_hallucinations(text: str) -> str:
     """
     Oczyszcza transkrybowany tekst z typowych halucynacji modelu Whisper:
-    - Usuwa wtrącenia 'Dziękuję za uwagę', 'Dziękuję bardzo', 'Dzień dobry', 'Subskrybuj kanał' z całego tekstu.
+    - Usuwa wtrącenia 'Zaobserwujcie', 'Dzięki za obserwację', 'Dziękuję za uwagę', 'Subskrybuj kanał' z całego tekstu.
     - Usuwa samotne powitania na początku zdania.
     - Normalizuje interpunkcję, wielkie litery na początku i spacje.
     """
@@ -76,7 +90,7 @@ class Transcriber:
         self.config = config
         self.model = None
         self._lock = threading.Lock()
-        self.initial_prompt = "Ciągłe profesjonalne dyktowanie tekstu w języku polskim. Pisz poprawną polszczyzną, z pełną interpunkcją (kropki, przecinki, pytajniki) oraz wielkimi literami na początku zdań. Zapisuj dokładnie słowa mówcy, bez żadnych powitań, pożegnań ani wtrąceń typu dziękuję za uwagę czy dzień dobry."
+        self.initial_prompt = "Ciągłe profesjonalne dyktowanie tekstu w języku polskim. Pisz poprawną polszczyzną, z pełną interpunkcją (kropki, przecinki, pytajniki) oraz wielkimi literami na początku zdań. Zapisuj dokładnie słowa mówcy. Nigdy nie dodawaj powitań ani pożegnań, takich jak Dzień dobry, Dziękuję za uwagę czy Do widzenia. Bezwzględnie unikaj zwrotów z mediów społecznościowych, takich jak zaobserwujcie, dzięki za obserwację, subskrybuj kanał czy zostaw lajka."
         self._init_model()
 
     def _init_model(self):
@@ -125,6 +139,10 @@ class Transcriber:
                     no_speech_threshold=0.5,
                     log_prob_threshold=-0.9,
                     compression_ratio_threshold=2.4,
+                    hallucination_silence_threshold=1.8,
+                    repetition_penalty=1.15,
+                    no_repeat_ngram_size=3,
+                    suppress_blank=True,
                     initial_prompt=self.initial_prompt
                 )
                 segments = [s for s in segments_gen if s.no_speech_prob <= 0.45 and s.avg_logprob >= -1.2]
@@ -192,6 +210,9 @@ class Transcriber:
                     no_speech_threshold=0.5,
                     log_prob_threshold=-0.9,
                     compression_ratio_threshold=2.4,
+                    hallucination_silence_threshold=1.8,
+                    repetition_penalty=1.15,
+                    suppress_blank=True,
                     initial_prompt=self.initial_prompt
                 )
                 texts = [segment.text for segment in segments if segment.no_speech_prob <= 0.45]
@@ -232,6 +253,10 @@ class Transcriber:
                     log_prob_threshold=-0.9,
                     compression_ratio_threshold=2.4,
                     condition_on_previous_text=False,
+                    hallucination_silence_threshold=2.0,
+                    repetition_penalty=1.15,
+                    no_repeat_ngram_size=3,
+                    suppress_blank=True,
                     initial_prompt=self.initial_prompt
                 )
                 valid_texts = []

@@ -334,6 +334,7 @@ class FloatingOverlay:
         self._balloon_message = None
         self._balloon_until = 0.0
         self.live_text = ""
+        self.show_live_preview = False
         self._dirty = True
 
         # Callbacki do logiki aplikacji
@@ -1067,8 +1068,11 @@ class FloatingOverlay:
     def show_recording(self):
         self.mode = "recording"
         self.live_text = ""
-        self._balloon_type = "live"
-        self._balloon_until = time.time() + 4.0
+        if self.show_live_preview:
+            self._balloon_type = "live"
+            self._balloon_until = time.time() + 4.0
+        else:
+            self._balloon_type = None
         self._dirty = True
         self.show()
 
@@ -1083,8 +1087,11 @@ class FloatingOverlay:
     def show_processing(self):
         self.mode = "processing"
         self.live_text = ""
-        self._balloon_type = "processing"
-        self._balloon_until = time.time() + 8.0
+        if self.show_live_preview:
+            self._balloon_type = "processing"
+            self._balloon_until = time.time() + 8.0
+        else:
+            self._balloon_type = None
         self._dirty = True
         self.show()
 
@@ -1126,7 +1133,7 @@ class FloatingOverlay:
     def update_live_text(self, text: str):
         if text:
             self.live_text = text.strip()
-            if self.mode == "recording":
+            if self.mode == "recording" and self.show_live_preview:
                 self._balloon_type = "live"
                 self._balloon_until = time.time() + 5.0
                 self._dirty = True

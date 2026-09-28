@@ -42,6 +42,13 @@ from meeting_manager import MeetingManager
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
+user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetForegroundWindow.argtypes = []
+user32.SetForegroundWindow.restype = wintypes.BOOL
+user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+user32.IsWindow.restype = wintypes.BOOL
+user32.IsWindow.argtypes = [wintypes.HWND]
+
 def safe_bring_to_foreground(hwnd: int) -> bool:
     """
     Bezpieczne, błyskawiczne i bezblokujące przywrócenie okna docelowego w Windows.
@@ -160,6 +167,8 @@ class DictationApp:
         self.recorder = AudioRecorder(sample_rate=16000)
         theme = self.config.get("theme", "light")
         self.overlay = FloatingOverlay(theme=theme) if self.config.get("show_overlay", True) else None
+        if self.overlay:
+            self.overlay.show_live_preview = self.config.get("show_live_preview", False)
         
         logger.info("Inicjalizacja modułu rozpoznawania mowy Whisper...")
         self.transcriber = Transcriber(self.config)
@@ -755,6 +764,16 @@ class DictationApp:
             self.overlay.show()
             self.overlay.show_idle()
 
+    def toggle_live_preview(self):
+        cur = self.config.get("show_live_preview", False)
+        self.config["show_live_preview"] = not cur
+        save_config(self.config)
+        if self.overlay:
+            self.overlay.show_live_preview = not cur
+            if cur:
+                self.overlay.hide_balloon()
+        logger.info(f"Podgląd tekstu w dymku: {'Włączony' if not cur else 'Wyłączony'}")
+
     def exit_app(self):
         logger.info("Zamykanie aplikacji...")
         self._running = False
@@ -801,7 +820,11 @@ class DictationApp:
         chk_sound = MF_CHECKED if self.config.get("sound_feedback", True) else MF_UNCHECKED
         user32.AppendMenuW(h_menu, MF_STRING | chk_sound, 103, "🔊 Dźwięki potwierdzenia")
 
-        # 4. Spotkania (Notatnik)
+        # 4. Podgląd tekstu w dymku
+        chk_preview = MF_CHECKED if self.config.get("show_live_preview", False) else MF_UNCHECKED
+        user32.AppendMenuW(h_menu, MF_STRING | chk_preview, 106, "💬 Podgląd tekstu w dymku")
+
+        # 5. Spotkania (Notatnik)
         user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
         user32.AppendMenuW(h_menu, MF_STRING, 104, "👥 Transkrypcja spotkania (Notatnik)")
         user32.AppendMenuW(h_menu, MF_STRING, 105, "📁 Otwórz folder transkrypcji spotkań")
@@ -839,6 +862,8 @@ class DictationApp:
             self.toggle_require_text_field()
         elif cmd == 103:
             self.toggle_sound_feedback()
+        elif cmd == 106:
+            self.toggle_live_preview()
         elif cmd == 104:
             self.toggle_meeting()
         elif cmd == 105:
@@ -917,6 +942,11 @@ class DictationApp:
                 "Pokaż widżet na ekranie (Win 11)",
                 self.toggle_overlay_visibility,
                 checked=lambda item: self.overlay._visible if self.overlay else False
+            ),
+            pystray.MenuItem(
+                "Podgląd tekstu w dymku",
+                self.toggle_live_preview,
+                checked=lambda item: self.config.get("show_live_preview", False)
             ),
             pystray.MenuItem(
                 "Styl widżetu (Motyw)",

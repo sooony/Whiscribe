@@ -23,7 +23,16 @@ class TestHallucinationsAndStreaming(unittest.TestCase):
             ("coś sobie robimy. Dziękuje i zobaczmy", "Coś sobie robimy. I zobaczmy"),
             ("Dziękuje mi się, że to dziwnie działa", "Mi się, że to dziwnie działa"),
             ("Dziękuje czas pisze", "Czas pisze"),
-            ("Transkrypcję jeszcze raz zobaczmy w tle na żywo. Dziękuję.", "Transkrypcję jeszcze raz zobaczmy w tle na żywo.")
+            ("Transkrypcję jeszcze raz zobaczmy w tle na żywo. Dziękuję.", "Transkrypcję jeszcze raz zobaczmy w tle na żywo."),
+            ("ZA OBSERWACIE ", ""),
+            ("zaobserwujcie", ""),
+            ("Zaobserwujcie mój profil", ""),
+            ("Zaobserwuj po więcej!", ""),
+            ("Dzięki za obserwację.", ""),
+            ("Dziękuję za obserwację", ""),
+            ("Zostaw lajka i zaobserwujcie.", ""),
+            ("To jest ważne zdanie. ZA OBSERWACIE  I mówimy dalej.", "To jest ważne zdanie. I mówimy dalej."),
+            ("Kolejna wypowiedź zaobserwujcie po więcej i teraz podsumowanie.", "Kolejna wypowiedź i teraz podsumowanie.")
         ]
         for inp, expected in cases:
             cleaned = clean_hallucinations(inp)
