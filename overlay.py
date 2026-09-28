@@ -156,9 +156,10 @@ THEMES = {
         'accent': (75, 92, 242, 255),
         'danger': (255, 33, 51, 255),
         'tab_bg': (35, 48, 78, 250),
-        'mic_standby_bg': (19, 27, 40, 240),
-        'mic_standby_border': (255, 255, 255, 225),
-        'meet_standby_bg': (30, 42, 60, 230),
+        'mic_standby_bg': (43, 53, 70, 255),
+        'mic_standby_color': (223, 232, 251, 255),
+        'meet_standby_bg': (45, 55, 71, 255),
+        'meet_standby_color': (255, 255, 255, 230),
         'scroll_thumb': (185, 199, 228, 90),
         'scroll_track': (185, 199, 228, 15),
         'shadow_alpha': 80
@@ -173,9 +174,10 @@ THEMES = {
         'accent': (64, 92, 242, 255),
         'danger': (255, 33, 51, 255),
         'tab_bg': (220, 232, 255, 250),
-        'mic_standby_bg': (235, 242, 252, 250),
-        'mic_standby_border': (72, 97, 127, 220),
-        'meet_standby_bg': (228, 236, 248, 230),
+        'mic_standby_bg': (214, 219, 230, 255),
+        'mic_standby_color': (72, 97, 127, 255),
+        'meet_standby_bg': (214, 221, 232, 255),
+        'meet_standby_color': (255, 255, 255, 255),
         'scroll_thumb': (100, 120, 154, 100),
         'scroll_track': (100, 120, 154, 20),
         'shadow_alpha': 40
@@ -201,54 +203,120 @@ BAR_HEIGHTS = [
     [10,24,15,30],[7,16,11,22],[12,26,16,30]
 ]
 
-def draw_svg_mic(d, cx, cy, sz, color=(255, 255, 255, 255)):
-    """SVG Microphone icon matching HTML prototype."""
-    scale = sz / 24.0
-    rx1 = cx - 4 * scale
-    ry1 = cy - 9 * scale
-    rx2 = cx + 4 * scale
-    ry2 = cy + 3 * scale
-    d.rounded_rectangle([rx1, ry1, rx2, ry2], radius=int(4 * scale), fill=None, outline=color, width=max(1, int(1.8 * scale)))
-    
-    cradle_r = 7 * scale
-    cradle_top = cy - 1 * scale
-    line_w = max(1, int(1.8 * scale))
-    d.arc([cx - cradle_r, cradle_top - cradle_r, cx + cradle_r, cradle_top + cradle_r], start=0, end=180, fill=color, width=line_w)
-    
-    stem_top = cradle_top + cradle_r
-    stem_bot = stem_top + 3.2 * scale
-    d.line([(cx, stem_top), (cx, stem_bot)], fill=color, width=line_w)
-    
-    base_hw = 3.5 * scale
-    d.line([(cx - base_hw, stem_bot), (cx + base_hw, stem_bot)], fill=color, width=line_w)
+_ICON_CACHE = {}
 
-def draw_people_icon(d, cx, cy, sz, color=(255, 255, 255, 255)):
-    """SVG Group / People icon matching HTML prototype."""
-    scale = sz / 38.0
-    ox = cx - 19 * scale
-    oy = cy - 19 * scale
-    
-    c1x = ox + 14 * scale
-    c1y = oy + 13 * scale
-    r1 = 6 * scale
+def get_svg_mic_image(sz, color=(255, 255, 255, 255)):
+    """Render supersampled (4x) vector microphone icon from exact prototype SVG."""
+    key = ('mic', sz, color)
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+    ss = 4
+    w = max(4, sz * ss)
+    h = max(4, sz * ss)
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    scale = w / 24.0
+    stroke = max(1, int(round(2.0 * scale)))
+
+    # <rect x="8" y="3" width="8" height="12" rx="4"></rect>
+    rx1 = 8.0 * scale
+    ry1 = 3.0 * scale
+    rx2 = 16.0 * scale
+    ry2 = 15.0 * scale
+    d.rounded_rectangle([rx1, ry1, rx2, ry2], radius=int(4.0 * scale), outline=color, width=stroke)
+
+    # <path d="M5 11a7 7 0 0 0 14 0 ..."> (Cradle arc centered at 12, 11 r=7)
+    cx1 = 5.0 * scale
+    cy1 = 4.0 * scale
+    cx2 = 19.0 * scale
+    cy2 = 18.0 * scale
+    d.arc([cx1, cy1, cx2, cy2], start=0, end=180, fill=color, width=stroke)
+
+    # ... M12 18v3 ... (Stem)
+    sx = 12.0 * scale
+    sy1 = 18.0 * scale
+    sy2 = 21.0 * scale
+    d.line([(sx, sy1), (sx, sy2)], fill=color, width=stroke)
+
+    # ... M8.5 21h7 ... (Base foot)
+    fx1 = 8.5 * scale
+    fx2 = 15.5 * scale
+    fy = 21.0 * scale
+    d.line([(fx1, fy), (fx2, fy)], fill=color, width=stroke)
+
+    out = img.resize((sz, sz), Image.Resampling.LANCZOS)
+    _ICON_CACHE[key] = out
+    return out
+
+def _eval_cubic_bezier(p0, p1, p2, p3, n=16):
+    ts = np.linspace(0, 1, n)
+    pts = []
+    for t in ts:
+        pt = (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
+        pts.append((float(pt[0]), float(pt[1])))
+    return pts
+
+def get_people_image(sz, color=(255, 255, 255, 255)):
+    """Render supersampled (4x) vector people icon from exact prototype SVG."""
+    key = ('people', sz, color)
+    if key in _ICON_CACHE:
+        return _ICON_CACHE[key]
+    ss = 4
+    w = max(4, sz * ss)
+    h = max(4, sz * ss)
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    scale = w / 38.0
+
+    # <circle cx="14" cy="13" r="6"></circle>
+    c1x, c1y, r1 = 14.0 * scale, 13.0 * scale, 6.0 * scale
     d.ellipse([c1x - r1, c1y - r1, c1x + r1, c1y + r1], fill=color)
-    
-    c2x = ox + 27 * scale
-    c2y = oy + 15 * scale
-    r2 = 4.6 * scale
+
+    # <circle cx="27" cy="15" r="4.6"></circle>
+    c2x, c2y, r2 = 27.0 * scale, 15.0 * scale, 4.6 * scale
     d.ellipse([c2x - r2, c2y - r2, c2x + r2, c2y + r2], fill=color)
-    
-    body1_l = ox + 3.5 * scale
-    body1_r = ox + 22.5 * scale
-    body1_t = oy + 20.6 * scale
-    body1_b = oy + 30.0 * scale
-    d.chord([body1_l, body1_t - 4 * scale, body1_r, body1_b + 4 * scale], start=180, end=360, fill=color)
-    
-    body2_l = ox + 21.0 * scale
-    body2_r = ox + 36.0 * scale
-    body2_t = oy + 22.9 * scale
-    body2_b = oy + 30.0 * scale
-    d.chord([body2_l, body2_t - 3.5 * scale, body2_r, body2_b + 3.5 * scale], start=180, end=360, fill=color)
+
+    # <path d="M3.5 30c0-5.2 4.3-9.4 9.5-9.4s9.5 4.2 9.5 9.4H3.5Z"></path>
+    p0 = np.array([3.5, 30.0])
+    p1 = np.array([3.5, 24.8])
+    p2 = np.array([7.8, 20.6])
+    p3 = np.array([13.0, 20.6])
+    p4 = np.array([18.2, 20.6])
+    p5 = np.array([22.5, 24.8])
+    p6 = np.array([22.5, 30.0])
+    pts1 = _eval_cubic_bezier(p0, p1, p2, p3, 16) + _eval_cubic_bezier(p3, p4, p5, p6, 16)[1:]
+    pts1.append((3.5, 30.0))
+    d.polygon([(x * scale, y * scale) for x, y in pts1], fill=color)
+
+    # <path d="M22 29.5c.3-3.6 3.3-6.6 7-6.6 3.6 0 6.5 2.8 6.9 6.6H22Z"></path>
+    q0 = np.array([22.0, 29.5])
+    q1 = np.array([22.3, 25.9])
+    q2 = np.array([25.3, 22.9])
+    q3 = np.array([29.0, 22.9])
+    q4 = np.array([32.6, 22.9])
+    q5 = np.array([35.5, 25.7])
+    q6 = np.array([35.9, 29.5])
+    pts2 = _eval_cubic_bezier(q0, q1, q2, q3, 16) + _eval_cubic_bezier(q3, q4, q5, q6, 16)[1:]
+    pts2.append((22.0, 29.5))
+    d.polygon([(x * scale, y * scale) for x, y in pts2], fill=color)
+
+    out = img.resize((sz, sz), Image.Resampling.LANCZOS)
+    _ICON_CACHE[key] = out
+    return out
+
+def draw_svg_mic(target, cx, cy, sz, color=(255, 255, 255, 255)):
+    """SVG Microphone icon matching HTML prototype (viewBox 0 0 24 24, stroke-width 2)."""
+    img_dest = target if isinstance(target, Image.Image) else getattr(target, '_image', None)
+    mic_img = get_svg_mic_image(sz, color)
+    if img_dest:
+        img_dest.alpha_composite(mic_img, (int(round(cx - sz / 2.0)), int(round(cy - sz / 2.0))))
+
+def draw_people_icon(target, cx, cy, sz, color=(255, 255, 255, 255)):
+    """SVG Group / People icon matching HTML prototype (viewBox 0 0 38 38, fill currentColor)."""
+    img_dest = target if isinstance(target, Image.Image) else getattr(target, '_image', None)
+    people_img = get_people_image(sz, color)
+    if img_dest:
+        img_dest.alpha_composite(people_img, (int(round(cx - sz / 2.0)), int(round(cy - sz / 2.0))))
 
 class FloatingOverlay:
     """
@@ -282,23 +350,24 @@ class FloatingOverlay:
 
         # Wymiary całego okna warstwowego (mieści panel u góry oraz moduł 250x90 u dołu)
         self.w = 280
-        self.h = 264
+        self.h = 212
 
         # Moduł dolny (Voice Module): 250x90 px
         self.mw = 250
         self.mh = 90
         self.mx = (self.w - self.mw) // 2       # 15
-        self.my = self.h - self.mh - 16          # 158
+        self.my = self.h - self.mh - 12          # 110
         self.mod_r = 20
 
-        # Panel górny (Transkrypcja): 250x126 px
+        # Panel górny (Transkrypcja zmniejszona): 250x86 px
         self.pw = 250
-        self.ph = 126
+        self.ph = 86
         self.px = (self.w - self.pw) // 2       # 15
-        self.py = self.my - self.ph - 8          # 24
-        self.panel_r = 18
-        self.panel_open = True
+        self.py = self.my - self.ph - 6          # 18
+        self.panel_r = 16
+        self.panel_open = False                 # Domyślnie wyłączona transkrypcja!
         self.show_live_preview = False
+        self._smooth_vol = 0.0
 
         # Uchwyt do przeciągania
         self.handle_w = 29
@@ -396,27 +465,25 @@ class FloatingOverlay:
         # 1. Sprawdź kliknięcie w panelu górnym
         if self._balloon_type == "error":
             btn_x = self.px + 16
-            btn_y = self.py + self.ph - 36
+            btn_y = self.py + self.ph - 30
             btn_w = self.pw - 32
-            btn_h = 26
+            btn_h = 24
             if (btn_x <= x <= btn_x + btn_w) and (btn_y <= y <= btn_y + btn_h):
                 return 'btn_rozumiem'
             if self._is_inside_panel(x, y):
                 return 'balloon_body'
 
         elif self.panel_open:
-            # Przycisk ✕ zamykający panel transkrypcji
-            close_px = self.px + self.pw - 16
-            close_py = self.py + 16
+            close_px = self.px + self.pw - 14
+            close_py = self.py + 14
             if abs(x - close_px) <= 12 and abs(y - close_py) <= 12:
                 return 'btn_panel_close'
             if self._is_inside_panel(x, y):
                 return 'panel_content'
         else:
-            # Gdy panel jest zamknięty, sprawdź przycisk "Pokaż transkrypcję"
             tgl_x = self.mx + self.mw // 2
-            tgl_y = self.my - 14
-            if abs(x - tgl_x) <= 50 and abs(y - tgl_y) <= 12:
+            tgl_y = self.my - 10
+            if abs(x - tgl_x) <= 50 and abs(y - tgl_y) <= 10:
                 return 'btn_panel_open'
 
         # 2. Sprawdź kontrolki w module dolnym
@@ -466,7 +533,7 @@ class FloatingOverlay:
 
             if self._is_inside_module(pt.x, pt.y) or self._is_inside_panel(pt.x, pt.y):
                 return 1  # HTCLIENT
-            if not self.panel_open and abs(pt.x - (self.mx + self.mw//2)) <= 50 and abs(pt.y - (self.my - 14)) <= 12:
+            if not self.panel_open and abs(pt.x - (self.mx + self.mw//2)) <= 50 and abs(pt.y - (self.my - 10)) <= 10:
                 return 1
             return -1  # HTTRANSPARENT (kliknięcia obok przelatują bez przeszkód)
 
@@ -802,57 +869,56 @@ class FloatingOverlay:
             d = ImageDraw.Draw(img)
             d.rounded_rectangle([px, py, px + pw, py + ph], radius=pr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
 
-            # Header panelu (33px)
-            head_h = int(33 * scale)
+            # Header panelu (27px)
+            head_h = int(27 * scale)
             d.line([(px, py + head_h), (px + pw, py + head_h)], fill=cfg['panel_border'], width=max(1, int(1*scale)))
 
-            # Zakładka Transkrypcja
+            # Zakładka Transkrypcja (zgrabna pigułka 66x18 px)
             tab_x = px + int(8 * scale)
-            tab_y = py + int(5.5 * scale)
-            tab_w = int(72 * scale)
-            tab_h = int(22 * scale)
-            d.rounded_rectangle([tab_x, tab_y, tab_x + tab_w, tab_y + tab_h], radius=int(7*scale), fill=cfg['tab_bg'])
+            tab_y = py + int(4.5 * scale)
+            tab_w = int(66 * scale)
+            tab_h = int(18 * scale)
+            d.rounded_rectangle([tab_x, tab_y, tab_x + tab_w, tab_y + tab_h], radius=int(6*scale), fill=cfg['tab_bg'])
             d.text((tab_x + tab_w/2, tab_y + tab_h/2 - int(0.5*scale)), "Transkrypcja", fill=cfg['text'], font=fnt_tab, anchor="mm")
 
             # Przycisk ✕ (zamknij panel)
-            close_px = px + pw - int(16 * scale)
-            close_py = py + int(16 * scale)
+            close_px = px + pw - int(14 * scale)
+            close_py = py + int(13.5 * scale)
             if self._hover_target == 'btn_panel_close':
                 d.ellipse([close_px - int(8*scale), close_py - int(8*scale), close_px + int(8*scale), close_py + int(8*scale)], fill=(128, 145, 175, 45))
-            d.text((close_px, close_py - int(1*scale)), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
+            d.text((close_px, close_py), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
 
-            # Linie transkrypcji
+            # Linie transkrypcji (kompaktowe 2 wiersze)
             with self._lock:
                 lines = list(self.transcript_lines)
                 live_text = self.live_tail
 
             if not lines and not live_text:
-                d.text((px + pw/2, py + head_h + int(36 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
+                d.text((px + pw/2, py + head_h + int(24 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
             else:
                 display_items = []
-                for item in lines[-3:]:
+                for item in lines[-2:]:
                     display_items.append({"t": item.get("t", 0), "text": item.get("text", "")})
 
                 if live_text and (not display_items or self.mode in ("recording", "transcribing")):
                     cur_t = timer_s
                     display_items.append({"t": cur_t, "text": live_text, "live": True})
-                    if len(display_items) > 3:
-                        display_items = display_items[-3:]
+                    if len(display_items) > 2:
+                        display_items = display_items[-2:]
 
-                cur_y = py + head_h + int(8 * scale)
+                cur_y = py + head_h + int(6 * scale)
                 for i, item in enumerate(display_items):
                     t_val = item.get("t", 0)
                     time_str = f"{t_val//60:02d}:{t_val%60:02d}"
                     d.text((px + int(10 * scale), cur_y), time_str, fill=cfg['muted'], font=fnt_time)
 
-                    tx_x = px + int(39 * scale)
-                    # Zawijanie wierszy tekstu
+                    tx_x = px + int(37 * scale)
                     words = item.get("text", "").split()
                     l_lines = []
                     c_line = []
                     for w in words:
                         c_line.append(w)
-                        if len(" ".join(c_line)) > 30:
+                        if len(" ".join(c_line)) > 32:
                             l_lines.append(" ".join(c_line))
                             c_line = []
                     if c_line:
@@ -871,29 +937,28 @@ class FloatingOverlay:
                         bbox = d.textbbox((tx_x, cur_y + (len(l_lines)-1) * int(12 * scale)), last_line, font=fnt_text)
                         caret_x = bbox[2] + int(2 * scale)
                         caret_y = bbox[1] + int(1 * scale)
-                        # Miganie karetki (0.5s)
                         if int(t_now * 2) % 2 == 0:
-                            d.rounded_rectangle([caret_x, caret_y, caret_x + int(2.5 * scale), caret_y + int(9 * scale)], radius=int(1*scale), fill=cfg['accent'])
+                            d.rounded_rectangle([caret_x, caret_y, caret_x + int(2.5 * scale), caret_y + int(8 * scale)], radius=int(1*scale), fill=cfg['accent'])
 
-                    cur_y += max(int(26 * scale), len(l_lines) * int(13 * scale) + int(2 * scale))
+                    cur_y += max(int(22 * scale), len(l_lines) * int(12 * scale) + int(2 * scale))
 
             # Pasek przewijania
             sb_x = px + pw - int(8 * scale)
-            sb_y = py + head_h + int(6 * scale)
+            sb_y = py + head_h + int(5 * scale)
             sb_w = int(3.5 * scale)
-            sb_h = int(76 * scale)
+            sb_h = int(50 * scale)
             d.rounded_rectangle([sb_x, sb_y, sb_x + sb_w, sb_y + sb_h], radius=int(sb_w/2), fill=cfg['scroll_track'])
-            thumb_h = int(34 * scale)
-            d.rounded_rectangle([sb_x, sb_y + int(10*scale), sb_x + sb_w, sb_y + int(10*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
+            thumb_h = int(24 * scale)
+            d.rounded_rectangle([sb_x, sb_y + int(6*scale), sb_x + sb_w, sb_y + int(6*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
 
         else:
             # Panel zwinięty: przycisk "Pokaż transkrypcję"
             tgl_x = int((self.mx + self.mw//2) * scale)
-            tgl_y = int((self.my - 14) * scale)
-            tgl_w = int(88 * scale)
-            tgl_h = int(18 * scale)
-            tgl_fill = (35, 48, 75, 240) if self._hover_target == 'btn_panel_open' else cfg['panel_bg']
-            d.rounded_rectangle([tgl_x - tgl_w/2, tgl_y - tgl_h/2, tgl_x + tgl_w/2, tgl_y + tgl_h/2], radius=int(9*scale), fill=tgl_fill, outline=cfg['panel_border'])
+            tgl_y = int((self.my - 10) * scale)
+            tgl_w = int(92 * scale)
+            tgl_h = int(16 * scale)
+            tgl_fill = cfg['tab_bg'] if self._hover_target == 'btn_panel_open' else cfg['panel_bg']
+            d.rounded_rectangle([tgl_x - tgl_w/2, tgl_y - tgl_h/2, tgl_x + tgl_w/2, tgl_y + tgl_h/2], radius=int(8*scale), fill=tgl_fill, outline=cfg['panel_border'])
             d.text((tgl_x, tgl_y - int(0.5*scale)), "Pokaż transkrypcję", fill=cfg['text'], font=fnt_time, anchor="mm")
 
         # ========================================================
@@ -959,18 +1024,17 @@ class FloatingOverlay:
             d = ImageDraw.Draw(img)
 
             d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(255, 51, 73, 255))
-            draw_svg_mic(d, mic_x, mic_y, sz=int(22 * scale), color=(255, 255, 255, 255))
+            draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=(255, 255, 255, 255))
 
         elif self.mode == "processing":
             # Bursztynowy przycisk finalizacji
             d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(245, 158, 11, 255))
-            draw_svg_mic(d, mic_x, mic_y, sz=int(22 * scale), color=(255, 255, 255, 255))
+            draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=(255, 255, 255, 255))
 
         else:
-            # W spoczynku: ciemny okrąg z białym pierścieniem zewnętrznym
-            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad],
-                      fill=cfg['mic_standby_bg'], outline=cfg['mic_standby_border'], width=max(1, int(1.8 * scale)))
-            draw_svg_mic(d, mic_x, mic_y, sz=int(22 * scale), color=(255, 255, 255, 255))
+            # W spoczynku: miękki okrąg z palety prototypu bez obramowania
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=cfg['mic_standby_bg'])
+            draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=cfg.get('mic_standby_color', (223, 232, 251, 255)))
 
         # --- PRZYCISK 2: SPOTKANIE (Prawy) ---
         if self.mode == "transcribing":
@@ -985,11 +1049,11 @@ class FloatingOverlay:
             d = ImageDraw.Draw(img)
 
             d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=(64, 92, 242, 255))
-            draw_people_icon(d, meet_x, meet_y, sz=int(26 * scale), color=(255, 255, 255, 255))
+            draw_people_icon(d, meet_x, meet_y, sz=int(27 * scale), color=(255, 255, 255, 255))
 
         else:
             d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=cfg['meet_standby_bg'])
-            draw_people_icon(d, meet_x, meet_y, sz=int(26 * scale), color=(255, 255, 255, 200))
+            draw_people_icon(d, meet_x, meet_y, sz=int(27 * scale), color=cfg.get('meet_standby_color', (255, 255, 255, 230)))
 
         # --- SEKCJA ŚRODKOWA: FALA DŹWIĘKOWA (dokładnie 80px) ---
         center_cx = mx + mw // 2
@@ -1002,16 +1066,18 @@ class FloatingOverlay:
         start_bx = center_cx - total_wave_w / 2.0
 
         active_vol = vol if self.mode == "recording" else max(vol, loop_vol)
+        self._smooth_vol = self._smooth_vol * 0.70 + active_vol * 0.30
 
         bar_color = cfg['danger'] if self.mode == "recording" else (cfg['text'] if self.mode == "transcribing" else cfg['wave'])
 
         for i, h_vals in enumerate(BAR_HEIGHTS):
             bx = start_bx + i * (bar_w + bar_gap)
             if self.mode in ("recording", "transcribing"):
-                # Naturalna wielotonowa modulacja wysokości słupków
-                a = 1.0 + 0.23 * math.sin(t_now * 7.0 + i * 0.78) + 0.16 * math.sin(t_now * 12.7 - i * 0.41) + 0.10 * math.sin(t_now * 3.6 + i * 1.13)
-                base_h = h_vals[1] if self.mode == "recording" else h_vals[0]
-                eff_h = max(5, min(36, base_h * a * (0.8 + active_vol * 1.5))) * scale
+                # Subtelna, elegancka fala (max 20px, łagodne wahania bez zalewania po całości)
+                a = 1.0 + 0.12 * math.sin(t_now * 5.0 + i * 0.72) + 0.08 * math.sin(t_now * 9.2 - i * 0.38)
+                vol_boost = min(1.0, self._smooth_vol * 1.5)
+                delta_h = (h_vals[1] - h_vals[0]) * 0.35 * vol_boost
+                eff_h = max(5.0, min(20.0, (h_vals[0] + delta_h) * a)) * scale
             else:
                 eff_h = h_vals[0] * scale
 
@@ -1096,7 +1162,6 @@ class FloatingOverlay:
         self.mode = "recording"
         self._start_time = time.time()
         self.live_tail = ""
-        self.panel_open = True
         self._balloon_type = None
         self._dirty = True
         self.show()
@@ -1118,7 +1183,6 @@ class FloatingOverlay:
         self.mode = "transcribing"
         self._start_time = time.time()
         self.live_tail = ""
-        self.panel_open = True
         self._balloon_type = None
         self._dirty = True
         self.show()

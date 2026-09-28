@@ -7,6 +7,33 @@ from ctypes import wintypes
 import os
 import sys
 import logging
+import io
+import wave
+import math
+import struct
+
+def _generate_soft_chime(freq1=540, freq2=None, duration_ms=35, volume=0.18):
+    sr = 22050
+    n = int(sr * duration_ms / 1000.0)
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        frames = []
+        for i in range(n):
+            env = math.sin(math.pi * i / n) ** 1.8
+            f = freq1 if (freq2 is None or i < n/2) else freq2
+            s = math.sin(2 * math.pi * f * i / sr)
+            val = int(32767 * volume * env * s)
+            frames.append(struct.pack('<h', max(-32767, min(32767, val))))
+        wf.writeframes(b''.join(frames))
+    return buf.getvalue()
+
+CHIME_START = _generate_soft_chime(560, duration_ms=35, volume=0.18)
+CHIME_STOP = _generate_soft_chime(440, duration_ms=28, volume=0.15)
+CHIME_READY = _generate_soft_chime(520, duration_ms=25, volume=0.12)
+CHIME_ERROR = _generate_soft_chime(380, freq2=320, duration_ms=45, volume=0.15)
 
 if sys.stdout is not None:
     try:
@@ -189,10 +216,8 @@ class DictationApp:
             self.overlay.show()
             self.overlay.show_idle()
 
-        # Przyjemny krótki dźwięk gotowości
-        self._play_beep(1200, 60)
-        time.sleep(0.06)
-        self._play_beep(1600, 70)
+        # Krótki, łagodny dźwięk gotowości
+        self._play_ready_chime()
         
         self.state = "idle"  # "idle", "recording", "processing"
         self._lock = threading.RLock()
@@ -288,44 +313,44 @@ class DictationApp:
                 if self.overlay:
                     self.overlay.show()
                     self.overlay.show_idle()
-                self._play_beep(1400, 60)
+                self._play_ready_chime()
         if h_event:
             ctypes.windll.kernel32.CloseHandle(h_event)
 
     def _play_start_chime(self):
-        """Płynny, wzrastający dźwięk rozpoczęcia wpisywania głosowego (styl Windows 11)."""
+        """Łagodny, krótki dźwięk rozpoczęcia wpisywania głosowego."""
         if self.config.get("sound_feedback", True):
             try:
-                winsound.Beep(750, 60)
-                winsound.Beep(1100, 80)
+                winsound.PlaySound(CHIME_START, winsound.SND_MEMORY | winsound.SND_ASYNC)
             except Exception:
                 pass
 
     def _play_stop_chime(self):
-        """Płynny, opadający dźwięk zakończenia wpisywania głosowego (styl Windows 11)."""
+        """Łagodny, krótki dźwięk zakończenia wpisywania głosowego."""
         if self.config.get("sound_feedback", True):
             try:
-                winsound.Beep(1100, 60)
-                winsound.Beep(750, 80)
+                winsound.PlaySound(CHIME_STOP, winsound.SND_MEMORY | winsound.SND_ASYNC)
             except Exception:
                 pass
 
     def _play_error_chime(self):
-        """Dźwięk ostrzegawczy przy próbie pisania bez zaznaczonego pola tekstowego."""
+        """Łagodny dźwięk ostrzegawczy przy braku pola tekstowego."""
         if self.config.get("sound_feedback", True):
             try:
-                winsound.Beep(450, 80)
-                time.sleep(0.04)
-                winsound.Beep(320, 110)
+                winsound.PlaySound(CHIME_ERROR, winsound.SND_MEMORY | winsound.SND_ASYNC)
             except Exception:
                 pass
 
-    def _play_beep(self, freq, duration):
+    def _play_ready_chime(self):
+        """Krótki, subtelny ton gotowości."""
         if self.config.get("sound_feedback", True):
             try:
-                winsound.Beep(freq, duration)
+                winsound.PlaySound(CHIME_READY, winsound.SND_MEMORY | winsound.SND_ASYNC)
             except Exception:
                 pass
+
+    def _play_beep(self, freq=None, duration=None):
+        self._play_ready_chime()
 
     def start_recording(self):
         # 1. Rygorystyczny czujnik aktywnego pola tekstowego
@@ -520,7 +545,6 @@ class DictationApp:
                         send_unicode_string(self.buffered_untyped_text)
                         self.buffered_untyped_text = ""
 
-                self._play_stop_chime()
                 logger.info(f"Finalizacja streamingu: {time.time() - t0:.2f}s | Wpisano łącznie: '{self.committer.typed_text.strip()}'")
 
             else:
@@ -545,7 +569,6 @@ class DictationApp:
                                 time.sleep(0.02)
 
                     inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", False))
-                    self._play_stop_chime()
 
         except Exception as e:
             logger.error(f"Błąd podczas finalizacji: {e}", exc_info=True)

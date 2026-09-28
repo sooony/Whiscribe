@@ -8,7 +8,6 @@
   "language": "pl",
   "sound_feedback": true,
   "show_overlay": true,
-  "show_live_preview": false,
   "require_text_field": true,
   "stream_realtime": true,
   "auto_stop_silence_seconds": 0,
@@ -24,5 +23,6 @@
   "llm_provider": "gemini",
   "llm_api_key": "",
   "llm_model": "gemini-2.0-flash",
-  "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów."
+  "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów.",
+  "show_live_preview": false
 }

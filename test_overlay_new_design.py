@@ -10,9 +10,16 @@ class TestOverlayNewDesign(unittest.TestCase):
         self.assertEqual(ov.mw, 250)
         self.assertEqual(ov.mh, 90)
 
+        # Panel transkrypcji jest domyślnie wyłączony (zwinięty)
+        self.assertFalse(ov.panel_open)
+
         # Test recording
         ov.show_recording()
         self.assertEqual(ov.mode, "recording")
+        self.assertFalse(ov.panel_open)  # Pozostaje zwinięty, nie narzuca się użytkownikowi
+
+        # Otwieranie na żądanie
+        ov.panel_open = True
         self.assertTrue(ov.panel_open)
 
         # Test transcript update
