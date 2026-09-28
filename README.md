@@ -70,10 +70,11 @@ Aplikacja **Logi Options+** działa na Twoim komputerze w tle. Aby przypisać dy
   "language": "pl",
   "sound_feedback": true,
   "show_overlay": true,
+  "show_live_preview": false,
   "require_text_field": true,
-  "stream_realtime": false,
-  "auto_stop_silence_seconds": 4.5,
-  "theme": "light",
+  "stream_realtime": true,
+  "auto_stop_silence_seconds": 0,
+  "theme": "dark",
   "restore_clipboard": false,
   "use_llm": false,
   "llm_provider": "gemini",
@@ -81,3 +82,56 @@ Aplikacja **Logi Options+** działa na Twoim komputerze w tle. Aby przypisać dy
   "llm_model": "gemini-2.0-flash"
 }
 ```
+
+---
+
+## 🖥️ Praca wielomonitorowa i dyktowanie w tle (Dual-Monitor Streaming)
+
+Aplikacja została zaprojektowana specjalnie z myślą o pracy na dwóch monitorach i wielozadaniowości:
+- **Zablokowanie celu (Target Lock):** W momencie rozpoczęcia dyktowania aplikacja zapamiętuje uchwyt okna (`HWND`) oraz wątek edytora tekstowego, w którym stoi kursor (np. Antigravity, Word, czat, Notatnik).
+- **Przeglądanie w tle bez przerywania wpisywania:** W trakcie dyktowania możesz swobodnie klikać, zaznaczać, przewijać strony w przeglądarce Chrome na drugim monitorze lub makietować projekty.
+- **Niezauważalne mikrowstrzykiwanie tekstu (Micro-pulse Injection):** Strumieniowane frazy są wstrzykiwane bezpośrednio do docelowego edytora w ułamku milisekundy (`< 5 ms`) z natychmiastowym przywróceniem Twojego bieżącego okna i kursora. Nie powoduje to utraty skupienia ani przeskakiwania okien.
+
+---
+
+## 🚫 Filtr antyhalucynacyjny Whisper (Anti-Hallucination Engine)
+
+Podczas ciszy, szumów otoczenia lub przerw na zastanowienie modele Whisper miewają tendencję do generowania fraz zapamiętanych ze zbiorów treningowych (YouTube, TikTok, Reels, napisy filmowe), np.:
+- *"ZA OBSERWACJE"*, *"zaobserwujcie"*, *"dzięki za obserwację"*
+- *"Dziękuję za uwagę"*, *"Dziękuję bardzo"*, *"Do widzenia"*
+- *"Subskrybuj kanał"*, *"Zostaw lajka"*, *"Kliknij dzwoneczek"*, *"Link w opisie"*
+
+W aplikacji wdrożono **5-warstwowy system ochrony**:
+1. **Natywny próg ciszy szybkiego Whisper (`hallucination_silence_threshold=1.8`):** Wykrywa brak mowy w oknie czasowym i odrzuca powtarzające się halucynacje.
+2. **Kary za powtórzenia (`repetition_penalty=1.15`, `no_repeat_ngram_size=3`):** Blokują zapętlenia tekstu.
+3. **Restrykcyjny prompt systemowy (`initial_prompt`):** Wymusza czysty język polski z interpunkcją i zakazuje formułek ze zwiastunów, YouTube i napisów końcowych.
+4. **Wielopoziomowy filtr wyrażeń regularnych (Regex Sanitizer):** Agresywnie eliminuje wszelkie warianty zwrotów social media i podziękowań.
+5. **Wygładzanie spacji i wielkich liter:** Automatyczne łączenie zdań i klauzul zapobiega zbijaniu wyrazów i brakom spacji.
+
+---
+
+## 💬 Podgląd tekstu w dymku (`show_live_preview`)
+
+- **Czy dymek nad widżetem jest potrzebny?** Nie! Dymek jest jedynie opcjonalnym podglądem wizualnym. Tekst i tak trafia bezpośrednio do Twojego docelowego edytora.
+- **Domyślnie wyłączony:** Opcja `"show_live_preview": false` sprawia, że na ekranie widać wyłącznie elegancką, minimalistyczną pigułkę mikrofonu w stylu Windows 11.
+- **Przełączanie:** Możesz w każdej chwili włączyć lub wyłączyć dymek w menu zębatki ⚙ na widżecie lub klikając prawym przyciskiem myszy na ikonę w zasobniku systemowym (Tray) -> *„Podgląd tekstu w dymku”*.
+
+---
+
+## 📦 Zarządzanie wersjami w Git (Kopia bezpieczeństwa i przywracanie)
+
+Projekt jest w pełni objęty systemem kontroli wersji Git:
+- **Aktualna stabilna wersja:** oznaczona tagiem `v1.0.0`.
+- **Sprawdzenie historii zmian:**
+  ```powershell
+  git log --oneline -n 10
+  ```
+- **Przywrócenie projektu do stabilnego stanu (w razie problemów):**
+  ```powershell
+  git checkout v1.0.0
+  ```
+- **Zapisanie kolejnych własnych zmian:**
+  ```powershell
+  git add .
+  git commit -m "Opis wprowadzonych modyfikacji"
+  ```
