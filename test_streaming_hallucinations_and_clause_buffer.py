@@ -1,0 +1,73 @@
+import unittest
+import time
+from transcriber import clean_hallucinations
+from injector import ForwardStreamCommitter
+
+class TestHallucinationsAndStreaming(unittest.TestCase):
+    """Testy weryfikujące eliminację halucynacji i płynność bufora klauzul."""
+
+    def test_01_all_whisper_hallucinations_eliminated(self):
+        cases = [
+            ("Dziękuje za uwagę.", ""),
+            ("Dzień dobry.", ""),
+            ("Dziękuję bardzo.", ""),
+            ("Wielkie dzięki za uwagę!", ""),
+            ("Dziękujemy za wysłuchanie.", ""),
+            ("Subskrybuj mój kanał i zostaw lajka!", ""),
+            ("Napisy stworzone przez społeczność YouTube.", ""),
+            ("Do widzenia państwu.", ""),
+            ("Miłego dnia!", ""),
+            ("Pozdrawiamy.", ""),
+            ("I to by było na tyle.", ""),
+            ("To wszystko na dzisiaj.", ""),
+            ("coś sobie robimy. Dziękuje i zobaczmy", "Coś sobie robimy. I zobaczmy"),
+            ("Dziękuje mi się, że to dziwnie działa", "Mi się, że to dziwnie działa"),
+            ("Dziękuje czas pisze", "Czas pisze"),
+            ("Transkrypcję jeszcze raz zobaczmy w tle na żywo. Dziękuję.", "Transkrypcję jeszcze raz zobaczmy w tle na żywo.")
+        ]
+        for inp, expected in cases:
+            cleaned = clean_hallucinations(inp)
+            self.assertEqual(cleaned, expected, f"Halucynacja nie została poprawnie usunięta dla: {inp!r} (otrzymano: {cleaned!r})")
+
+    def test_02_forward_committer_with_hallucinations(self):
+        chunks = []
+        committer = ForwardStreamCommitter(type_callback=lambda c: chunks.append(c))
+
+        # Krok 1: Hipoteza początkowa
+        committer.process_hypothesis("No dobrze zobaczmy jak")
+        # Krok 2: Whisper wtrąca w ciszy halucynację "Dziękuję za uwagę"
+        committer.process_hypothesis("No dobrze zobaczmy jak to działa. Dziękuję za uwagę.")
+        # Krok 3: Użytkownik kontynuuje mowę
+        committer.process_hypothesis("No dobrze zobaczmy jak to działa i jak to będzie wyglądało dalej.")
+        committer.finalize("No dobrze zobaczmy jak to działa i jak to będzie wyglądało dalej.")
+
+        full_text = "".join(chunks)
+        self.assertNotIn("Dziękuj", full_text)
+        self.assertNotIn("uwagę", full_text)
+        self.assertEqual(full_text.strip(), "No dobrze zobaczmy jak to działa i jak to będzie wyglądało dalej.")
+
+    def test_03_clause_buffer_flushing(self):
+        """Weryfikacja czy buforowanie klauzul zachowuje wszystkie spacje i interpunkcję."""
+        typed_chunks = []
+        def fake_type(text):
+            typed_chunks.append(text)
+
+        buffer = ""
+        stream = ["To ", "jest ", "pierwsza ", "część ", "zdania, ", "a ", "to ", "jest ", "druga."]
+
+        for part in stream:
+            buffer += part
+            buf_words = buffer.strip().split()
+            has_punct = any(buffer.rstrip().endswith(p) for p in ('.', ',', '!', '?', ';', ':'))
+            if has_punct or len(buf_words) >= 4:
+                fake_type(buffer)
+                buffer = ""
+
+        if buffer:
+            fake_type(buffer)
+
+        reconstructed = "".join(typed_chunks)
+        self.assertEqual(reconstructed, "To jest pierwsza część zdania, a to jest druga.")
+
+if __name__ == '__main__':
+    unittest.main()

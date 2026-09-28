@@ -45,7 +45,8 @@ kernel32 = ctypes.windll.kernel32
 def safe_bring_to_foreground(hwnd: int) -> bool:
     """
     Bezpieczne, błyskawiczne i bezblokujące przywrócenie okna docelowego w Windows.
-    Brak AttachThreadInput = ZERO ryzyka deadlocka / zawieszenia wątku GUI!
+    Używa neutralnego klawisza VK_F24 (0x87) do odblokowania ForegroundLock:
+    ZERO ryzyka aktywacji menu (w przeciwieństwie do Alt 0x12) i ZERO uciętych spacji!
     """
     if not hwnd or not user32.IsWindow(hwnd):
         return False
@@ -53,7 +54,7 @@ def safe_bring_to_foreground(hwnd: int) -> bool:
     if cur == hwnd:
         return True
 
-    # 1. Próba przez AllowSetForegroundWindow + SwitchToThisWindow
+    # 1. Próba standardowa przez AllowSetForegroundWindow + SwitchToThisWindow
     try:
         user32.AllowSetForegroundWindow(-1)
     except Exception:
@@ -67,18 +68,18 @@ def safe_bring_to_foreground(hwnd: int) -> bool:
     if user32.GetForegroundWindow() == hwnd:
         return True
 
-    # 2. Jeśli Windows nadal blokuje pierwszy plan, użyj Alt-key bypass
-    user32.keybd_event(0x12, 0, 0, 0)
-    user32.keybd_event(0x12, 0, 2, 0)
+    # 2. Odblokowanie ForegroundLock w Windows przez neutralny klawisz VK_F24 (brak aktywacji menu)
+    user32.keybd_event(0x87, 0, 0, 0)
+    user32.keybd_event(0x87, 0, 2, 0)
     res = user32.SetForegroundWindow(hwnd)
     user32.BringWindowToTop(hwnd)
 
     for _ in range(5):
         if user32.GetForegroundWindow() == hwnd:
             return True
-        time.sleep(0.02)
+        time.sleep(0.015)
 
-    return res != 0
+    return user32.GetForegroundWindow() == hwnd
 
 def get_window_title(hwnd: int) -> str:
     if not hwnd or not user32.IsWindow(hwnd):
@@ -241,28 +242,35 @@ class DictationApp:
 
             # 2. Użytkownik przegląda drugie okno (np. Chrome na drugim monitorze)
             if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):
-                # Jeśli użytkownik akurat fizycznie trzyma wciśnięty przycisk myszy (np. klika/zaznacza w Chrome),
-                # buforujemy na ten moment, aby nie przerwać zaznaczania:
+                self.buffered_untyped_text += chunk
+
+                # Jeśli użytkownik trzyma wciśnięty przycisk myszy (klikanie/zaznaczanie w Chrome), nie przerywamy
                 if is_mouse_down():
-                    self.buffered_untyped_text += chunk
                     return
 
-                # Błyskawiczny mikro-impuls (Micro-Pulse):
-                # Przekierowujemy wpisywanie do okna docelowego na Monitorze 1 i natychmiast wracamy do Chrome na Monitorze 2
-                other_fg = cur_fg
-                full_chunk = self.buffered_untyped_text + chunk if self.buffered_untyped_text else chunk
-                self.buffered_untyped_text = ""
+                # Sprawdź czy bufor zawiera kompletną frazę / klauzulę (np. kropka, przecinek, pytajnik lub >= 4 słowa)
+                buf_words = self.buffered_untyped_text.strip().split()
+                has_punct = any(self.buffered_untyped_text.rstrip().endswith(p) for p in ('.', ',', '!', '?', ';', ':'))
+                should_flush = has_punct or (len(buf_words) >= 4)
 
-                safe_bring_to_foreground(self.target_hwnd)
-                send_unicode_string(full_chunk)
-                if other_fg and user32.IsWindow(other_fg) and other_fg != self.target_hwnd:
-                    safe_bring_to_foreground(other_fg)
+                if should_flush:
+                    other_fg = cur_fg
+                    to_type = self.buffered_untyped_text
+                    self.buffered_untyped_text = ""
+
+                    safe_bring_to_foreground(self.target_hwnd)
+                    time.sleep(0.025)
+                    send_unicode_string(to_type)
+                    time.sleep(0.035)
+                    if other_fg and user32.IsWindow(other_fg) and other_fg != self.target_hwnd:
+                        safe_bring_to_foreground(other_fg)
+                        time.sleep(0.010)
             else:
                 send_unicode_string(chunk)
 
     def _listen_for_show_event(self):
         """Nasłuchuje sygnału IPC z kolejnej próby uruchomienia aplikacji i natychmiast przywraca widżet PIL."""
-        EVENT_NAME = "DyktowanieAI_ShowOverlay_Event"
+        EVENT_NAME = r"Global\DyktowanieAI_ShowOverlay_Event"
         h_event = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_NAME)
         while self._running:
             res = ctypes.windll.kernel32.WaitForSingleObject(h_event, 500)
@@ -399,9 +407,25 @@ class DictationApp:
             # 1. ZATWIERDŹ ZAKOŃCZONE SEGMENTY (COMMIT) - NA ZAWSZE W DOKUMENCIE
             if completed:
                 with self._type_lock:
-                    for seg_text, end_sec in completed:
+                    for seg_text, _ in completed:
                         self.committer.commit_segment(seg_text)
-                        self.committed_sample_offset += int(end_sec * 16000)
+                    self.committed_sample_offset += int(completed[-1][1] * 16000)
+
+                    # Jeśli użytkownik przegląda inne okno, a segment się zakończył – wstrzyknij gotową klauzulę
+                    cur_fg = user32.GetForegroundWindow()
+                    if hasattr(self, 'target_hwnd') and self.target_hwnd and cur_fg != self.target_hwnd:
+                        if self.buffered_untyped_text and not is_mouse_down():
+                            other_fg = cur_fg
+                            to_type = self.buffered_untyped_text
+                            self.buffered_untyped_text = ""
+
+                            safe_bring_to_foreground(self.target_hwnd)
+                            time.sleep(0.025)
+                            send_unicode_string(to_type)
+                            time.sleep(0.035)
+                            if other_fg and user32.IsWindow(other_fg) and other_fg != self.target_hwnd:
+                                safe_bring_to_foreground(other_fg)
+                                time.sleep(0.010)
 
             # 2. ZAKTUALIZUJ BIEŻĄCY OGON (STABILNE SŁOWA WPISYWANE W PRZÓD)
             if tail_text:
@@ -942,10 +966,10 @@ if __name__ == "__main__":
         except Exception:
             pass
         ERROR_ALREADY_EXISTS = 183
-        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "DyktowanieAI_Whisper_SingleInstance_Mutex")
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Global\DyktowanieAI_Whisper_SingleInstance_Mutex")
         if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
             # Aplikacja już działa w tle! Wybudzamy i pokazujemy widżet PIL bez blokującego okna modalnego
-            EVENT_NAME = "DyktowanieAI_ShowOverlay_Event"
+            EVENT_NAME = r"Global\DyktowanieAI_ShowOverlay_Event"
             h_send = ctypes.windll.kernel32.OpenEventW(0x0002, False, EVENT_NAME)  # EVENT_MODIFY_STATE = 0x0002
             if h_send:
                 ctypes.windll.kernel32.SetEvent(h_send)

@@ -47,6 +47,15 @@ class ForwardStreamCommitter:
         if not hyp_text or not hyp_text.strip():
             return
 
+        try:
+            from transcriber import clean_hallucinations
+            hyp_text = clean_hallucinations(hyp_text)
+        except Exception:
+            pass
+
+        if not hyp_text or not hyp_text.strip():
+            return
+
         current_words = hyp_text.strip().split()
         if not current_words:
             return
@@ -90,6 +99,16 @@ class ForwardStreamCommitter:
         """
         if not segment_text or not segment_text.strip():
             return
+
+        try:
+            from transcriber import clean_hallucinations
+            segment_text = clean_hallucinations(segment_text)
+        except Exception:
+            pass
+
+        if not segment_text or not segment_text.strip():
+            return
+
         words = segment_text.strip().split()
         num_committed = len(self.committed_words)
         if len(words) > num_committed:
@@ -104,20 +123,12 @@ class ForwardStreamCommitter:
         """
         Kończy dyktowanie – dopisuje pozostałe słowa z ogona wypowiedzi.
         """
-        if final_text:
-            import re
-            cleaned_tail = final_text.strip()
-            # Jeśli wpisaliśmy już tekst w tej sesji, a ogon to samotne powitanie lub outro na ciszy:
-            if self.typed_text.strip():
-                if re.match(r'^(dzień dobry|cześć|witam|witajcie|dziękuję|dzięki|koniec)[.!?\s]*$', cleaned_tail, flags=re.IGNORECASE):
-                    final_text = ""
-                else:
-                    final_text = re.sub(
-                        r'([.!?]\s*)(dzień dobry|cześć|witam|witajcie|dziękuję|dzięki|koniec(\s+filmu|\s+transmisji)?|do widzenia)[.!?\s]*$',
-                        r'\1',
-                        cleaned_tail,
-                        flags=re.IGNORECASE
-                    ).strip()
+        try:
+            from transcriber import clean_hallucinations
+            if final_text:
+                final_text = clean_hallucinations(final_text)
+        except Exception:
+            pass
 
         words = final_text.strip().split() if final_text else self.last_hypothesis_words
         num_committed = len(self.committed_words)
