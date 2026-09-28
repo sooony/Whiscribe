@@ -505,6 +505,7 @@ class DictationApp:
         self._play_stop_chime()
 
         if self.overlay:
+            self.overlay.clear_transcript()
             self.overlay.show_processing()
         if self.tray_icon:
             self.tray_icon.icon = create_tray_icon_image("processing")
@@ -623,6 +624,7 @@ class DictationApp:
         self.committed_text = ""
         self.buffered_untyped_text = ""
         if self.overlay:
+            self.overlay.clear_transcript()
             self.overlay.show_idle()
         if self.tray_icon:
             self.tray_icon.icon = create_tray_icon_image("idle")

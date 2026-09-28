@@ -11,7 +11,7 @@
   "require_text_field": true,
   "stream_realtime": true,
   "auto_stop_silence_seconds": 0,
-  "theme": "dark",
+  "theme": "light",
   "restore_clipboard": false,
   "hotkey_meeting": "<ctrl>+<alt>+m",
   "hotkey_meeting_description": "Skrót klawiszowy uruchamiający transkrypcję spotkań z podziałem na mówców do Notatnika",
@@ -24,5 +24,5 @@
   "llm_api_key": "",
   "llm_model": "gemini-2.0-flash",
   "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów.",
-  "show_live_preview": false
+  "show_live_preview": true
 }

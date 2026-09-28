@@ -124,6 +124,7 @@ class TestInjectionAndTyping(unittest.TestCase):
         """Weryfikacja pełnego zestawu polskich znaków diakrytycznych w send_unicode_string."""
         with Win32EditContext() as ctx:
             test_phrase = "Zażółć gęślą jaźń ZAŻÓŁĆ GĘŚLĄ JAŹŃ 123 !?@"
+            time.sleep(0.05)
             
             t0 = time.time()
             send_unicode_string(test_phrase)

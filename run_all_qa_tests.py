@@ -10,6 +10,7 @@ import unittest
 
 import test_deadlock_and_concurrency
 import test_injection_and_typing
+import test_overlay_new_design
 
 def main():
     loader = unittest.TestLoader()
@@ -17,6 +18,7 @@ def main():
 
     suite.addTests(loader.loadTestsFromModule(test_deadlock_and_concurrency))
     suite.addTests(loader.loadTestsFromModule(test_injection_and_typing))
+    suite.addTests(loader.loadTestsFromModule(test_overlay_new_design))
 
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)

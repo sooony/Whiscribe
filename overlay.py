@@ -1148,25 +1148,38 @@ class FloatingOverlay:
         total_wave_w = num_bars * bar_w + (num_bars - 1) * bar_gap
         start_bx = center_cx - total_wave_w / 2.0
 
-        active_vol = vol if self.mode == "recording" else max(vol, loop_vol)
-        self._smooth_vol = self._smooth_vol * 0.70 + active_vol * 0.30
+        if self.mode in ("recording", "transcribing"):
+            active_vol = vol if self.mode == "recording" else max(vol, loop_vol)
+            if active_vol > self._smooth_vol:
+                self._smooth_vol = self._smooth_vol * 0.35 + active_vol * 0.65
+            else:
+                self._smooth_vol = self._smooth_vol * 0.75 + active_vol * 0.25
+            if self._smooth_vol < 0.03:
+                self._smooth_vol = 0.0
+        else:
+            self._smooth_vol = 0.0
 
         bar_color = cfg['danger'] if self.mode == "recording" else (cfg['text'] if self.mode == "transcribing" else cfg['wave'])
 
+        base_h = 4.0 * scale
+        max_h = 20.0 * scale
+        vol_boost = min(1.0, self._smooth_vol * 1.6)
+
         for i, h_vals in enumerate(BAR_HEIGHTS):
             bx = start_bx + i * (bar_w + bar_gap)
-            if self.mode in ("recording", "transcribing"):
-                # Subtelna, elegancka fala (max 20px, łagodne wahania bez zalewania po całości)
-                a = 1.0 + 0.12 * math.sin(t_now * 5.0 + i * 0.72) + 0.08 * math.sin(t_now * 9.2 - i * 0.38)
-                vol_boost = min(1.0, self._smooth_vol * 1.5)
-                delta_h = (h_vals[1] - h_vals[0]) * 0.35 * vol_boost
-                eff_h = max(5.0, min(20.0, (h_vals[0] + delta_h) * a)) * scale
+            if self.mode in ("recording", "transcribing") and vol_boost >= 0.03:
+                # Dynamiczne powiększanie i zmniejszanie w zależności od natężenia głosu
+                prof_factor = (h_vals[1] - h_vals[0]) / 22.0
+                mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + i * 0.72) + 0.15 * math.sin(t_now * 12.0 - i * 0.38)
+                dynamic_span = (max_h - base_h) * vol_boost * prof_factor * mod
+                eff_h = min(max_h, max(base_h, base_h + dynamic_span))
             else:
-                eff_h = h_vals[0] * scale
+                # W spoczynku lub w ciszy podczas mówienia: fala stabilizuje się na płaskiej linii bazowej bez ruchu
+                eff_h = base_h
 
             by1 = wave_cy - eff_h / 2.0
             by2 = wave_cy + eff_h / 2.0
-            d.rounded_rectangle([bx, by1, bx + bar_w, by2], radius=int(bar_w/2), fill=bar_color)
+            d.rounded_rectangle([bx, by1, bx + bar_w, by2], radius=max(1, int(bar_w/2)), fill=bar_color)
 
         # Pasek statusu pod falą: [dot] [statusText] [timer]
         status_y = my + int(64 * scale)
@@ -1244,7 +1257,7 @@ class FloatingOverlay:
     def show_recording(self):
         self.mode = "recording"
         self._start_time = time.time()
-        self.live_tail = ""
+        self.clear_transcript()
         self._balloon_type = None
         self._dirty = True
         self.show()
@@ -1252,7 +1265,7 @@ class FloatingOverlay:
     def show_idle(self):
         self.mode = "idle"
         self._start_time = 0.0
-        self.live_tail = ""
+        self.clear_transcript()
         self._balloon_type = None
         self._dirty = True
         self.show()
@@ -1265,7 +1278,7 @@ class FloatingOverlay:
     def show_meeting_recording(self):
         self.mode = "transcribing"
         self._start_time = time.time()
-        self.live_tail = ""
+        self.clear_transcript()
         self._balloon_type = None
         self._dirty = True
         self.show()
