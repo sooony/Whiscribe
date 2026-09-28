@@ -418,6 +418,8 @@ class DictationApp:
                 with self._type_lock:
                     for seg_text, _ in completed:
                         self.committer.commit_segment(seg_text)
+                        if self.overlay:
+                            self.overlay.add_transcript_entry(seg_text)
                     self.committed_sample_offset += int(completed[-1][1] * 16000)
 
                     # Jeśli użytkownik przegląda inne okno, a segment się zakończył – wstrzyknij gotową klauzulę
@@ -508,6 +510,8 @@ class DictationApp:
 
                     if final_tail:
                         self.committer.finalize(final_tail)
+                        if self.overlay:
+                            self.overlay.add_transcript_entry(final_tail)
                     else:
                         self.committer.finalize()
 
@@ -526,6 +530,9 @@ class DictationApp:
                 logger.info(f"Finalny czas: {duration:.2f}s | Tekst: '{final_text}'")
 
                 if final_text:
+                    if self.overlay:
+                        self.overlay.add_transcript_entry(final_text)
+
                     # Przywróć definitywnie fokus do okna docelowego BEZPOŚREDNIO przed wklejeniem
                     if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):
                         cur_fg = user32.GetForegroundWindow()
@@ -633,8 +640,13 @@ class DictationApp:
 
         self._play_start_chime()
 
+        def _on_meeting_utterance(speaker, text, dt):
+            if self.overlay and text:
+                t_sec = (dt - self.meeting_manager.start_dt).total_seconds() if self.meeting_manager.start_dt else 0
+                self.overlay.add_transcript_entry(f"{speaker}: {text}", timestamp_s=t_sec)
+
         try:
-            self.meeting_manager.start_meeting()
+            self.meeting_manager.start_meeting(on_utterance=_on_meeting_utterance)
         except Exception as e:
             logger.error(f"Nie udało się uruchomić spotkania: {e}", exc_info=True)
             self.stop_meeting()

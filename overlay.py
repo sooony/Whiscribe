@@ -79,22 +79,17 @@ gdi32.CreateDIBSection.restype = wintypes.HBITMAP
 
 gdi32.SelectObject.argtypes = [wintypes.HDC, wintypes.HANDLE]
 gdi32.SelectObject.restype = wintypes.HANDLE
-
 gdi32.DeleteObject.argtypes = [wintypes.HANDLE]
 gdi32.DeleteObject.restype = wintypes.BOOL
-
 gdi32.DeleteDC.argtypes = [wintypes.HDC]
 gdi32.DeleteDC.restype = wintypes.BOOL
 
 user32.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
 user32.ReleaseDC.restype = ctypes.c_int
-
 user32.GetDC.argtypes = [wintypes.HWND]
 user32.GetDC.restype = wintypes.HDC
-
 user32.DestroyWindow.argtypes = [wintypes.HWND]
 user32.DestroyWindow.restype = wintypes.BOOL
-
 user32.SetCursor.argtypes = [wintypes.HICON]
 user32.SetCursor.restype = wintypes.HICON
 
@@ -113,41 +108,30 @@ user32.SetWindowPos.restype = wintypes.BOOL
 
 user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
 user32.GetCursorPos.restype = wintypes.BOOL
-
 user32.ScreenToClient.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
 user32.ScreenToClient.restype = wintypes.BOOL
 
-user32.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
-user32.ClientToScreen.restype = wintypes.BOOL
-
 gdi32.CreateCompatibleDC.argtypes = [wintypes.HDC]
 gdi32.CreateCompatibleDC.restype = wintypes.HDC
-
 user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.ShowWindow.restype = wintypes.BOOL
-
 user32.SetCapture.argtypes = [wintypes.HWND]
 user32.SetCapture.restype = wintypes.HWND
-
 user32.ReleaseCapture.argtypes = []
 user32.ReleaseCapture.restype = wintypes.BOOL
 
 user32.GetSystemMetrics.argtypes = [ctypes.c_int]
 user32.GetSystemMetrics.restype = ctypes.c_int
-
 user32.PeekMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
 user32.PeekMessageW.restype = wintypes.BOOL
-
 user32.TranslateMessage.argtypes = [ctypes.POINTER(wintypes.MSG)]
 user32.TranslateMessage.restype = wintypes.BOOL
-
 user32.DispatchMessageW.argtypes = [ctypes.POINTER(wintypes.MSG)]
 user32.DispatchMessageW.restype = LRESULT
-
 user32.PostQuitMessage.argtypes = [ctypes.c_int]
 user32.PostQuitMessage.restype = None
 
-# Włączenie pełnej świadomości DPI dla ostrości i prawidłowego pozycjonowania okna
+# DPI Awareness
 try:
     user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 except Exception:
@@ -157,55 +141,47 @@ except Exception:
         pass
 
 WINDIR = os.environ.get('WINDIR', 'C:\\Windows')
-FONT_REGULAR_PATH = os.path.join(WINDIR, 'Fonts', 'segoeui.ttf')
+FONT_REG_PATH = os.path.join(WINDIR, 'Fonts', 'segoeui.ttf')
 FONT_BOLD_PATH = os.path.join(WINDIR, 'Fonts', 'segoeuib.ttf')
+FONT_SEMI_PATH = os.path.join(WINDIR, 'Fonts', 'seguisb.ttf')
 
 THEMES = {
-    'light': {
-        'name': 'Windows 11 Jasny (Fluent Light)',
-        'card_fill': (243, 243, 243, 250),
-        'card_border': (222, 222, 222, 220),
-        'hdr_sep': (230, 230, 230, 180),
-        'handle_col': (155, 155, 155, 200),
-        'icon_col': (85, 85, 85, 240),
-        'icon_hover_bg': (0, 0, 0, 18),
-        'mic_bg': (255, 255, 255, 255),
-        'mic_border': (226, 226, 226, 240),
-        'mic_icon_col': (50, 50, 50, 255),
-        'ball_bg': (255, 255, 255, 255),
-        'ball_border': (228, 228, 228, 255),
-        'ball_text': (32, 32, 32, 255),
-        'btn_bg': (255, 255, 255, 255),
-        'btn_hover_bg': (242, 242, 242, 255),
-        'btn_border': (208, 208, 208, 255),
-        'btn_text': (32, 32, 32, 255),
-        'accent': (0, 103, 192),
-        'shadow_alpha': 45
-    },
     'dark': {
-        'name': 'Windows 11 Ciemny (Fluent Dark)',
-        'card_fill': (38, 38, 38, 250),
-        'card_border': (65, 65, 65, 220),
-        'hdr_sep': (52, 52, 52, 200),
-        'handle_col': (130, 130, 130, 200),
-        'icon_col': (205, 205, 205, 240),
-        'icon_hover_bg': (255, 255, 255, 25),
-        'mic_bg': (52, 52, 52, 255),
-        'mic_border': (75, 75, 75, 240),
-        'mic_icon_col': (245, 245, 245, 255),
-        'ball_bg': (44, 44, 44, 255),
-        'ball_border': (70, 70, 70, 255),
-        'ball_text': (240, 240, 240, 255),
-        'btn_bg': (56, 56, 56, 255),
-        'btn_hover_bg': (68, 68, 68, 255),
-        'btn_border': (80, 80, 80, 255),
-        'btn_text': (240, 240, 240, 255),
-        'accent': (76, 194, 255),
-        'shadow_alpha': 85
+        'name': 'Ciemny (Dark Modern)',
+        'panel_bg': (20, 28, 41, 235),
+        'panel_border': (151, 173, 216, 40),
+        'text': (237, 243, 255, 255),
+        'muted': (145, 161, 191, 255),
+        'wave': (132, 147, 177, 240),
+        'accent': (75, 92, 242, 255),
+        'danger': (255, 33, 51, 255),
+        'tab_bg': (35, 48, 78, 250),
+        'mic_standby_bg': (19, 27, 40, 240),
+        'mic_standby_border': (255, 255, 255, 225),
+        'meet_standby_bg': (30, 42, 60, 230),
+        'scroll_thumb': (185, 199, 228, 90),
+        'scroll_track': (185, 199, 228, 15),
+        'shadow_alpha': 80
+    },
+    'light': {
+        'name': 'Jasny (Light Modern)',
+        'panel_bg': (248, 250, 254, 245),
+        'panel_border': (99, 122, 160, 45),
+        'text': (24, 49, 82, 255),
+        'muted': (116, 133, 163, 255),
+        'wave': (127, 142, 170, 240),
+        'accent': (64, 92, 242, 255),
+        'danger': (255, 33, 51, 255),
+        'tab_bg': (220, 232, 255, 250),
+        'mic_standby_bg': (235, 242, 252, 250),
+        'mic_standby_border': (72, 97, 127, 220),
+        'meet_standby_bg': (228, 236, 248, 230),
+        'scroll_thumb': (100, 120, 154, 100),
+        'scroll_track': (100, 120, 154, 20),
+        'shadow_alpha': 40
     }
 }
 
-# Mapowanie starych motywów
 THEME_MAP = {
     'glass_light': 'light',
     'minimal': 'light',
@@ -214,199 +190,173 @@ THEME_MAP = {
     'nordic_titanium': 'light'
 }
 
-def draw_screenshot_mic(d, cx, cy, sz, is_muted=False, color=(255, 255, 255, 255)):
-    """
-    Wektorowa ikona mikrofonu odwzorowana 1:1 ze zrzutu ekranu użytkownika.
-    - is_muted=True: przekreślony mikrofon na czerwonym tle (stan oczekiwania / wyłączony)
-    - is_muted=False: czysty mikrofon na niebieskim tle (stan nagrywania / mówienia)
-    """
-    cap_w = sz * 0.36
-    cap_h = sz * 0.60
-    cap_r = cap_w / 2.0
-    cap_cy = cy - sz * 0.08
+# 27 bar height profiles from HTML prototype
+BAR_HEIGHTS = [
+    [7,15,10,22],[11,27,16,31],[8,18,12,25],[14,33,19,36],
+    [10,21,15,29],[13,30,18,34],[8,16,11,23],[16,34,20,38],
+    [11,25,15,31],[7,18,10,21],[13,29,18,33],[9,22,14,27],
+    [15,35,21,39],[8,17,11,24],[12,28,17,32],[10,23,14,29],
+    [7,16,10,22],[14,31,19,36],[10,20,14,27],[13,30,18,34],
+    [8,18,12,25],[12,27,16,31],[9,19,13,24],[15,33,20,38],
+    [10,24,15,30],[7,16,11,22],[12,26,16,30]
+]
 
-    # 1. Kapsułka mikrofonu
-    d.rounded_rectangle(
-        [cx - cap_w/2, cap_cy - cap_h/2, cx + cap_w/2, cap_cy + cap_h/2],
-        radius=cap_r,
-        fill=color
-    )
-
-    # 2. Koszyczek (cradle)
-    cradle_r = sz * 0.33
-    line_w = max(2, int(sz * 0.095))
-    cradle_top_y = cap_cy
-    cradle_bot_y = cap_cy + cradle_r
-
-    d.arc(
-        [cx - cradle_r, cap_cy - cradle_r, cx + cradle_r, cap_cy + cradle_r],
-        start=0, end=180,
-        fill=color, width=line_w
-    )
-    d.line([(cx - cradle_r, cap_cy), (cx - cradle_r, cradle_top_y)], fill=color, width=line_w)
-    d.line([(cx + cradle_r, cap_cy), (cx + cradle_r, cradle_top_y)], fill=color, width=line_w)
-    rc = line_w / 2.0
-    d.ellipse([cx - cradle_r - rc, cradle_top_y - rc, cx - cradle_r + rc, cradle_top_y + rc], fill=color)
-    d.ellipse([cx + cradle_r - rc, cradle_top_y - rc, cx + cradle_r + rc, cradle_top_y + rc], fill=color)
-
-    # 3. Nóżka pionowa
-    stem_top = cradle_bot_y
-    stem_bot = stem_top + sz * 0.18
+def draw_svg_mic(d, cx, cy, sz, color=(255, 255, 255, 255)):
+    """SVG Microphone icon matching HTML prototype."""
+    scale = sz / 24.0
+    rx1 = cx - 4 * scale
+    ry1 = cy - 9 * scale
+    rx2 = cx + 4 * scale
+    ry2 = cy + 3 * scale
+    d.rounded_rectangle([rx1, ry1, rx2, ry2], radius=int(4 * scale), fill=None, outline=color, width=max(1, int(1.8 * scale)))
+    
+    cradle_r = 7 * scale
+    cradle_top = cy - 1 * scale
+    line_w = max(1, int(1.8 * scale))
+    d.arc([cx - cradle_r, cradle_top - cradle_r, cx + cradle_r, cradle_top + cradle_r], start=0, end=180, fill=color, width=line_w)
+    
+    stem_top = cradle_top + cradle_r
+    stem_bot = stem_top + 3.2 * scale
     d.line([(cx, stem_top), (cx, stem_bot)], fill=color, width=line_w)
+    
+    base_hw = 3.5 * scale
+    d.line([(cx - base_hw, stem_bot), (cx + base_hw, stem_bot)], fill=color, width=line_w)
 
-    # 4. Podstawka pozioma
-    base_w = sz * 0.38
-    d.line([(cx - base_w/2, stem_bot), (cx + base_w/2, stem_bot)], fill=color, width=line_w)
-    d.ellipse([cx - base_w/2 - rc, stem_bot - rc, cx - base_w/2 + rc, stem_bot + rc], fill=color)
-    d.ellipse([cx + base_w/2 - rc, stem_bot - rc, cx + base_w/2 + rc, stem_bot + rc], fill=color)
-
-    # 5. Przekreślenie ukośną kreską (dla stanu oczekiwania / wyciszenia)
-    if is_muted:
-        slash_w = max(2, int(sz * 0.10))
-        sx1 = cx - sz * 0.46
-        sy1 = cy + sz * 0.40
-        sx2 = cx + sz * 0.46
-        sy2 = cy - sz * 0.50
-        d.line([(sx1, sy1), (sx2, sy2)], fill=color, width=slash_w)
-        r_cap = slash_w / 2.0
-        d.ellipse([sx1 - r_cap, sy1 - r_cap, sx1 + r_cap, sy1 + r_cap], fill=color)
-        d.ellipse([sx2 - r_cap, sy2 - r_cap, sx2 + r_cap, sy2 + r_cap], fill=color)
-
-
-def draw_meeting_icon(d, cx, cy, sz, is_recording=False, color=(255, 255, 255, 255)):
-    """
-    Wektorowa ikona spotkania (👥 sylwetki ludzi w trybie oczekiwania, ⏹ stop w trybie nagrywania spotkania).
-    """
-    if is_recording:
-        # Kwadrat STOP z zaokrąglonymi rogami
-        sq_sz = sz * 0.36
-        r = max(2, int(sz * 0.08))
-        d.rounded_rectangle([cx - sq_sz, cy - sq_sz, cx + sq_sz, cy + sq_sz], radius=r, fill=color)
-    else:
-        # Dwie eleganckie nakładające się sylwetki ludzi (Ja + Uczestnik)
-        r_head = sz * 0.17
-        # Lewa osoba
-        lx = cx - sz * 0.16
-        ly_head = cy - sz * 0.12
-        d.ellipse([lx - r_head, ly_head - r_head, lx + r_head, ly_head + r_head], fill=color)
-        d.chord([lx - sz * 0.32, ly_head + r_head * 0.6, lx + sz * 0.32, ly_head + r_head * 2.8], start=180, end=360, fill=color)
-
-        # Prawa osoba
-        rx = cx + sz * 0.18
-        ry_head = cy - sz * 0.08
-        d.ellipse([rx - r_head * 0.85, ry_head - r_head * 0.85, rx + r_head * 0.85, ry_head + r_head * 0.85], fill=color)
-        d.chord([rx - sz * 0.28, ry_head + r_head * 0.7, rx + sz * 0.28, ry_head + r_head * 2.6], start=180, end=360, fill=color)
-
+def draw_people_icon(d, cx, cy, sz, color=(255, 255, 255, 255)):
+    """SVG Group / People icon matching HTML prototype."""
+    scale = sz / 38.0
+    ox = cx - 19 * scale
+    oy = cy - 19 * scale
+    
+    c1x = ox + 14 * scale
+    c1y = oy + 13 * scale
+    r1 = 6 * scale
+    d.ellipse([c1x - r1, c1y - r1, c1x + r1, c1y + r1], fill=color)
+    
+    c2x = ox + 27 * scale
+    c2y = oy + 15 * scale
+    r2 = 4.6 * scale
+    d.ellipse([c2x - r2, c2y - r2, c2x + r2, c2y + r2], fill=color)
+    
+    body1_l = ox + 3.5 * scale
+    body1_r = ox + 22.5 * scale
+    body1_t = oy + 20.6 * scale
+    body1_b = oy + 30.0 * scale
+    d.chord([body1_l, body1_t - 4 * scale, body1_r, body1_b + 4 * scale], start=180, end=360, fill=color)
+    
+    body2_l = ox + 21.0 * scale
+    body2_r = ox + 36.0 * scale
+    body2_t = oy + 22.9 * scale
+    body2_b = oy + 30.0 * scale
+    d.chord([body2_l, body2_t - 3.5 * scale, body2_r, body2_b + 3.5 * scale], start=180, end=360, fill=color)
 
 class FloatingOverlay:
     """
-    Wiernie odwzorowany widżet Wpisywania Głosowego Windows 11 (Voice Typing Win+H).
-    - Rozmiar, układ i elementy graficzne 1:1 ze zrzutem ekranu Windows 11
-    - Dymek błędu ("Aby używać wpisywania głosowego, zaznacz pole tekstowe i spróbuj ponownie.")
-    - Przycisk "Rozumiem" do natychmiastowego zamykania
-    - Przycisk Ustawienia ⚙ z menu kontekstowym
-    - Przycisk Pomoc ? z podpowiedziami
-    - Płynne przeciąganie oknem, niekradnący fokusu (WS_EX_NOACTIVATE, MA_NOACTIVATE)
-    - Dynamiczne animacje głosu w czasie rzeczywistym
+    Wiernie odwzorowany interfejs Voice UI zgodny w 100% z prototypem użytkownika (250x90 Voice Module + Panel Transkrypcji).
+    - Zablokowanie kradzieży fokusu (WS_EX_NOACTIVATE, MA_NOACTIVATE)
+    - Płynne przeciąganie po obu monitorach
+    - Kreski reaktywne fali dźwiękowej (27 słupków z dynamiczną modulacją)
+    - Panel transkrypcji na żywo ze znacznikiem czasu i karetką tekstu
+    - Dymek błędu braku pola tekstowego
     """
 
-    def __init__(self, theme='light'):
+    def __init__(self, theme='dark'):
         self.hwnd = None
         self._thread = None
         self._ready_event = threading.Event()
         self._running = True
+        self._lock = threading.RLock()
 
-        # Dopasowanie motywu
         if theme in THEME_MAP:
             theme = THEME_MAP[theme]
-        self.theme = theme if theme in THEMES else 'light'
+        self.theme = theme if theme in THEMES else 'dark'
         self.on_theme_changed = None
 
-        # Stan pracy: "idle", "recording", "processing"
+        # Stan pracy: "idle", "recording", "transcribing", "processing"
         self.mode = "idle"
         self._visible = True
         self._hover_target = None
         self._pressed_btn = None
         self.volume_getter = lambda: 0.0
+        self.loopback_volume_getter = lambda: 0.0
 
-        # Dymek powiadomień (dymek błędu jak ze zrzutu ekranu lub pomoc)
-        self._balloon_type = None  # None, "error", "help", "info", "live", "processing"
+        # Wymiary całego okna warstwowego (mieści panel u góry oraz moduł 250x90 u dołu)
+        self.w = 280
+        self.h = 264
+
+        # Moduł dolny (Voice Module): 250x90 px
+        self.mw = 250
+        self.mh = 90
+        self.mx = (self.w - self.mw) // 2       # 15
+        self.my = self.h - self.mh - 16          # 158
+        self.mod_r = 20
+
+        # Panel górny (Transkrypcja): 250x126 px
+        self.pw = 250
+        self.ph = 126
+        self.px = (self.w - self.pw) // 2       # 15
+        self.py = self.my - self.ph - 8          # 24
+        self.panel_r = 18
+        self.panel_open = True
+        self.show_live_preview = False
+
+        # Uchwyt do przeciągania
+        self.handle_w = 29
+        self.handle_h = 3
+        self.handle_x = self.mx + (self.mw - self.handle_w) / 2
+        self.handle_y = self.my + 6.0
+
+        # Przycisk Zamknij ✕ modułu
+        self.close_cx = self.mx + self.mw - 14
+        self.close_cy = self.my + 12
+
+        # Lewy przycisk mikrofonu (Dyktowanie)
+        self.mic_cx = self.mx + 42
+        self.mic_cy = self.my + 47
+        self.mic_rad = 24
+
+        # Prawy przycisk transkrypcji (Spotkanie)
+        self.meet_cx = self.mx + self.mw - 42
+        self.meet_cy = self.my + 47
+        self.meet_rad = 24
+
+        # Dymek powiadomień / ostrzeżeń
+        self._balloon_type = None  # None, "error", "info"
         self._balloon_message = None
         self._balloon_until = 0.0
-        self.live_text = ""
-        self.show_live_preview = False
+
+        # Dane transkrypcji
+        self.transcript_lines = []
+        self._start_time = 0.0
+        self.live_tail = ""
         self._dirty = True
 
-        # Callbacki do logiki aplikacji
+        # Callbacki
         self.on_stop_callback = None
         self.on_close_callback = None
         self.on_toggle_callback = None
         self.on_meeting_toggle_callback = None
         self.settings_handler = None
-        self.loopback_volume_getter = lambda: 0.0
 
-        # Wymiary całego okna (mieści dymek powyżej oraz widżet poniżej)
-        self.w = 280
-        self.h = 196
-
-        # Wymiary i współrzędne widżetu dolnego (rozszerzony pod 2 przyciski: Dyktowanie 🎙️ + Spotkanie 👥)
-        self.ww = 144
-        self.wh = 74
-        self.wx = (self.w - self.ww) // 2       # 68
-        self.wy = self.h - self.wh - 8          # 114
-        self.card_r = 14
-
-        # Pasek nagłówka widżetu
-        self.hdr_h = 18
-        self.handle_w = 26
-        self.handle_h = 3
-        self.handle_x = self.wx + (self.ww - self.handle_w) / 2
-        self.handle_y = self.wy + 6.5
-
-        # Przycisk Zamknij ✕
-        self.close_cx = self.wx + self.ww - 13
-        self.close_cy = self.wy + 9
-
-        # Lewy przycisk: Mikrofon (Dyktowanie)
-        self.mic_cx = self.wx + 36
-        self.mic_cy = self.wy + 42
-        self.mic_rad = 19
-
-        # Prawy przycisk: Spotkanie (Mity)
-        self.meet_cx = self.wx + self.ww - 36
-        self.meet_cy = self.wy + 42
-        self.meet_rad = 19
-
-        # Geometria dymka
-        self.bw = 260
-        self.bh = 96
-        self.bx = (self.w - self.bw) // 2        # 10
-        self.by = self.wy - self.bh - 8          # 10
-        self.ball_r = 10
-        self.btn_w = self.bw - 32
-        self.btn_h = 26
-        self.btn_x = self.bx + 16
-        self.btn_y = self.by + self.bh - self.btn_h - 10
-
-        # Domyślne wycentrowanie na dole ekranu
+        # Pozycja wyjściowa: wycentrowana na dole ekranu
         screen_w = user32.GetSystemMetrics(0)
         screen_h = user32.GetSystemMetrics(1)
         self.pos_x = (screen_w - self.w) // 2
         self.pos_y = screen_h - self.h - 60
 
-        # Przeciąganie okna
+        # Dragging
         self._is_dragging = False
         self._drag_start_cursor_x = 0
         self._drag_start_cursor_y = 0
         self._drag_start_win_x = 0
         self._drag_start_win_y = 0
 
-        # Kursory systemowe
+        # Kursory
         self._hcursor_arrow = user32.LoadCursorW(None, 32512)
         self._hcursor_hand = user32.LoadCursorW(None, 32649)
         self._hcursor_move = user32.LoadCursorW(None, 32646)
 
-        # Bufor DIB do UpdateLayeredWindow
+        # Bufor DIB
         self.mem_dc = None
         self.h_bmp = None
         self.old_bmp = None
@@ -434,41 +384,60 @@ class FloatingOverlay:
         self._thread.start()
         self._ready_event.wait(timeout=3.0)
 
-    def _is_inside_balloon(self, x, y):
-        if not self._balloon_type:
-            return False
-        return (self.bx - 4 <= x <= self.bx + self.bw + 4) and (self.by - 4 <= y <= self.by + self.bh + 12)
+    def _is_inside_module(self, x, y):
+        return (self.mx <= x <= self.mx + self.mw) and (self.my <= y <= self.my + self.mh)
 
-    def _is_inside_widget(self, x, y):
-        return (self.wx - 2 <= x <= self.wx + self.ww + 2) and (self.wy - 2 <= y <= self.wy + self.wh + 2)
+    def _is_inside_panel(self, x, y):
+        if not self.panel_open and not self._balloon_type:
+            return False
+        return (self.px <= x <= self.px + self.pw) and (self.py <= y <= self.py + self.ph)
 
     def _get_target(self, x, y):
-        # 1. Sprawdź przyciski w dymku (jeśli dymek jest widoczny)
-        if self._balloon_type:
-            if self._balloon_type not in ('live', 'processing') and (self.btn_x <= x <= self.btn_x + self.btn_w) and (self.btn_y <= y <= self.btn_y + self.btn_h):
+        # 1. Sprawdź kliknięcie w panelu górnym
+        if self._balloon_type == "error":
+            btn_x = self.px + 16
+            btn_y = self.py + self.ph - 36
+            btn_w = self.pw - 32
+            btn_h = 26
+            if (btn_x <= x <= btn_x + btn_w) and (btn_y <= y <= btn_y + btn_h):
                 return 'btn_rozumiem'
-            if self._is_inside_balloon(x, y):
+            if self._is_inside_panel(x, y):
                 return 'balloon_body'
 
-        # 2. Sprawdź kontrolki w widżecie
-        if not self._is_inside_widget(x, y):
+        elif self.panel_open:
+            # Przycisk ✕ zamykający panel transkrypcji
+            close_px = self.px + self.pw - 16
+            close_py = self.py + 16
+            if abs(x - close_px) <= 12 and abs(y - close_py) <= 12:
+                return 'btn_panel_close'
+            if self._is_inside_panel(x, y):
+                return 'panel_content'
+        else:
+            # Gdy panel jest zamknięty, sprawdź przycisk "Pokaż transkrypcję"
+            tgl_x = self.mx + self.mw // 2
+            tgl_y = self.my - 14
+            if abs(x - tgl_x) <= 50 and abs(y - tgl_y) <= 12:
+                return 'btn_panel_open'
+
+        # 2. Sprawdź kontrolki w module dolnym
+        if not self._is_inside_module(x, y):
             return None
 
-        # Mikrofon (lewy przycisk)
+        # Mikrofon (lewy)
         d_mic = (x - self.mic_cx)**2 + (y - self.mic_cy)**2
         if d_mic <= (self.mic_rad + 3)**2:
             return 'btn_mic'
 
-        # Spotkanie (prawy przycisk)
+        # Transkrypcja / Spotkanie (prawy)
         d_meet = (x - self.meet_cx)**2 + (y - self.meet_cy)**2
         if d_meet <= (self.meet_rad + 3)**2:
             return 'btn_meeting'
 
-        # Zamknij ✕
+        # Zamknij ✕ modułu
         if abs(x - self.close_cx) <= 12 and abs(y - self.close_cy) <= 12:
             return 'btn_close'
 
-        # Uchwyt lub reszta korpusu do przeciągania
+        # Przeciąganie modułu
         return 'widget_drag'
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
@@ -484,7 +453,7 @@ class FloatingOverlay:
         WM_NCHITTEST = 0x0084
 
         if msg == WM_MOUSEACTIVATE:
-            # NIE POZWÓL, aby kliknięcie w widżet ukradło fokus z aktywnego edytora/pola tekstowego!
+            # Kluczowe: kliknięcie w widżet NIE kradnie fokusu z edytora docelowego!
             return MA_NOACTIVATE
 
         if msg == WM_NCHITTEST:
@@ -495,14 +464,16 @@ class FloatingOverlay:
             pt = wintypes.POINT(x, y)
             user32.ScreenToClient(hwnd, ctypes.byref(pt))
 
-            if self._is_inside_widget(pt.x, pt.y) or self._is_inside_balloon(pt.x, pt.y):
+            if self._is_inside_module(pt.x, pt.y) or self._is_inside_panel(pt.x, pt.y):
                 return 1  # HTCLIENT
-            return -1  # HTTRANSPARENT (kliknięcia obok przelatują do okna pod spodem!)
+            if not self.panel_open and abs(pt.x - (self.mx + self.mw//2)) <= 50 and abs(pt.y - (self.my - 14)) <= 12:
+                return 1
+            return -1  # HTTRANSPARENT (kliknięcia obok przelatują bez przeszkód)
 
         elif msg == WM_MOUSEMOVE:
             tme = TRACKMOUSEEVENT()
             tme.cbSize = ctypes.sizeof(TRACKMOUSEEVENT)
-            tme.dwFlags = 2  # TME_LEAVE
+            tme.dwFlags = 2
             tme.hwndTrack = hwnd
             user32.TrackMouseEvent(ctypes.byref(tme))
 
@@ -520,20 +491,22 @@ class FloatingOverlay:
                 self.pos_y = self._drag_start_win_y + dy
                 user32.SetWindowPos(
                     hwnd, 0, self.pos_x, self.pos_y, 0, 0,
-                    0x0001 | 0x0004 | 0x0010  # SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                    0x0001 | 0x0004 | 0x0010
                 )
             else:
                 target = self._get_target(x, y)
                 if target != self._hover_target:
                     self._hover_target = target
+                    self._dirty = True
             return 0
 
         elif msg == WM_MOUSELEAVE:
             self._hover_target = None
+            self._dirty = True
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_close', 'btn_rozumiem'):
+            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_close', 'btn_panel_close', 'btn_panel_open', 'btn_rozumiem'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
             elif self._hover_target == 'widget_drag':
@@ -579,7 +552,7 @@ class FloatingOverlay:
                     if self.mode == "recording":
                         if self.on_stop_callback:
                             threading.Thread(target=self.on_stop_callback, daemon=True).start()
-                    elif self.mode == "meeting_recording":
+                    elif self.mode == "transcribing":
                         if self.on_meeting_toggle_callback:
                             threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
                     else:
@@ -587,7 +560,7 @@ class FloatingOverlay:
                             threading.Thread(target=self.on_toggle_callback, daemon=True).start()
 
                 elif target == 'btn_meeting':
-                    if self.mode == "meeting_recording":
+                    if self.mode == "transcribing":
                         if self.on_meeting_toggle_callback:
                             threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
                     elif self.mode == "recording":
@@ -597,15 +570,22 @@ class FloatingOverlay:
                         if self.on_meeting_toggle_callback:
                             threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
 
+                elif target == 'btn_panel_close':
+                    self.panel_open = False
+                    self._dirty = True
+
+                elif target == 'btn_panel_open':
+                    self.panel_open = True
+                    self._dirty = True
+
                 elif target == 'btn_rozumiem':
-                    # Zamknięcie dymka powiadomienia
                     self.hide_balloon()
 
                 elif target == 'btn_close':
                     if self.mode == "recording":
                         if self.on_close_callback:
                             threading.Thread(target=self.on_close_callback, daemon=True).start()
-                    elif self.mode == "meeting_recording":
+                    elif self.mode == "transcribing":
                         if self.on_meeting_toggle_callback:
                             threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
                     else:
@@ -615,7 +595,6 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_RBUTTONUP:
-            # Menu ustawień dostępne po kliknięciu prawym przyciskiem myszy w widżet
             pt_screen = wintypes.POINT()
             user32.GetCursorPos(ctypes.byref(pt_screen))
             if self.settings_handler:
@@ -645,11 +624,11 @@ class FloatingOverlay:
 
             wc = WNDCLASSEXW()
             wc.cbSize = ctypes.sizeof(WNDCLASSEXW)
-            wc.style = 3  # CS_HREDRAW | CS_VREDRAW
+            wc.style = 3
             wc.lpfnWndProc = self._proc
             wc.hInstance = kernel32.GetModuleHandleW(None)
             wc.hCursor = self._hcursor_arrow
-            wc.lpszClassName = "Win11VoiceTypingOverlayClass"
+            wc.lpszClassName = "VoiceUI250x90Class"
 
             user32.RegisterClassExW(ctypes.byref(wc))
 
@@ -661,8 +640,8 @@ class FloatingOverlay:
 
             self.hwnd = user32.CreateWindowExW(
                 WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-                "Win11VoiceTypingOverlayClass",
-                "Win11VoiceTypingOverlay",
+                "VoiceUI250x90Class",
+                "VoiceUICompactOverlay",
                 WS_POPUP,
                 self.pos_x, self.pos_y, self.w, self.h,
                 None, None, wc.hInstance, None
@@ -683,12 +662,10 @@ class FloatingOverlay:
             user32.ReleaseDC(0, screen_dc)
 
             if self._visible:
-                user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA = 8
+                user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA
                 user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
             self._ready_event.set()
-
-            # Renderuj natychmiast pierwszą klatkę (stan czuwania)
             self._dirty = True
             self._render_frame(time.time())
 
@@ -696,7 +673,6 @@ class FloatingOverlay:
             last_frame_time = time.time()
             prev_hover = self._hover_target
 
-            # Inteligentna pętla renderowania: 33 FPS w trakcie nagrywania/przetwarzania, 0% CPU w stanie czuwania
             while self._running:
                 while user32.PeekMessageW(ctypes.byref(msg), self.hwnd, 0, 0, 1):
                     user32.TranslateMessage(ctypes.byref(msg))
@@ -708,7 +684,6 @@ class FloatingOverlay:
                     time.sleep(max(0.001, 0.030 - elapsed))
                     continue
 
-                # Auto-dismiss dymka
                 if self._balloon_type and self._balloon_until > 0 and now > self._balloon_until:
                     self._balloon_type = None
                     self._dirty = True
@@ -717,9 +692,9 @@ class FloatingOverlay:
                     self._dirty = True
                     prev_hover = self._hover_target
 
-                needs_continuous_anim = (self.mode in ("recording", "processing")) or self._is_dragging
+                needs_anim = (self.mode in ("recording", "transcribing", "processing")) or self._is_dragging
 
-                if self._visible and self.hwnd and (needs_continuous_anim or self._dirty):
+                if self._visible and self.hwnd and (needs_anim or self._dirty):
                     self._dirty = False
                     last_frame_time = time.time()
                     self._render_frame(last_frame_time)
@@ -728,318 +703,367 @@ class FloatingOverlay:
 
         except Exception as e:
             import logging
-            logging.getLogger("Overlay").error(f"Krytyczny błąd w wątku UI widżetu: {e}", exc_info=True)
+            logging.getLogger("Overlay").error(f"Błąd wątku UI overlay: {e}", exc_info=True)
         finally:
             self._ready_event.set()
             if self.mem_dc and self.old_bmp:
-                try:
-                    gdi32.SelectObject(self.mem_dc, self.old_bmp)
-                except Exception:
-                    pass
+                try: gdi32.SelectObject(self.mem_dc, self.old_bmp)
+                except Exception: pass
             if self.h_bmp:
-                try:
-                    gdi32.DeleteObject(self.h_bmp)
-                except Exception:
-                    pass
+                try: gdi32.DeleteObject(self.h_bmp)
+                except Exception: pass
             if self.mem_dc:
-                try:
-                    gdi32.DeleteDC(self.mem_dc)
-                except Exception:
-                    pass
+                try: gdi32.DeleteDC(self.mem_dc)
+                except Exception: pass
 
     def _render_frame(self, t_now):
-        cfg = THEMES.get(self.theme, THEMES['light'])
-        scale = 2  # supersampling 2x dla nieskazitelnej ostrości
+        cfg = THEMES.get(self.theme, THEMES['dark'])
+        scale = 2
         W, H = self.w * scale, self.h * scale
 
         img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
 
-        wx, wy = int(self.wx * scale), int(self.wy * scale)
-        ww, wh = int(self.ww * scale), int(self.wh * scale)
-        card_r = int(self.card_r * scale)
+        # Czcionki
+        try:
+            fnt_tab = ImageFont.truetype(FONT_BOLD_PATH, int(9.5 * scale))
+            fnt_text = ImageFont.truetype(FONT_REG_PATH, int(8.8 * scale))
+            fnt_time = ImageFont.truetype(FONT_REG_PATH, int(8.2 * scale))
+            fnt_status = ImageFont.truetype(FONT_REG_PATH, int(8.5 * scale))
+            fnt_timer = ImageFont.truetype(FONT_REG_PATH, int(8.5 * scale))
+            fnt_close = ImageFont.truetype(FONT_REG_PATH, int(15 * scale))
+        except Exception:
+            fnt_tab = fnt_text = fnt_time = fnt_status = fnt_timer = fnt_close = ImageFont.load_default()
 
-        # 1. Cień widżetu
-        shadow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        sd = ImageDraw.Draw(shadow)
-        sd.rounded_rectangle(
-            [wx, wy + int(4*scale), wx + ww, wy + wh + int(6*scale)],
-            radius=card_r,
-            fill=(0, 0, 0, cfg['shadow_alpha'])
-        )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=int(4*scale)))
-        img.alpha_composite(shadow)
+        # Pobierz poziomy głośności
+        vol = 0.0
+        if self.volume_getter:
+            try: vol = float(self.volume_getter())
+            except Exception: vol = 0.0
+
+        loop_vol = 0.0
+        if self.loopback_volume_getter:
+            try: loop_vol = float(self.loopback_volume_getter())
+            except Exception: loop_vol = 0.0
+
+        timer_s = 0
+        if self.mode in ("recording", "transcribing") and self._start_time > 0:
+            timer_s = int(t_now - self._start_time)
+
+        # ========================================================
+        # 1. PANEL GÓRNY (Transkrypcja lub Ostrzeżenie Błędu)
+        # ========================================================
+        px = int(self.px * scale)
+        py = int(self.py * scale)
+        pw = int(self.pw * scale)
+        ph = int(self.ph * scale)
+        pr = int(self.panel_r * scale)
+
+        if self._balloon_type == "error":
+            # Dymek błędu z przyciskiem Rozumiem
+            sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            sd = ImageDraw.Draw(sh)
+            sd.rounded_rectangle([px, py + int(4*scale), px + pw, py + ph + int(6*scale)], radius=pr, fill=(0, 0, 0, cfg['shadow_alpha']))
+            sh = sh.filter(ImageFilter.GaussianBlur(radius=int(6*scale)))
+            img.alpha_composite(sh)
+
+            d = ImageDraw.Draw(img)
+            d.rounded_rectangle([px, py, px + pw, py + ph], radius=pr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
+
+            # Ikona błędu ❌
+            err_cx = px + int(24 * scale)
+            err_cy = py + int(30 * scale)
+            err_r = int(9 * scale)
+            d.ellipse([err_cx - err_r, err_cy - err_r, err_cx + err_r, err_cy + err_r], fill=(209, 52, 56, 255))
+            ex_sz = int(3.5 * scale)
+            d.line([(err_cx - ex_sz, err_cy - ex_sz), (err_cx + ex_sz, err_cy + ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
+            d.line([(err_cx - ex_sz, err_cy + ex_sz), (err_cx + ex_sz, err_cy - ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
+
+            d.text((px + int(42 * scale), py + int(18 * scale)), "Aby używać wpisywania głosowego,", fill=cfg['text'], font=fnt_text)
+            d.text((px + int(42 * scale), py + int(32 * scale)), "zaznacz pole tekstowe i spróbuj", fill=cfg['text'], font=fnt_text)
+            d.text((px + int(42 * scale), py + int(46 * scale)), "ponownie.", fill=cfg['text'], font=fnt_text)
+
+            btn_x = px + int(16 * scale)
+            btn_y = py + ph - int(34 * scale)
+            btn_w = pw - int(32 * scale)
+            btn_h = int(24 * scale)
+            btn_fill = (45, 60, 90, 250) if self._hover_target == 'btn_rozumiem' else (35, 48, 75, 250)
+            d.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=int(6*scale), fill=btn_fill, outline=cfg['panel_border'])
+            d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), "Rozumiem", fill=cfg['text'], font=fnt_tab, anchor="mm")
+
+        elif self.panel_open:
+            # Standardowy panel transkrypcji z prototypu
+            sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            sd = ImageDraw.Draw(sh)
+            sd.rounded_rectangle([px, py + int(4*scale), px + pw, py + ph + int(6*scale)], radius=pr, fill=(0, 0, 0, cfg['shadow_alpha']))
+            sh = sh.filter(ImageFilter.GaussianBlur(radius=int(6*scale)))
+            img.alpha_composite(sh)
+
+            d = ImageDraw.Draw(img)
+            d.rounded_rectangle([px, py, px + pw, py + ph], radius=pr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
+
+            # Header panelu (33px)
+            head_h = int(33 * scale)
+            d.line([(px, py + head_h), (px + pw, py + head_h)], fill=cfg['panel_border'], width=max(1, int(1*scale)))
+
+            # Zakładka Transkrypcja
+            tab_x = px + int(8 * scale)
+            tab_y = py + int(5.5 * scale)
+            tab_w = int(72 * scale)
+            tab_h = int(22 * scale)
+            d.rounded_rectangle([tab_x, tab_y, tab_x + tab_w, tab_y + tab_h], radius=int(7*scale), fill=cfg['tab_bg'])
+            d.text((tab_x + tab_w/2, tab_y + tab_h/2 - int(0.5*scale)), "Transkrypcja", fill=cfg['text'], font=fnt_tab, anchor="mm")
+
+            # Przycisk ✕ (zamknij panel)
+            close_px = px + pw - int(16 * scale)
+            close_py = py + int(16 * scale)
+            if self._hover_target == 'btn_panel_close':
+                d.ellipse([close_px - int(8*scale), close_py - int(8*scale), close_px + int(8*scale), close_py + int(8*scale)], fill=(128, 145, 175, 45))
+            d.text((close_px, close_py - int(1*scale)), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
+
+            # Linie transkrypcji
+            with self._lock:
+                lines = list(self.transcript_lines)
+                live_text = self.live_tail
+
+            if not lines and not live_text:
+                d.text((px + pw/2, py + head_h + int(36 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
+            else:
+                display_items = []
+                for item in lines[-3:]:
+                    display_items.append({"t": item.get("t", 0), "text": item.get("text", "")})
+
+                if live_text and (not display_items or self.mode in ("recording", "transcribing")):
+                    cur_t = timer_s
+                    display_items.append({"t": cur_t, "text": live_text, "live": True})
+                    if len(display_items) > 3:
+                        display_items = display_items[-3:]
+
+                cur_y = py + head_h + int(8 * scale)
+                for i, item in enumerate(display_items):
+                    t_val = item.get("t", 0)
+                    time_str = f"{t_val//60:02d}:{t_val%60:02d}"
+                    d.text((px + int(10 * scale), cur_y), time_str, fill=cfg['muted'], font=fnt_time)
+
+                    tx_x = px + int(39 * scale)
+                    # Zawijanie wierszy tekstu
+                    words = item.get("text", "").split()
+                    l_lines = []
+                    c_line = []
+                    for w in words:
+                        c_line.append(w)
+                        if len(" ".join(c_line)) > 30:
+                            l_lines.append(" ".join(c_line))
+                            c_line = []
+                    if c_line:
+                        l_lines.append(" ".join(c_line))
+                    if not l_lines:
+                        l_lines = [""]
+                    if len(l_lines) > 2:
+                        l_lines = l_lines[:2]
+
+                    for l_idx, tl in enumerate(l_lines):
+                        d.text((tx_x, cur_y + l_idx * int(12 * scale)), tl, fill=cfg['text'], font=fnt_text)
+
+                    # Karetka | na końcu ostatniej linii
+                    if i == len(display_items) - 1 and (self.mode in ("recording", "transcribing") or item.get("live")):
+                        last_line = l_lines[-1]
+                        bbox = d.textbbox((tx_x, cur_y + (len(l_lines)-1) * int(12 * scale)), last_line, font=fnt_text)
+                        caret_x = bbox[2] + int(2 * scale)
+                        caret_y = bbox[1] + int(1 * scale)
+                        # Miganie karetki (0.5s)
+                        if int(t_now * 2) % 2 == 0:
+                            d.rounded_rectangle([caret_x, caret_y, caret_x + int(2.5 * scale), caret_y + int(9 * scale)], radius=int(1*scale), fill=cfg['accent'])
+
+                    cur_y += max(int(26 * scale), len(l_lines) * int(13 * scale) + int(2 * scale))
+
+            # Pasek przewijania
+            sb_x = px + pw - int(8 * scale)
+            sb_y = py + head_h + int(6 * scale)
+            sb_w = int(3.5 * scale)
+            sb_h = int(76 * scale)
+            d.rounded_rectangle([sb_x, sb_y, sb_x + sb_w, sb_y + sb_h], radius=int(sb_w/2), fill=cfg['scroll_track'])
+            thumb_h = int(34 * scale)
+            d.rounded_rectangle([sb_x, sb_y + int(10*scale), sb_x + sb_w, sb_y + int(10*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
+
+        else:
+            # Panel zwinięty: przycisk "Pokaż transkrypcję"
+            tgl_x = int((self.mx + self.mw//2) * scale)
+            tgl_y = int((self.my - 14) * scale)
+            tgl_w = int(88 * scale)
+            tgl_h = int(18 * scale)
+            tgl_fill = (35, 48, 75, 240) if self._hover_target == 'btn_panel_open' else cfg['panel_bg']
+            d.rounded_rectangle([tgl_x - tgl_w/2, tgl_y - tgl_h/2, tgl_x + tgl_w/2, tgl_y + tgl_h/2], radius=int(9*scale), fill=tgl_fill, outline=cfg['panel_border'])
+            d.text((tgl_x, tgl_y - int(0.5*scale)), "Pokaż transkrypcję", fill=cfg['text'], font=fnt_time, anchor="mm")
+
+        # ========================================================
+        # 2. MODUŁ GŁÓWNY (Voice Module 250x90 px)
+        # ========================================================
+        mx = int(self.mx * scale)
+        my = int(self.my * scale)
+        mw = int(self.mw * scale)
+        mh = int(self.mh * scale)
+        mr = int(self.mod_r * scale)
+
+        # Cień modułu
+        sh_m = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        smd = ImageDraw.Draw(sh_m)
+        smd.rounded_rectangle([mx, my + int(5*scale), mx + mw, my + mh + int(8*scale)], radius=mr, fill=(0, 0, 0, cfg['shadow_alpha']))
+        sh_m = sh_m.filter(ImageFilter.GaussianBlur(radius=int(7*scale)))
+        img.alpha_composite(sh_m)
+
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=mr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
+
+        # Subtelne radialne podświetlenie
+        glow_mod = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        gmd = ImageDraw.Draw(glow_mod)
+        gmd.ellipse([mx - int(20*scale), my, mx + int(80*scale), my + mh], fill=(105, 157, 255, 18))
+        gmd.ellipse([mx + mw - int(80*scale), my, mx + mw + int(20*scale), my + mh], fill=(178, 112, 255, 16))
+        glow_mod = glow_mod.filter(ImageFilter.GaussianBlur(radius=int(10*scale)))
+        img.alpha_composite(glow_mod)
         d = ImageDraw.Draw(img)
 
-        # 2. Korpus widżetu
-        d.rounded_rectangle([wx, wy, wx + ww, wy + wh], radius=card_r, fill=cfg['card_fill'], outline=cfg['card_border'], width=max(1, int(1.1*scale)))
-
-        # Pasek nagłówka
-        hdr_h = int(self.hdr_h * scale)
-        d.line([(wx + int(8*scale), wy + hdr_h), (wx + ww - int(8*scale), wy + hdr_h)], fill=cfg['hdr_sep'], width=max(1, int(1*scale)))
-
-        # Uchwyt do przeciągania
+        # Uchwyt (Drag Handle) na górze: 29x3 px
         hx = int(self.handle_x * scale)
         hy = int(self.handle_y * scale)
         hw = int(self.handle_w * scale)
         hh = int(self.handle_h * scale)
-        d.rounded_rectangle([hx, hy, hx + hw, hy + hh], radius=int(hh/2), fill=cfg['handle_col'])
+        d.rounded_rectangle([hx, hy, hx + hw, hy + hh], radius=int(hh/2), fill=cfg['muted'])
 
-        # Przycisk Zamknij ✕
+        # Przycisk Zamknij ✕ modułu
         cx = int(self.close_cx * scale)
         cy = int(self.close_cy * scale)
         if self._hover_target == 'btn_close':
-            d.rounded_rectangle([cx - int(9*scale), cy - int(9*scale), cx + int(9*scale), cy + int(9*scale)], radius=int(4*scale), fill=cfg['icon_hover_bg'])
-        x_sz = int(3.5 * scale)
-        d.line([(cx - x_sz, cy - x_sz), (cx + x_sz, cy + x_sz)], fill=cfg['icon_col'], width=max(1, int(1.4*scale)))
-        d.line([(cx - x_sz, cy + x_sz), (cx + x_sz, cy - x_sz)], fill=cfg['icon_col'], width=max(1, int(1.4*scale)))
+            d.ellipse([cx - int(8*scale), cy - int(8*scale), cx + int(8*scale), cy + int(8*scale)], fill=(128, 145, 175, 45))
+        d.text((cx, cy), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
 
-        # Centralny Mikrofon oraz Przycisk Spotkania
-        mx = int(self.mic_cx * scale)
-        my = int(self.mic_cy * scale)
-        mr = int(self.mic_rad * scale)
-        sz = int(22 * scale)
+        # Koordynaty przycisków
+        mic_x = int(self.mic_cx * scale)
+        mic_y = int(self.mic_cy * scale)
+        b_rad = int(self.mic_rad * scale)
 
         meet_x = int(self.meet_cx * scale)
         meet_y = int(self.meet_cy * scale)
-        meet_r = int(self.meet_rad * scale)
-        meet_sz = int(22 * scale)
 
-        vol = 0.0
-        if self.volume_getter:
-            try:
-                vol = float(self.volume_getter())
-            except Exception:
-                vol = 0.0
-
-        loop_vol = 0.0
-        if self.loopback_volume_getter:
-            try:
-                loop_vol = float(self.loopback_volume_getter())
-            except Exception:
-                loop_vol = 0.0
-
-        # --- Renderowanie Przycisku 1: Mikrofon (Dyktowanie) ---
+        # --- PRZYCISK 1: MIKROFON (Lewy) ---
         if self.mode == "recording":
-            # Niebieski przycisk aktywny (#2d84f8)
-            wave_pulse = max(0.04, min(1.0, (vol ** 0.6) * 1.5))
-            glow_rad = int(mr + (1.5 + wave_pulse * 3.5) * scale)
-            glow_alpha = int(90 * wave_pulse + 25)
-
-            glow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            gd = ImageDraw.Draw(glow)
-            gd.ellipse([mx - glow_rad, my - glow_rad, mx + glow_rad, my + glow_rad], fill=(45, 132, 248, glow_alpha))
-            glow = glow.filter(ImageFilter.GaussianBlur(radius=max(1, int(2.5 * scale))))
-            img.alpha_composite(glow)
+            # Czerwony aktywny przycisk z pulsującym pierścieniem
+            p_factor = 0.5 + 0.5 * math.sin(t_now * 5.0)
+            glow_rad = int(b_rad + (5 + p_factor * 3.5) * scale)
+            glow_m = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            gmd = ImageDraw.Draw(glow_m)
+            gmd.ellipse([mic_x - glow_rad, mic_y - glow_rad, mic_x + glow_rad, mic_y + glow_rad], fill=(255, 34, 52, int(45 + p_factor * 25)))
+            glow_m = glow_m.filter(ImageFilter.GaussianBlur(radius=int(5*scale)))
+            img.alpha_composite(glow_m)
             d = ImageDraw.Draw(img)
 
-            d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=(45, 132, 248, 255))
-            draw_screenshot_mic(d, mx, my, sz, is_muted=False, color=(255, 255, 255, 255))
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(255, 51, 73, 255))
+            draw_svg_mic(d, mic_x, mic_y, sz=int(22 * scale), color=(255, 255, 255, 255))
 
         elif self.mode == "processing":
-            # Ciepły bursztynowy przycisk przetwarzania (#f59e0b)
-            pulse = 0.5 + 0.5 * math.sin(t_now * 8.0)
-            glow_rad = int(mr + (1.5 + pulse * 2.5) * scale)
-            glow_alpha = int(70 * pulse + 30)
+            # Bursztynowy przycisk finalizacji
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(245, 158, 11, 255))
+            draw_svg_mic(d, mic_x, mic_y, sz=int(22 * scale), color=(255, 255, 255, 255))
 
-            glow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            gd = ImageDraw.Draw(glow)
-            gd.ellipse([mx - glow_rad, my - glow_rad, mx + glow_rad, my + glow_rad], fill=(245, 158, 11, glow_alpha))
-            glow = glow.filter(ImageFilter.GaussianBlur(radius=max(1, int(2.0 * scale))))
-            img.alpha_composite(glow)
+        else:
+            # W spoczynku: ciemny okrąg z białym pierścieniem zewnętrznym
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad],
+                      fill=cfg['mic_standby_bg'], outline=cfg['mic_standby_border'], width=max(1, int(1.8 * scale)))
+            draw_svg_mic(d, mic_x, mic_y, sz=int(22 * scale), color=(255, 255, 255, 255))
+
+        # --- PRZYCISK 2: SPOTKANIE (Prawy) ---
+        if self.mode == "transcribing":
+            # Niebieski aktywny przycisk z poświatą
+            p_factor = 0.5 + 0.5 * math.sin(t_now * 5.0)
+            glow_rad = int(b_rad + (5 + p_factor * 4.0) * scale)
+            glow_mt = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            gmd = ImageDraw.Draw(glow_mt)
+            gmd.ellipse([meet_x - glow_rad, meet_y - glow_rad, meet_x + glow_rad, meet_y + glow_rad], fill=(46, 94, 255, int(50 + p_factor * 25)))
+            glow_mt = glow_mt.filter(ImageFilter.GaussianBlur(radius=int(6*scale)))
+            img.alpha_composite(glow_mt)
             d = ImageDraw.Draw(img)
 
-            d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=(245, 158, 11, 255))
-            draw_screenshot_mic(d, mx, my, sz, is_muted=False, color=(255, 255, 255, 255))
+            d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=(64, 92, 242, 255))
+            draw_people_icon(d, meet_x, meet_y, sz=int(26 * scale), color=(255, 255, 255, 255))
 
-        elif self.mode == "meeting_recording":
-            # W trybie nagrywania spotkania: stonowany mikrofon
-            d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=(70, 70, 80, 240))
-            draw_screenshot_mic(d, mx, my, sz, is_muted=False, color=(200, 200, 200, 220))
+        else:
+            d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=cfg['meet_standby_bg'])
+            draw_people_icon(d, meet_x, meet_y, sz=int(26 * scale), color=(255, 255, 255, 200))
 
-        else:  # idle - Czerwony przycisk z przekreślonym mikrofonem (#ee1c25)
-            mic_sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            msd = ImageDraw.Draw(mic_sh)
-            msd.ellipse([mx - mr, my - mr + int(1.5*scale), mx + mr, my + mr + int(2.5*scale)], fill=(0, 0, 0, 35))
-            mic_sh = mic_sh.filter(ImageFilter.GaussianBlur(radius=int(2.0 * scale)))
-            img.alpha_composite(mic_sh)
-            d = ImageDraw.Draw(img)
+        # --- SEKCJA ŚRODKOWA: FALA DŹWIĘKOWA (dokładnie 80px) ---
+        center_cx = mx + mw // 2
+        wave_cy = my + int(36 * scale)
 
-            btn_fill = (255, 45, 55, 255) if self._hover_target == 'btn_mic' else (238, 28, 37, 255)
-            d.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=btn_fill)
-            draw_screenshot_mic(d, mx, my, sz, is_muted=True, color=(255, 255, 255, 255))
+        num_bars = len(BAR_HEIGHTS)
+        bar_w = 1.6 * scale
+        bar_gap = 1.4 * scale
+        total_wave_w = num_bars * bar_w + (num_bars - 1) * bar_gap
+        start_bx = center_cx - total_wave_w / 2.0
 
-        # --- Renderowanie Przycisku 2: Spotkanie (Mity / Notatnik) ---
-        if self.mode == "meeting_recording":
-            # Aktywne indygo/fiolet (#6366f1) pulsujące w rytm dźwięku rozmówców
-            active_energy = max(vol, loop_vol)
-            m_pulse = max(0.06, min(1.0, (active_energy ** 0.6) * 1.6))
-            m_glow_rad = int(meet_r + (2.0 + m_pulse * 4.0) * scale)
-            m_glow_alpha = int(95 * m_pulse + 30)
+        active_vol = vol if self.mode == "recording" else max(vol, loop_vol)
 
-            m_glow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            mgd = ImageDraw.Draw(m_glow)
-            mgd.ellipse([meet_x - m_glow_rad, meet_y - m_glow_rad, meet_x + m_glow_rad, meet_y + m_glow_rad], fill=(99, 102, 241, m_glow_alpha))
-            m_glow = m_glow.filter(ImageFilter.GaussianBlur(radius=max(1, int(2.5 * scale))))
-            img.alpha_composite(m_glow)
-            d = ImageDraw.Draw(img)
+        bar_color = cfg['danger'] if self.mode == "recording" else (cfg['text'] if self.mode == "transcribing" else cfg['wave'])
 
-            meet_fill = (129, 140, 248, 255) if self._hover_target == 'btn_meeting' else (99, 102, 241, 255)
-            d.ellipse([meet_x - meet_r, meet_y - meet_r, meet_x + meet_r, meet_y + meet_r], fill=meet_fill)
-            # Rysuj kwadrat STOP ⏹
-            draw_meeting_icon(d, meet_x, meet_y, meet_sz, is_recording=True, color=(255, 255, 255, 255))
-
-        elif self.mode == "recording":
-            # Wygaszony podczas dyktowania
-            d.ellipse([meet_x - meet_r, meet_y - meet_r, meet_x + meet_r, meet_y + meet_r], fill=(60, 60, 70, 200))
-            draw_meeting_icon(d, meet_x, meet_y, meet_sz, is_recording=False, color=(160, 160, 170, 200))
-
-        else:  # idle
-            meet_sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            m_sd = ImageDraw.Draw(meet_sh)
-            m_sd.ellipse([meet_x - meet_r, meet_y - meet_r + int(1.5*scale), meet_x + meet_r, meet_y + meet_r + int(2.5*scale)], fill=(0, 0, 0, 35))
-            meet_sh = meet_sh.filter(ImageFilter.GaussianBlur(radius=int(2.0 * scale)))
-            img.alpha_composite(meet_sh)
-            d = ImageDraw.Draw(img)
-
-            meet_fill = (129, 140, 248, 255) if self._hover_target == 'btn_meeting' else (99, 102, 241, 255)
-            d.ellipse([meet_x - meet_r, meet_y - meet_r, meet_x + meet_r, meet_y + meet_r], fill=meet_fill)
-            draw_meeting_icon(d, meet_x, meet_y, meet_sz, is_recording=False, color=(255, 255, 255, 255))
-
-        # 4. DYMEK POWIADOMIENIA (jeśli aktywny)
-        if self._balloon_type:
-            bx = int(self.bx * scale)
-            by = int(self.by * scale)
-            bw = int(self.bw * scale)
-            bh = int(self.bh * scale)
-            br = int(self.ball_r * scale)
-
-            # Cień dymka
-            b_shadow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            bsd = ImageDraw.Draw(b_shadow)
-            bsd.rounded_rectangle([bx, by + int(3*scale), bx + bw, by + bh + int(5*scale)], radius=br, fill=(0, 0, 0, cfg['shadow_alpha']))
-            tri_cx = int(W / 2)
-            tri_top = by + bh + int(3*scale)
-            tri_bot = tri_top + int(8*scale)
-            tri_hw = int(8*scale)
-            bsd.polygon([(tri_cx - tri_hw, tri_top), (tri_cx + tri_hw, tri_top), (tri_cx, tri_bot)], fill=(0, 0, 0, cfg['shadow_alpha']))
-            b_shadow = b_shadow.filter(ImageFilter.GaussianBlur(radius=int(4*scale)))
-            img.alpha_composite(b_shadow)
-            d = ImageDraw.Draw(img)
-
-            # Korpus dymka
-            d.rounded_rectangle([bx, by, bx + bw, by + bh], radius=br, fill=cfg['ball_bg'], outline=cfg['ball_border'], width=max(1, int(1.1*scale)))
-
-            # Trójkąt dymka skierowany w dół do widżetu
-            tri_top = by + bh - int(1*scale)
-            tri_bot = tri_top + int(8*scale)
-            d.polygon([(tri_cx - tri_hw, tri_top), (tri_cx + tri_hw, tri_top), (tri_cx, tri_bot)], fill=cfg['ball_bg'])
-            d.line([(tri_cx - tri_hw, tri_top), (tri_cx, tri_bot)], fill=cfg['ball_border'], width=max(1, int(1.1*scale)))
-            d.line([(tri_cx + tri_hw, tri_top), (tri_cx, tri_bot)], fill=cfg['ball_border'], width=max(1, int(1.1*scale)))
-
-            try:
-                fnt_text = ImageFont.truetype(FONT_REGULAR_PATH, int(11.5 * scale))
-            except Exception:
-                fnt_text = ImageFont.load_default()
-
-            if self._balloon_type == "error":
-                # Czerwone kółko błędu ❌
-                err_cx = bx + int(22 * scale)
-                err_cy = by + int(26 * scale)
-                err_r = int(8.5 * scale)
-                d.ellipse([err_cx - err_r, err_cy - err_r, err_cx + err_r, err_cy + err_r], fill=(209, 52, 56, 255))
-                ex_sz = int(3.2 * scale)
-                d.line([(err_cx - ex_sz, err_cy - ex_sz), (err_cx + ex_sz, err_cy + ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
-                d.line([(err_cx - ex_sz, err_cy + ex_sz), (err_cx + ex_sz, err_cy - ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
-
-                msg_lines = [
-                    "Aby używać wpisywania głosowego,",
-                    "zaznacz pole tekstowe i spróbuj",
-                    "ponownie."
-                ]
-            elif self._balloon_type == "help":
-                # Niebieska ikonka info ℹ
-                info_cx = bx + int(22 * scale)
-                info_cy = by + int(26 * scale)
-                info_r = int(8.5 * scale)
-                d.ellipse([info_cx - info_r, info_cy - info_r, info_cx + info_r, info_cy + info_r], fill=cfg['accent'] + (255,))
-                try:
-                    fnt_i = ImageFont.truetype(FONT_BOLD_PATH, int(11 * scale))
-                except Exception:
-                    fnt_i = ImageFont.load_default()
-                d.text((info_cx, info_cy - int(0.5*scale)), "i", fill=(255, 255, 255, 255), font=fnt_i, anchor="mm")
-
-                msg_lines = [
-                    "Wskazówki wpisywania głosowego:",
-                    "Kliknij pole tekstowe, mów po polsku.",
-                    "Skrót: Ctrl+Alt+D lub mysz MX Master."
-                ]
-            elif self._balloon_type == "live":
-                # Niebieska pulsująca ikonka mikrofonu
-                info_cx = bx + int(22 * scale)
-                info_cy = by + int(26 * scale)
-                info_r = int(8.5 * scale)
-                d.ellipse([info_cx - info_r, info_cy - info_r, info_cx + info_r, info_cy + info_r], fill=cfg['accent'] + (255,))
-                draw_screenshot_mic(d, info_cx, info_cy, int(10 * scale), is_muted=False, color=(255, 255, 255, 255))
-
-                txt = (self.live_text or "Słucham... mów swobodnie").strip()
-                words = txt.split()
-                lines = []
-                cur_l = []
-                for w in words:
-                    cur_l.append(w)
-                    if len(" ".join(cur_l)) > 26:
-                        lines.append(" ".join(cur_l))
-                        cur_l = []
-                if cur_l:
-                    lines.append(" ".join(cur_l))
-                if len(lines) > 3:
-                    lines = lines[-3:]
-                while len(lines) < 3:
-                    lines.append("")
-                msg_lines = lines
-            elif self._balloon_type == "processing":
-                # Bursztynowe kółko z mikrofonem ⏳
-                info_cx = bx + int(22 * scale)
-                info_cy = by + int(26 * scale)
-                info_r = int(8.5 * scale)
-                d.ellipse([info_cx - info_r, info_cy - info_r, info_cx + info_r, info_cy + info_r], fill=(245, 158, 11, 255))
-                draw_screenshot_mic(d, info_cx, info_cy, int(10 * scale), is_muted=False, color=(255, 255, 255, 255))
-                msg_lines = [
-                    "Trwa przetwarzanie mowy...",
-                    "Zaraz nastąpi wstawienie",
-                    "tekstu do aplikacji."
-                ]
+        for i, h_vals in enumerate(BAR_HEIGHTS):
+            bx = start_bx + i * (bar_w + bar_gap)
+            if self.mode in ("recording", "transcribing"):
+                # Naturalna wielotonowa modulacja wysokości słupków
+                a = 1.0 + 0.23 * math.sin(t_now * 7.0 + i * 0.78) + 0.16 * math.sin(t_now * 12.7 - i * 0.41) + 0.10 * math.sin(t_now * 3.6 + i * 1.13)
+                base_h = h_vals[1] if self.mode == "recording" else h_vals[0]
+                eff_h = max(5, min(36, base_h * a * (0.8 + active_vol * 1.5))) * scale
             else:
-                info_cx = bx + int(22 * scale)
-                info_cy = by + int(26 * scale)
-                info_r = int(8.5 * scale)
-                d.ellipse([info_cx - info_r, info_cy - info_r, info_cx + info_r, info_cy + info_r], fill=cfg['accent'] + (255,))
-                msg_lines = [self._balloon_message or "Informacja", "", ""]
+                eff_h = h_vals[0] * scale
 
-            ty = by + int(13 * scale)
-            tx = bx + int(37 * scale)
-            for line in msg_lines:
-                d.text((tx, ty), line, fill=cfg['ball_text'], font=fnt_text)
-                ty += int(16 * scale)
+            by1 = wave_cy - eff_h / 2.0
+            by2 = wave_cy + eff_h / 2.0
+            d.rounded_rectangle([bx, by1, bx + bar_w, by2], radius=int(bar_w/2), fill=bar_color)
 
-            # Dolny pasek dymka
-            btn_w = int(self.btn_w * scale)
-            btn_h = int(self.btn_h * scale)
-            btn_x = int(self.btn_x * scale)
-            btn_y = int(self.btn_y * scale)
-            btn_r = int(5 * scale)
+        # Pasek statusu pod falą: [dot] [statusText] [timer]
+        status_y = my + int(64 * scale)
 
-            if self._balloon_type in ("live", "processing"):
-                d.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=btn_r, fill=cfg['btn_bg'], outline=cfg['btn_border'], width=max(1, int(1*scale)))
-                txt_lbl = "🎙️ Transkrypcja na żywo (W tle)" if self._balloon_type == "live" else "⏳ Kończenie transkrypcji..."
-                d.text((btn_x + btn_w/2, btn_y + btn_h/2), txt_lbl, fill=cfg['accent'] + (255,), font=fnt_text, anchor="mm")
-            else:
-                btn_fill = cfg['btn_hover_bg'] if self._hover_target == 'btn_rozumiem' else cfg['btn_bg']
-                d.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=btn_r, fill=btn_fill, outline=cfg['btn_border'], width=max(1, int(1*scale)))
-                d.text((btn_x + btn_w/2, btn_y + btn_h/2), "Rozumiem", fill=cfg['btn_text'], font=fnt_text, anchor="mm")
+        if self.mode == "recording":
+            dot_col = cfg['danger']
+            status_lbl = "Nagrywanie"
+            status_col = cfg['danger']
+        elif self.mode == "transcribing":
+            dot_col = (77, 115, 255, 255)
+            status_lbl = "Transkrypcja"
+            status_col = (77, 115, 255, 255)
+        elif self.mode == "processing":
+            dot_col = (245, 158, 11, 255)
+            status_lbl = "Przetwarzanie..."
+            status_col = (245, 158, 11, 255)
+        else:
+            dot_col = cfg['muted']
+            status_lbl = "Gotowe"
+            status_col = cfg['muted']
 
-        # 5. Konwersja na bufor BGRA i UpdateLayeredWindow
+        timer_str = f"{timer_s//60:02d}:{timer_s%60:02d}"
+
+        dot_d = int(4 * scale)
+        lbl_bbox = d.textbbox((0, 0), status_lbl, font=fnt_status)
+        lbl_w = lbl_bbox[2] - lbl_bbox[0]
+        tim_bbox = d.textbbox((0, 0), timer_str, font=fnt_timer)
+        tim_w = tim_bbox[2] - tim_bbox[0]
+
+        spacing = int(5 * scale)
+        total_line_w = dot_d + spacing + lbl_w + spacing + tim_w
+        line_start_x = center_cx - total_line_w / 2.0
+
+        d_x = line_start_x
+        d_y = status_y + int(4 * scale)
+        d.ellipse([d_x, d_y, d_x + dot_d, d_y + dot_d], fill=dot_col)
+
+        tx_x = d_x + dot_d + spacing
+        d.text((tx_x, status_y), status_lbl, fill=status_col, font=fnt_status)
+
+        tm_x = tx_x + lbl_w + spacing
+        d.text((tm_x, status_y), timer_str, fill=cfg['text'], font=fnt_timer)
+
+        # ========================================================
+        # 3. AKTUALIZACJA OKNA WARSTWOWEGO
+        # ========================================================
         smooth = img.resize((self.w, self.h), Image.Resampling.LANCZOS)
         arr = np.array(smooth, dtype=np.uint8)
         r = arr[:, :, 0].astype(np.uint32)
@@ -1065,63 +1089,43 @@ class FloatingOverlay:
         )
         user32.ReleaseDC(0, screen_dc)
 
+    # ========================================================
+    # METODY PUBLICZNE (STEROWANIE STANEM)
+    # ========================================================
     def show_recording(self):
         self.mode = "recording"
-        self.live_text = ""
-        if self.show_live_preview:
-            self._balloon_type = "live"
-            self._balloon_until = time.time() + 4.0
-        else:
-            self._balloon_type = None
+        self._start_time = time.time()
+        self.live_tail = ""
+        self.panel_open = True
+        self._balloon_type = None
         self._dirty = True
         self.show()
 
     def show_idle(self):
         self.mode = "idle"
-        self.live_text = ""
-        if self._balloon_type in ("live", "processing"):
-            self._balloon_type = None
+        self._start_time = 0.0
+        self.live_tail = ""
+        self._balloon_type = None
         self._dirty = True
         self.show()
 
     def show_processing(self):
         self.mode = "processing"
-        self.live_text = ""
-        if self.show_live_preview:
-            self._balloon_type = "processing"
-            self._balloon_until = time.time() + 8.0
-        else:
-            self._balloon_type = None
         self._dirty = True
         self.show()
 
     def show_meeting_recording(self):
-        self.mode = "meeting_recording"
-        self.live_text = ""
+        self.mode = "transcribing"
+        self._start_time = time.time()
+        self.live_tail = ""
+        self.panel_open = True
         self._balloon_type = None
         self._dirty = True
         self.show()
 
     def show_error_balloon(self, duration_s=7.0):
-        """Wyświetla dymek ostrzegawczy dokładnie ze zrzutu ekranu Windows 11."""
         self._balloon_type = "error"
-        self._balloon_message = None
         self._balloon_until = time.time() + duration_s if duration_s > 0 else 0
-        self._dirty = True
-        self.show()
-
-    def show_help_balloon(self, duration_s=10.0):
-        """Wyświetla dymek pomocy z informacją o dyktowaniu."""
-        self._balloon_type = "help"
-        self._balloon_message = None
-        self._balloon_until = time.time() + duration_s if duration_s > 0 else 0
-        self._dirty = True
-        self.show()
-
-    def show_info(self, text: str, icon="ℹ", duration_ms=2500):
-        self._balloon_type = "info"
-        self._balloon_message = text
-        self._balloon_until = time.time() + (duration_ms / 1000.0)
         self._dirty = True
         self.show()
 
@@ -1132,25 +1136,39 @@ class FloatingOverlay:
 
     def update_live_text(self, text: str):
         if text:
-            self.live_text = text.strip()
-            if self.mode == "recording" and self.show_live_preview:
-                self._balloon_type = "live"
-                self._balloon_until = time.time() + 5.0
-                self._dirty = True
-                self.show()
+            with self._lock:
+                self.live_tail = text.strip()
+            self._dirty = True
+
+    def add_transcript_entry(self, text: str, timestamp_s: float = None):
+        if not text:
+            return
+        with self._lock:
+            t = int(timestamp_s if timestamp_s is not None else (time.time() - self._start_time if self._start_time > 0 else 0))
+            self.transcript_lines.append({"t": max(0, t), "text": text.strip()})
+            if len(self.transcript_lines) > 50:
+                self.transcript_lines = self.transcript_lines[-50:]
+            self.live_tail = ""
+        self._dirty = True
+
+    def clear_transcript(self):
+        with self._lock:
+            self.transcript_lines = []
+            self.live_tail = ""
+        self._dirty = True
 
     def show(self):
         self._visible = True
         self._dirty = True
         if self.hwnd:
-            user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA
+            user32.ShowWindow(self.hwnd, 8)
             user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
     def hide(self):
         self._visible = False
         self._dirty = True
         if self.hwnd:
-            user32.ShowWindow(self.hwnd, 0)  # SW_HIDE
+            user32.ShowWindow(self.hwnd, 0)
 
     def set_theme(self, theme_name: str):
         if theme_name in THEME_MAP:
@@ -1159,10 +1177,8 @@ class FloatingOverlay:
             self.theme = theme_name
             self._dirty = True
             if self.on_theme_changed:
-                try:
-                    self.on_theme_changed(self.theme)
-                except Exception:
-                    pass
+                try: self.on_theme_changed(self.theme)
+                except Exception: pass
 
     def is_alive(self):
         return self._thread is not None and self._thread.is_alive()
