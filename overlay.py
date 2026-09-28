@@ -318,13 +318,32 @@ def draw_people_icon(target, cx, cy, sz, color=(255, 255, 255, 255)):
     if img_dest:
         img_dest.alpha_composite(people_img, (int(round(cx - sz / 2.0)), int(round(cy - sz / 2.0))))
 
+def _wrap_text_lines(text, max_w, draw, font):
+    """Zawija tekst na wiersze mieszczące się w szerokości max_w."""
+    words = text.split()
+    if not words:
+        return []
+    lines = []
+    curr = []
+    for w in words:
+        test_line = ' '.join(curr + [w])
+        bbox = draw.textbbox((0, 0), test_line, font=font)
+        if (bbox[2] - bbox[0]) > max_w and curr:
+            lines.append(' '.join(curr))
+            curr = [w]
+        else:
+            curr.append(w)
+    if curr:
+        lines.append(' '.join(curr))
+    return lines
+
 class FloatingOverlay:
     """
     Wiernie odwzorowany interfejs Voice UI zgodny w 100% z prototypem użytkownika (250x90 Voice Module + Panel Transkrypcji).
     - Zablokowanie kradzieży fokusu (WS_EX_NOACTIVATE, MA_NOACTIVATE)
     - Płynne przeciąganie po obu monitorach
     - Kreski reaktywne fali dźwiękowej (27 słupków z dynamiczną modulacją)
-    - Panel transkrypcji na żywo ze znacznikiem czasu i karetką tekstu
+    - Panel transkrypcji z pełnym przewijaniem (scroll myszą i suwak) bez znaczników czasu
     - Dymek błędu braku pola tekstowego
     """
 
@@ -350,24 +369,31 @@ class FloatingOverlay:
 
         # Wymiary całego okna warstwowego (mieści panel u góry oraz moduł 250x90 u dołu)
         self.w = 280
-        self.h = 212
+        self.h = 224
 
         # Moduł dolny (Voice Module): 250x90 px
         self.mw = 250
         self.mh = 90
         self.mx = (self.w - self.mw) // 2       # 15
-        self.my = self.h - self.mh - 12          # 110
+        self.my = self.h - self.mh - 12          # 122
         self.mod_r = 20
 
-        # Panel górny (Transkrypcja zmniejszona): 250x86 px
+        # Panel górny (Transkrypcja z przewijaniem): 250x96 px
         self.pw = 250
-        self.ph = 86
+        self.ph = 96
         self.px = (self.w - self.pw) // 2       # 15
-        self.py = self.my - self.ph - 6          # 18
+        self.py = self.my - self.ph - 6          # 20
         self.panel_r = 16
         self.panel_open = False                 # Domyślnie wyłączona transkrypcja!
         self.show_live_preview = False
         self._smooth_vol = 0.0
+
+        # Przewijanie transkrypcji (Scroll & Drag)
+        self.scroll_line = 0
+        self._user_scrolled = False
+        self._is_scrolling = False
+        self._total_lines_count = 0
+        self._max_visible_lines = 4
 
         # Uchwyt do przeciągania
         self.handle_w = 29
@@ -478,6 +504,13 @@ class FloatingOverlay:
             close_py = self.py + 14
             if abs(x - close_px) <= 12 and abs(y - close_py) <= 12:
                 return 'btn_panel_close'
+
+            sb_x = self.px + self.pw - 8
+            sb_y = self.py + 27
+            sb_h = self.ph - 35
+            if (sb_x - 12 <= x <= sb_x + 12) and (sb_y <= y <= sb_y + sb_h):
+                return 'scrollbar'
+
             if self._is_inside_panel(x, y):
                 return 'panel_content'
         else:
@@ -518,10 +551,25 @@ class FloatingOverlay:
         WM_MOUSELEAVE = 0x02A3
         WM_SETCURSOR = 0x0020
         WM_NCHITTEST = 0x0084
+        WM_MOUSEWHEEL = 0x020A
 
         if msg == WM_MOUSEACTIVATE:
             # Kluczowe: kliknięcie w widżet NIE kradnie fokusu z edytora docelowego!
             return MA_NOACTIVATE
+
+        if msg == WM_MOUSEWHEEL:
+            if self.panel_open:
+                delta = (wparam >> 16) & 0xFFFF
+                if delta > 0x7FFF:
+                    delta -= 0x10000
+                steps = 1 if delta > 0 else -1
+                with self._lock:
+                    max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
+                    new_scroll = self.scroll_line - steps
+                    self.scroll_line = max(0, min(max_scroll, new_scroll))
+                    self._user_scrolled = (self.scroll_line < max_scroll)
+                self._dirty = True
+            return 0
 
         if msg == WM_NCHITTEST:
             x = lparam & 0xFFFF
@@ -560,6 +608,15 @@ class FloatingOverlay:
                     hwnd, 0, self.pos_x, self.pos_y, 0, 0,
                     0x0001 | 0x0004 | 0x0010
                 )
+            elif self._is_scrolling:
+                sb_norm_y = self.py + 27
+                sb_norm_h = max(1, self.ph - 35)
+                ratio = max(0.0, min(1.0, (y - sb_norm_y) / float(sb_norm_h)))
+                with self._lock:
+                    max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
+                    self.scroll_line = int(round(ratio * max_scroll))
+                    self._user_scrolled = (self.scroll_line < max_scroll)
+                self._dirty = True
             else:
                 target = self._get_target(x, y)
                 if target != self._hover_target:
@@ -573,7 +630,7 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_close', 'btn_panel_close', 'btn_panel_open', 'btn_rozumiem'):
+            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_close', 'btn_panel_close', 'btn_panel_open', 'btn_rozumiem', 'scrollbar'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
             elif self._hover_target == 'widget_drag':
@@ -601,12 +658,28 @@ class FloatingOverlay:
                 self._drag_start_cursor_y = cur_pt.y
                 self._drag_start_win_x = self.pos_x
                 self._drag_start_win_y = self.pos_y
+            elif target == 'scrollbar':
+                self._is_scrolling = True
+                user32.SetCapture(hwnd)
+                sb_norm_y = self.py + 27
+                sb_norm_h = max(1, self.ph - 35)
+                ratio = max(0.0, min(1.0, (y - sb_norm_y) / float(sb_norm_h)))
+                with self._lock:
+                    max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
+                    self.scroll_line = int(round(ratio * max_scroll))
+                    self._user_scrolled = (self.scroll_line < max_scroll)
+                self._dirty = True
             return 0
 
         elif msg == WM_LBUTTONUP:
             if self._is_dragging:
                 self._is_dragging = False
                 user32.ReleaseCapture()
+
+            if self._is_scrolling:
+                self._is_scrolling = False
+                user32.ReleaseCapture()
+                self._dirty = True
 
             x = lparam & 0xFFFF
             y = (lparam >> 16) & 0xFFFF
@@ -888,68 +961,78 @@ class FloatingOverlay:
                 d.ellipse([close_px - int(8*scale), close_py - int(8*scale), close_px + int(8*scale), close_py + int(8*scale)], fill=(128, 145, 175, 45))
             d.text((close_px, close_py), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
 
-            # Linie transkrypcji (kompaktowe 2 wiersze)
+            # Linie transkrypcji (pełna treść bez znaczników czasu, z płynnym przewijaniem)
             with self._lock:
                 lines = list(self.transcript_lines)
                 live_text = self.live_tail
 
-            if not lines and not live_text:
-                d.text((px + pw/2, py + head_h + int(24 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
-            else:
-                display_items = []
-                for item in lines[-2:]:
-                    display_items.append({"t": item.get("t", 0), "text": item.get("text", "")})
+            max_text_w = pw - int(24 * scale)
+            tx_x = px + int(12 * scale)
+            all_lines = []
 
-                if live_text and (not display_items or self.mode in ("recording", "transcribing")):
-                    cur_t = timer_s
-                    display_items.append({"t": cur_t, "text": live_text, "live": True})
-                    if len(display_items) > 2:
-                        display_items = display_items[-2:]
+            for item in lines:
+                txt = item.get("text", "") if isinstance(item, dict) else str(item)
+                if not txt:
+                    continue
+                w_lines = _wrap_text_lines(txt, max_text_w, d, fnt_text)
+                for wl in w_lines:
+                    all_lines.append((wl, False))
+
+            if live_text and (not all_lines or self.mode in ("recording", "transcribing")):
+                w_live = _wrap_text_lines(live_text, max_text_w, d, fnt_text)
+                for idx, wl in enumerate(w_live):
+                    is_last = (idx == len(w_live) - 1)
+                    all_lines.append((wl, is_last))
+
+            line_h = int(14 * scale)
+            content_h = (ph - head_h - int(12 * scale))
+            max_visible = max(1, content_h // line_h)
+            self._max_visible_lines = max_visible
+            self._total_lines_count = len(all_lines)
+
+            if not all_lines:
+                d.text((px + pw/2, py + head_h + int(28 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
+            else:
+                max_scroll = max(0, len(all_lines) - max_visible)
+                if not self._user_scrolled:
+                    self.scroll_line = max_scroll
+                else:
+                    self.scroll_line = max(0, min(max_scroll, self.scroll_line))
+
+                start_idx = self.scroll_line
+                visible_slice = all_lines[start_idx : start_idx + max_visible]
 
                 cur_y = py + head_h + int(6 * scale)
-                for i, item in enumerate(display_items):
-                    t_val = item.get("t", 0)
-                    time_str = f"{t_val//60:02d}:{t_val%60:02d}"
-                    d.text((px + int(10 * scale), cur_y), time_str, fill=cfg['muted'], font=fnt_time)
+                for wl, is_last_live in visible_slice:
+                    d.text((tx_x, cur_y), wl, fill=cfg['text'], font=fnt_text)
 
-                    tx_x = px + int(37 * scale)
-                    words = item.get("text", "").split()
-                    l_lines = []
-                    c_line = []
-                    for w in words:
-                        c_line.append(w)
-                        if len(" ".join(c_line)) > 32:
-                            l_lines.append(" ".join(c_line))
-                            c_line = []
-                    if c_line:
-                        l_lines.append(" ".join(c_line))
-                    if not l_lines:
-                        l_lines = [""]
-                    if len(l_lines) > 2:
-                        l_lines = l_lines[:2]
-
-                    for l_idx, tl in enumerate(l_lines):
-                        d.text((tx_x, cur_y + l_idx * int(12 * scale)), tl, fill=cfg['text'], font=fnt_text)
-
-                    # Karetka | na końcu ostatniej linii
-                    if i == len(display_items) - 1 and (self.mode in ("recording", "transcribing") or item.get("live")):
-                        last_line = l_lines[-1]
-                        bbox = d.textbbox((tx_x, cur_y + (len(l_lines)-1) * int(12 * scale)), last_line, font=fnt_text)
+                    # Karetka | na końcu ostatniej linii podczas nagrywania na żywo
+                    if is_last_live and self.mode in ("recording", "transcribing"):
+                        bbox = d.textbbox((tx_x, cur_y), wl, font=fnt_text)
                         caret_x = bbox[2] + int(2 * scale)
-                        caret_y = bbox[1] + int(1 * scale)
+                        caret_y = cur_y + int(1.5 * scale)
                         if int(t_now * 2) % 2 == 0:
-                            d.rounded_rectangle([caret_x, caret_y, caret_x + int(2.5 * scale), caret_y + int(8 * scale)], radius=int(1*scale), fill=cfg['accent'])
+                            d.rounded_rectangle([caret_x, caret_y, caret_x + int(2.5 * scale), caret_y + int(9 * scale)], radius=int(1*scale), fill=cfg['accent'])
 
-                    cur_y += max(int(22 * scale), len(l_lines) * int(12 * scale) + int(2 * scale))
+                    cur_y += line_h
 
-            # Pasek przewijania
+            # Pasek przewijania (interaktywny suwak)
             sb_x = px + pw - int(8 * scale)
             sb_y = py + head_h + int(5 * scale)
             sb_w = int(3.5 * scale)
-            sb_h = int(50 * scale)
+            sb_h = max(10, ph - head_h - int(10 * scale))
             d.rounded_rectangle([sb_x, sb_y, sb_x + sb_w, sb_y + sb_h], radius=int(sb_w/2), fill=cfg['scroll_track'])
-            thumb_h = int(24 * scale)
-            d.rounded_rectangle([sb_x, sb_y + int(6*scale), sb_x + sb_w, sb_y + int(6*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
+
+            if len(all_lines) > max_visible:
+                max_scroll = len(all_lines) - max_visible
+                thumb_h = max(int(14 * scale), int(sb_h * (max_visible / float(len(all_lines)))))
+                scroll_ratio = max(0.0, min(1.0, self.scroll_line / float(max_scroll)))
+                thumb_y = sb_y + int((sb_h - thumb_h) * scroll_ratio)
+                thumb_fill = cfg['accent'] if self._hover_target == 'scrollbar' or self._is_scrolling else cfg['scroll_thumb']
+                d.rounded_rectangle([sb_x, thumb_y, sb_x + sb_w, thumb_y + thumb_h], radius=int(sb_w/2), fill=thumb_fill)
+            else:
+                thumb_h = int(24 * scale)
+                d.rounded_rectangle([sb_x, sb_y + int(4*scale), sb_x + sb_w, sb_y + int(4*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
 
         else:
             # Panel zwinięty: przycisk "Pokaż transkrypcję"
@@ -1202,23 +1285,28 @@ class FloatingOverlay:
         if text:
             with self._lock:
                 self.live_tail = text.strip()
+                if not self._user_scrolled:
+                    self.scroll_line = 999999
             self._dirty = True
 
     def add_transcript_entry(self, text: str, timestamp_s: float = None):
         if not text:
             return
         with self._lock:
-            t = int(timestamp_s if timestamp_s is not None else (time.time() - self._start_time if self._start_time > 0 else 0))
-            self.transcript_lines.append({"t": max(0, t), "text": text.strip()})
-            if len(self.transcript_lines) > 50:
-                self.transcript_lines = self.transcript_lines[-50:]
+            self.transcript_lines.append({"text": text.strip()})
+            if len(self.transcript_lines) > 100:
+                self.transcript_lines = self.transcript_lines[-100:]
             self.live_tail = ""
+            if not self._user_scrolled:
+                self.scroll_line = 999999
         self._dirty = True
 
     def clear_transcript(self):
         with self._lock:
             self.transcript_lines = []
             self.live_tail = ""
+            self.scroll_line = 0
+            self._user_scrolled = False
         self._dirty = True
 
     def show(self):

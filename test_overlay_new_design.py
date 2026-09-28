@@ -45,5 +45,31 @@ class TestOverlayNewDesign(unittest.TestCase):
         ov.close()
         time.sleep(0.1)
 
+    def test_scroll_and_timestamp_free_transcript(self):
+        ov = FloatingOverlay(theme='dark')
+        ov.panel_open = True
+        
+        for i in range(12):
+            ov.add_transcript_entry(f"Zdanie testowe {i+1}: weryfikacja przewijania i braku znaczników czasu.")
+        
+        # Renderuj klatkę
+        ov._render_frame(time.time())
+        self.assertGreater(ov._total_lines_count, ov._max_visible_lines)
+        self.assertFalse(ov._user_scrolled)
+        
+        # Przewiń kółkiem myszy w górę (delta = +120)
+        ov._wnd_proc(ov.hwnd, 0x020A, (120 << 16), 0)
+        ov._render_frame(time.time())
+        self.assertTrue(ov._user_scrolled)
+        
+        # Przewiń z powrotem w dół do końca
+        for _ in range(10):
+            ov._wnd_proc(ov.hwnd, 0x020A, ((-120 & 0xFFFF) << 16), 0)
+        ov._render_frame(time.time())
+        self.assertFalse(ov._user_scrolled)
+        
+        ov.close()
+        time.sleep(0.1)
+
 if __name__ == '__main__':
     unittest.main()

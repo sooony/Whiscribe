@@ -17,7 +17,8 @@ NON_EDITABLE_WINDOW_CLASSES = {
     'SHELLDLL_DefView',           # Widok folderu / pulpit
     'SysListView32',              # Lista ikon pulpitu
     'Win11VoiceTypingOverlayClass', # Własny widżet aplikacji
-    'VoiceWavePillGlassMainClass'   # Poprzednia klasa widżetu
+    'VoiceWavePillGlassMainClass',  # Poprzednia klasa widżetu
+    'VoiceUI250x90Class'            # Nowy widżet Compact Voice UI
 }
 
 # Typy kontrolek UI Automation, które nie są polami tekstowymi
@@ -113,14 +114,14 @@ def _check_win32_caret() -> tuple[bool, str]:
         logger.debug(f"Błąd Win32 GUIThreadInfo: {e}")
     return False, ""
 
-def is_text_field_focused() -> tuple[bool, str]:
+def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
     """
     Rygorystycznie sprawdza przed rozpoczęciem dyktowania, czy aktywne okno lub kontrolka
     to edytowalne pole tekstowe.
     Zapobiega uruchomieniu syntezatora i przypadkowemu wędrowaniu po ikonach
     pulpitu lub wywoływaniu skrótów klawiszowych w nieodpowiednich aplikacjach.
     """
-    hwnd_fg = user32.GetForegroundWindow()
+    hwnd_fg = target_hwnd if (target_hwnd and user32.IsWindow(target_hwnd)) else user32.GetForegroundWindow()
     if not hwnd_fg:
         return False, "Brak aktywnego okna na pierwszym planie"
 

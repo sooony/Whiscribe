@@ -12,6 +12,8 @@ import wave
 import math
 import struct
 
+import tempfile
+
 def _generate_soft_chime(freq1=540, freq2=None, duration_ms=35, volume=0.18):
     sr = 22050
     n = int(sr * duration_ms / 1000.0)
@@ -30,10 +32,29 @@ def _generate_soft_chime(freq1=540, freq2=None, duration_ms=35, volume=0.18):
         wf.writeframes(b''.join(frames))
     return buf.getvalue()
 
-CHIME_START = _generate_soft_chime(560, duration_ms=35, volume=0.18)
-CHIME_STOP = _generate_soft_chime(440, duration_ms=28, volume=0.15)
-CHIME_READY = _generate_soft_chime(520, duration_ms=25, volume=0.12)
-CHIME_ERROR = _generate_soft_chime(380, freq2=320, duration_ms=45, volume=0.15)
+CHIME_START = _generate_soft_chime(560, duration_ms=45, volume=0.25)
+CHIME_STOP = _generate_soft_chime(440, duration_ms=38, volume=0.22)
+CHIME_READY = _generate_soft_chime(520, duration_ms=30, volume=0.18)
+CHIME_ERROR = _generate_soft_chime(380, freq2=320, duration_ms=55, volume=0.22)
+
+_CHIME_FILES = {}
+try:
+    _temp_dir = tempfile.gettempdir()
+    for _name, _data in [('start', CHIME_START), ('stop', CHIME_STOP), ('ready', CHIME_READY), ('error', CHIME_ERROR)]:
+        _fpath = os.path.join(_temp_dir, f"voice_ui_chime_{_name}.wav")
+        with open(_fpath, 'wb') as _f:
+            _f.write(_data)
+        _CHIME_FILES[_name] = _fpath
+except Exception as _e:
+    logging.getLogger("App").debug(f"Błąd zapisu plików dźwiękowych: {_e}")
+
+def _play_chime_file(name):
+    p = _CHIME_FILES.get(name)
+    if p and os.path.exists(p):
+        try:
+            winsound.PlaySound(p, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+        except Exception:
+            pass
 
 if sys.stdout is not None:
     try:
@@ -320,42 +341,33 @@ class DictationApp:
     def _play_start_chime(self):
         """Łagodny, krótki dźwięk rozpoczęcia wpisywania głosowego."""
         if self.config.get("sound_feedback", True):
-            try:
-                winsound.PlaySound(CHIME_START, winsound.SND_MEMORY | winsound.SND_ASYNC)
-            except Exception:
-                pass
+            _play_chime_file('start')
 
     def _play_stop_chime(self):
         """Łagodny, krótki dźwięk zakończenia wpisywania głosowego."""
         if self.config.get("sound_feedback", True):
-            try:
-                winsound.PlaySound(CHIME_STOP, winsound.SND_MEMORY | winsound.SND_ASYNC)
-            except Exception:
-                pass
+            _play_chime_file('stop')
 
     def _play_error_chime(self):
         """Łagodny dźwięk ostrzegawczy przy braku pola tekstowego."""
         if self.config.get("sound_feedback", True):
-            try:
-                winsound.PlaySound(CHIME_ERROR, winsound.SND_MEMORY | winsound.SND_ASYNC)
-            except Exception:
-                pass
+            _play_chime_file('error')
 
     def _play_ready_chime(self):
         """Krótki, subtelny ton gotowości."""
         if self.config.get("sound_feedback", True):
-            try:
-                winsound.PlaySound(CHIME_READY, winsound.SND_MEMORY | winsound.SND_ASYNC)
-            except Exception:
-                pass
+            _play_chime_file('ready')
 
     def _play_beep(self, freq=None, duration=None):
         self._play_ready_chime()
 
     def start_recording(self):
         # 1. Rygorystyczny czujnik aktywnego pola tekstowego
+        cur_fg = user32.GetForegroundWindow()
+        check_hwnd = self.last_active_hwnd if (self.overlay and cur_fg == self.overlay.hwnd and self.last_active_hwnd) else None
+
         if self.config.get("require_text_field", True):
-            is_focused, reason = is_text_field_focused()
+            is_focused, reason = is_text_field_focused(check_hwnd)
             if not is_focused:
                 logger.warning(f"Zablokowano start dyktowania – brak aktywnego pola tekstowego ({reason})")
                 self._play_error_chime()
@@ -363,6 +375,10 @@ class DictationApp:
                     self.overlay.show()
                     self.overlay.show_error_balloon()
                 return
+
+        # Jeśli użytkownik kliknął widżet, przywróć fokus do docelowego okna roboczego
+        if check_hwnd and user32.IsWindow(check_hwnd):
+            safe_bring_to_foreground(check_hwnd)
 
         # 2. Bezpieczna zmiana stanu pod lockiem PRZED startem mikrofonu
         with self._lock:
