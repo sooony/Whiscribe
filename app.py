@@ -222,7 +222,7 @@ class DictationApp:
         self._hotkey_watchdog_thread.start()
 
     def _type_stream_chunk(self, chunk: str):
-        """Wpisuje słowa w przód (Forward-only) z inteligentnym buforowaniem poza oknem docelowym."""
+        """Wpisuje słowa w przód (Forward-only) z ciągłym streamingiem do zablokowanego okna docelowego (nawet przy pracy na 2 monitorach)."""
         if not chunk:
             return
 
@@ -239,10 +239,24 @@ class DictationApp:
                 send_unicode_string(full_chunk)
                 return
 
-            # 2. Użytkownik przegląda inną aplikację (np. Chrome) w trakcie nagrywania
-            # Bezpiecznie buforujemy tekst bez blokowania wątku i bez kradzieży fokusu w trakcie klikania!
+            # 2. Użytkownik przegląda drugie okno (np. Chrome na drugim monitorze)
             if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):
-                self.buffered_untyped_text += chunk
+                # Jeśli użytkownik akurat fizycznie trzyma wciśnięty przycisk myszy (np. klika/zaznacza w Chrome),
+                # buforujemy na ten moment, aby nie przerwać zaznaczania:
+                if is_mouse_down():
+                    self.buffered_untyped_text += chunk
+                    return
+
+                # Błyskawiczny mikro-impuls (Micro-Pulse):
+                # Przekierowujemy wpisywanie do okna docelowego na Monitorze 1 i natychmiast wracamy do Chrome na Monitorze 2
+                other_fg = cur_fg
+                full_chunk = self.buffered_untyped_text + chunk if self.buffered_untyped_text else chunk
+                self.buffered_untyped_text = ""
+
+                safe_bring_to_foreground(self.target_hwnd)
+                send_unicode_string(full_chunk)
+                if other_fg and user32.IsWindow(other_fg) and other_fg != self.target_hwnd:
+                    safe_bring_to_foreground(other_fg)
             else:
                 send_unicode_string(chunk)
 

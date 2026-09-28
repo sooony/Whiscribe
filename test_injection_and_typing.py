@@ -72,7 +72,11 @@ class Win32EditContext:
             0, 0, 0, 0
         )
         user32.ShowWindow(self.wnd, 5)
-        user32.SetForegroundWindow(self.wnd)
+        try:
+            from app import safe_bring_to_foreground
+            safe_bring_to_foreground(self.wnd)
+        except Exception:
+            user32.SetForegroundWindow(self.wnd)
         user32.SetFocus(self.wnd)
         self.pump(5)
         time.sleep(0.08)
