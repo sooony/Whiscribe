@@ -129,8 +129,8 @@ class TestV2Features(unittest.TestCase):
             overlay.close()
 
     def test_three_dots_menu_integration(self):
-        """Weryfikacja podłączenia menu trzech kropek do menu tray_icon."""
-        import pystray, time
+        """Weryfikacja podłączenia menu trzech kropek do menu tray_icon bez błędów Win32."""
+        import pystray, time, threading, ctypes
         from PIL import Image
 
         handler_called = []
@@ -149,6 +149,33 @@ class TestV2Features(unittest.TestCase):
         # Wywołanie deskryptora (dokładnie tak jak w _show_settings_menu)
         descriptors[0](icon)
         self.assertTrue(len(handler_called) > 0 and handler_called[0])
+
+        # Test wywołania _show_settings_menu z wątku roboczego z własnym oknem hosta
+        class MockApp:
+            def __init__(self):
+                self.config = {"theme": "dark", "stream_realtime": False, "require_text_field": True}
+                self.state = "idle"
+                self.overlay = None
+                self.tray_icon = icon
+
+            _show_settings_menu = app.DictationApp._show_settings_menu
+            _show_fallback_win32_menu = app.DictationApp._show_fallback_win32_menu
+
+        mock = MockApp()
+        user32 = ctypes.windll.user32
+        def cancel_tray():
+            time.sleep(0.1)
+            h = user32.FindWindowW("STATIC", "WhiscribeMenuHost")
+            if h:
+                user32.PostMessageW(h, 0x001F, 0, 0)
+
+        t = threading.Thread(target=cancel_tray)
+        t.start()
+        ctypes.set_last_error(0)
+        mock._show_settings_menu(200, 200)
+        self.assertEqual(ctypes.GetLastError(), 0, "Menu nie może zwracać błędu Win32 (np. ERROR_INVALID_PARAMETER 87)")
+        t.join()
+
         icon.stop()
 
 if __name__ == "__main__":

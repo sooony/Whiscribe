@@ -1063,37 +1063,70 @@ class DictationApp:
     def _show_settings_menu(self, screen_x, screen_y):
         """Wyświetla pełne menu kontekstowe Whiscribe (identyczne z menu zasobnika systemowego)."""
         logger.info(f"Otwieranie menu kontekstowego na pozycji ({screen_x}, {screen_y})")
-        # 1. Preferowane: natywne menu pystray tray_icon (100% spójności ze stanem i zasobnikiem)
-        if self.tray_icon and hasattr(self.tray_icon, '_hwnd') and self.tray_icon._hwnd and hasattr(self.tray_icon, '_menu_hwnd'):
-            try:
-                import pystray._util.win32 as w
-                self.tray_icon.update_menu()
-                if self.tray_icon._menu_handle:
-                    hmenu, descriptors = self.tray_icon._menu_handle
-                    w.SetForegroundWindow(self.tray_icon._hwnd)
-                    flags = w.TPM_RIGHTALIGN | w.TPM_TOPALIGN | w.TPM_RETURNCMD
-                    idx = w.TrackPopupMenuEx(
-                        hmenu,
-                        flags,
-                        int(screen_x),
-                        int(screen_y),
-                        self.tray_icon._menu_hwnd,
-                        None
-                    )
-                    w.PostMessage(self.tray_icon._hwnd, 0, 0, 0)
-                    if idx > 0 and idx <= len(descriptors):
-                        cb = descriptors[idx - 1]
-                        cb(self.tray_icon)
-                    return
-            except Exception as e:
-                logger.error(f"Błąd wyświetlania menu przez tray_icon: {e}", exc_info=True)
+        if getattr(self, '_menu_open', False):
+            logger.info("Menu jest już otwarte, pomijanie podwójnego kliknięcia.")
+            return
+        self._menu_open = True
+        try:
+            user32 = ctypes.windll.user32
+            kernel32 = ctypes.windll.kernel32
 
-        # 2. Fallback: bezpośrednie menu Win32 (np. w środowiskach testowych)
-        self._show_fallback_win32_menu(screen_x, screen_y)
+            # Sprawdź i uzupełnij współrzędne ekranowe
+            if not screen_x or not screen_y or screen_x <= 0 or screen_y <= 0:
+                pt = wintypes.POINT()
+                user32.GetCursorPos(ctypes.byref(pt))
+                screen_x, screen_y = pt.x, pt.y
+
+            # Wyrównanie: jeśli kliknięto po prawej stronie okna (przycisk •••), menu rozwija się do wewnątrz
+            flags = 0x0008 | 0x0000 | 0x0100  # TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_RETURNCMD
+            if self.overlay and screen_x < self.overlay.pos_x + (self.overlay.bw // 2):
+                flags = 0x0000 | 0x0000 | 0x0100  # TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD
+
+            # 1. Preferowane: natywne menu pystray tray_icon (100% spójności ze stanem i zasobnikiem)
+            if self.tray_icon and hasattr(self.tray_icon, '_hwnd') and self.tray_icon._hwnd:
+                try:
+                    import pystray._util.win32 as w
+                    self.tray_icon.update_menu()
+                    if self.tray_icon._menu_handle:
+                        hmenu, descriptors = self.tray_icon._menu_handle
+
+                        # Tworzymy tymczasowe okno hosta powiązane z BIEŻĄCYM wątkiem (eliminuje błąd Win32 ERROR_INVALID_PARAMETER 87)
+                        hwnd_owner = user32.CreateWindowExW(
+                            0, "STATIC", "WhiscribeMenuHost",
+                            0x80000000,  # WS_POPUP
+                            int(screen_x), int(screen_y), 0, 0,
+                            0, None, kernel32.GetModuleHandleW(None), None
+                        )
+                        try:
+                            user32.SetForegroundWindow(hwnd_owner)
+                            idx = w.TrackPopupMenuEx(
+                                hmenu,
+                                flags,
+                                int(screen_x),
+                                int(screen_y),
+                                hwnd_owner,
+                                None
+                            )
+                            user32.PostMessageW(hwnd_owner, 0, 0, 0)
+                        finally:
+                            user32.DestroyWindow(hwnd_owner)
+
+                        if idx > 0 and idx <= len(descriptors):
+                            cb = descriptors[idx - 1]
+                            cb(self.tray_icon)
+                        return
+                except Exception as e:
+                    logger.error(f"Błąd wyświetlania menu przez tray_icon: {e}", exc_info=True)
+
+            # 2. Fallback: bezpośrednie menu Win32 (np. w środowiskach testowych)
+            self._show_fallback_win32_menu(screen_x, screen_y)
+        finally:
+            self._menu_open = False
 
     def _show_fallback_win32_menu(self, screen_x, screen_y):
         """Wyświetla zapasowe menu Win32 gdy pystray nie jest jeszcze zainicjalizowany."""
         user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
 
         h_menu = user32.CreatePopupMenu()
         h_theme_sub = user32.CreatePopupMenu()
@@ -1192,22 +1225,29 @@ class DictationApp:
         user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj do paska zadań")
         user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
 
-        hwnd = self.overlay.hwnd if self.overlay else 0
-        if hwnd:
-            user32.SetForegroundWindow(hwnd)
-        user32.TrackPopupMenuEx.restype = wintypes.UINT
-        user32.TrackPopupMenuEx.argtypes = [
-            wintypes.HMENU,
-            wintypes.UINT,
-            ctypes.c_int,
-            ctypes.c_int,
-            wintypes.HWND,
-            ctypes.c_void_p
-        ]
-        cmd = user32.TrackPopupMenuEx(h_menu, 0x0100 | 0x0008, int(screen_x), int(screen_y), hwnd, None)
-        if hwnd:
-            user32.PostMessageW(hwnd, 0, 0, 0)
-        user32.DestroyMenu(h_menu)
+        hwnd_owner = user32.CreateWindowExW(
+            0, "STATIC", "WhiscribeFallbackMenuHost",
+            0x80000000,  # WS_POPUP
+            int(screen_x), int(screen_y), 0, 0,
+            0, None, kernel32.GetModuleHandleW(None), None
+        )
+        try:
+            user32.SetForegroundWindow(hwnd_owner)
+            user32.TrackPopupMenuEx.restype = wintypes.UINT
+            user32.TrackPopupMenuEx.argtypes = [
+                wintypes.HMENU,
+                wintypes.UINT,
+                ctypes.c_int,
+                ctypes.c_int,
+                wintypes.HWND,
+                ctypes.c_void_p
+            ]
+            flags = 0x0100 | 0x0008  # TPM_RETURNCMD | TPM_RIGHTALIGN
+            cmd = user32.TrackPopupMenuEx(h_menu, flags, int(screen_x), int(screen_y), hwnd_owner, None)
+            user32.PostMessageW(hwnd_owner, 0, 0, 0)
+        finally:
+            user32.DestroyWindow(hwnd_owner)
+            user32.DestroyMenu(h_menu)
 
         if cmd == 101:
             self.toggle_streaming_mode()

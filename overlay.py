@@ -683,19 +683,19 @@ class FloatingOverlay:
         # 2. Sprawdź kontrolki na belce okna (.window-bar)
         if self._is_inside_bar(x, y):
             # Przycisk Zamknij ✕
-            if abs(x - self.bar_close_cx) <= 11 and abs(y - self.bar_close_cy) <= 11:
+            if abs(x - self.bar_close_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_close'
 
             # Przycisk Zminimalizuj −
-            if abs(x - self.bar_min_cx) <= 11 and abs(y - self.bar_min_cy) <= 11:
+            if abs(x - self.bar_min_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_minimize'
 
             # Przycisk Menu •••
-            if abs(x - self.bar_menu_cx) <= 11 and abs(y - self.bar_menu_cy) <= 11:
+            if abs(x - self.bar_menu_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_menu'
 
             # Przycisk Pokaż / Zwiń transkrypcję
-            if (self.tgl_btn_x <= x <= self.tgl_btn_x + self.tgl_btn_w) and (self.tgl_btn_y <= y <= self.tgl_btn_y + self.tgl_btn_h):
+            if (self.tgl_btn_x <= x <= self.tgl_btn_x + self.tgl_btn_w) and (self.by <= y <= self.by + self.bh):
                 return 'btn_toggle_transcript'
 
             # Przeciąganie za belkę okna
@@ -926,7 +926,7 @@ class FloatingOverlay:
                 elif target == 'btn_rozumiem':
                     self.hide_balloon()
 
-                elif target == 'btn_bar_menu':
+                elif target == 'btn_bar_menu' or (self._pressed_btn == 'btn_bar_menu' and abs(x - self.bar_menu_cx) <= 15 and (self.by - 2 <= y <= self.by + self.bh + 2)):
                     menu_screen_x = self.pos_x + int(self.bar_menu_cx)
                     menu_screen_y = self.pos_y + int(self.by + self.bh)
                     if self.settings_handler:
