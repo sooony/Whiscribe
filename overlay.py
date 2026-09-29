@@ -152,7 +152,12 @@ THEMES = {
         'panel_bg': (250, 252, 255, 245),
         'panel_border': (99, 122, 160, 48),
         'bar_bg': (214, 223, 237, 235),
-        'toggle_active_bg': (72, 94, 220, 42),
+        'toggle_active_bg': (186, 202, 228, 255),
+        'toggle_hover_bg': (200, 212, 230, 255),
+        'toggle_active_hover_bg': (176, 194, 222, 255),
+        'btn_hover_bg': (200, 212, 230, 255),
+        'btn_close_hover_bg': (250, 210, 215, 255),
+        'panel_close_hover_bg': (235, 240, 248, 255),
         'text': (24, 49, 82, 255),
         'muted': (116, 133, 163, 255),
         'wave': (127, 142, 170, 240),
@@ -163,8 +168,8 @@ THEMES = {
         'mic_standby_color': (72, 97, 127, 255),
         'meet_standby_bg': (214, 221, 232, 255),
         'meet_standby_color': (255, 255, 255, 255),
-        'scroll_thumb': (100, 120, 154, 95),
-        'scroll_track': (100, 120, 154, 18),
+        'scroll_thumb': (180, 195, 218, 255),
+        'scroll_track': (238, 242, 248, 255),
         'shadow_alpha': 20,
         'glow1': (105, 157, 255, 12),
         'glow2': (178, 112, 255, 10)
@@ -174,7 +179,12 @@ THEMES = {
         'panel_bg': (20, 28, 41, 238),
         'panel_border': (151, 173, 216, 42),
         'bar_bg': (18, 24, 36, 235),
-        'toggle_active_bg': (72, 94, 220, 45),
+        'toggle_active_bg': (36, 50, 78, 255),
+        'toggle_hover_bg': (28, 38, 56, 255),
+        'toggle_active_hover_bg': (46, 62, 94, 255),
+        'btn_hover_bg': (30, 40, 60, 255),
+        'btn_close_hover_bg': (64, 28, 36, 255),
+        'panel_close_hover_bg': (30, 42, 62, 255),
         'text': (237, 243, 255, 255),
         'muted': (145, 161, 191, 255),
         'wave': (132, 147, 177, 240),
@@ -185,8 +195,8 @@ THEMES = {
         'mic_standby_color': (223, 232, 251, 255),
         'meet_standby_bg': (45, 55, 71, 255),
         'meet_standby_color': (255, 255, 255, 230),
-        'scroll_thumb': (185, 199, 228, 90),
-        'scroll_track': (185, 199, 228, 15),
+        'scroll_thumb': (85, 105, 140, 255),
+        'scroll_track': (28, 38, 54, 255),
         'shadow_alpha': 40,
         'glow1': (105, 157, 255, 16),
         'glow2': (178, 112, 255, 14)
@@ -196,7 +206,12 @@ THEMES = {
         'panel_bg': (255, 255, 255, 185),
         'panel_border': (255, 255, 255, 180),
         'bar_bg': (206, 218, 236, 190),
-        'toggle_active_bg': (72, 94, 220, 45),
+        'toggle_active_bg': (180, 198, 226, 255),
+        'toggle_hover_bg': (194, 208, 230, 255),
+        'toggle_active_hover_bg': (170, 190, 220, 255),
+        'btn_hover_bg': (194, 208, 230, 255),
+        'btn_close_hover_bg': (250, 212, 216, 255),
+        'panel_close_hover_bg': (236, 242, 250, 255),
         'text': (42, 65, 102, 255),
         'muted': (113, 132, 165, 255),
         'wave': (128, 145, 179, 240),
@@ -207,8 +222,8 @@ THEMES = {
         'mic_standby_color': (42, 65, 102, 255),
         'meet_standby_bg': (235, 242, 252, 210),
         'meet_standby_color': (65, 102, 238, 240),
-        'scroll_thumb': (103, 124, 162, 100),
-        'scroll_track': (103, 124, 162, 20),
+        'scroll_thumb': (170, 188, 215, 255),
+        'scroll_track': (235, 240, 248, 255),
         'shadow_alpha': 18,
         'glow1': (150, 190, 255, 22),
         'glow2': (200, 170, 255, 18)
@@ -218,7 +233,12 @@ THEMES = {
         'panel_bg': (22, 37, 65, 215),
         'panel_border': (228, 237, 255, 75),
         'bar_bg': (18, 28, 48, 215),
-        'toggle_active_bg': (78, 105, 239, 50),
+        'toggle_active_bg': (36, 56, 92, 255),
+        'toggle_hover_bg': (28, 42, 70, 255),
+        'toggle_active_hover_bg': (46, 68, 108, 255),
+        'btn_hover_bg': (30, 44, 72, 255),
+        'btn_close_hover_bg': (68, 28, 40, 255),
+        'panel_close_hover_bg': (32, 48, 78, 255),
         'text': (241, 245, 255, 255),
         'muted': (173, 191, 223, 255),
         'wave': (166, 182, 215, 240),
@@ -229,8 +249,8 @@ THEMES = {
         'mic_standby_color': (223, 232, 251, 255),
         'meet_standby_bg': (50, 70, 105, 210),
         'meet_standby_color': (255, 255, 255, 230),
-        'scroll_thumb': (207, 222, 249, 90),
-        'scroll_track': (207, 222, 249, 15),
+        'scroll_thumb': (90, 115, 155, 255),
+        'scroll_track': (30, 44, 72, 255),
         'shadow_alpha': 42,
         'glow1': (105, 157, 255, 22),
         'glow2': (178, 112, 255, 18)
@@ -240,9 +260,14 @@ THEMES = {
         'panel_bg': (86, 111, 235, 215),
         'panel_border': (255, 255, 255, 140),
         'bar_bg': (74, 76, 171, 190),
-        'toggle_active_bg': (255, 255, 255, 60),
+        'toggle_active_bg': (105, 115, 225, 255),
+        'toggle_hover_bg': (90, 96, 200, 255),
+        'toggle_active_hover_bg': (120, 130, 240, 255),
+        'btn_hover_bg': (90, 96, 200, 255),
+        'btn_close_hover_bg': (170, 50, 75, 255),
+        'panel_close_hover_bg': (100, 120, 240, 255),
         'text': (255, 255, 255, 255),
-        'muted': (235, 242, 255, 220),
+        'muted': (220, 230, 255, 230),
         'wave': (240, 245, 255, 230),
         'accent': (255, 255, 255, 255),
         'danger': (255, 45, 65, 255),
@@ -251,8 +276,8 @@ THEMES = {
         'mic_standby_color': (255, 255, 255, 255),
         'meet_standby_bg': (255, 255, 255, 55),
         'meet_standby_color': (255, 255, 255, 255),
-        'scroll_thumb': (255, 255, 255, 130),
-        'scroll_track': (255, 255, 255, 35),
+        'scroll_thumb': (160, 180, 255, 255),
+        'scroll_track': (95, 115, 220, 255),
         'shadow_alpha': 35,
         'glow1': (105, 175, 255, 35),
         'glow2': (255, 116, 220, 30)
@@ -1145,11 +1170,11 @@ class FloatingOverlay:
             btn_w = pw - int(32 * scale)
             btn_h = int(24 * scale)
             if self.theme in ('light', 'glass_light'):
-                btn_fill = (220, 232, 255, 250) if self._hover_target == 'btn_rozumiem' else (205, 220, 250, 250)
+                btn_fill = (220, 232, 255, 255) if self._hover_target == 'btn_rozumiem' else (205, 220, 250, 255)
             elif self.theme == 'glass_color':
-                btn_fill = (255, 255, 255, 80) if self._hover_target == 'btn_rozumiem' else (255, 255, 255, 55)
+                btn_fill = (130, 150, 255, 255) if self._hover_target == 'btn_rozumiem' else (110, 130, 245, 255)
             else:
-                btn_fill = (45, 60, 90, 250) if self._hover_target == 'btn_rozumiem' else (35, 48, 75, 250)
+                btn_fill = (45, 60, 90, 255) if self._hover_target == 'btn_rozumiem' else (35, 48, 75, 255)
             d.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=int(6*scale), fill=btn_fill, outline=cfg['panel_border'])
             d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), "Rozumiem", fill=cfg['text'], font=fnt_tab, anchor="mm")
 
@@ -1174,9 +1199,9 @@ class FloatingOverlay:
             close_px = px + pw - int(14 * scale)
             close_py = py + int(11 * scale)
             if self._hover_target == 'btn_panel_close':
-                d.ellipse([close_px - int(8*scale), close_py - int(8*scale), close_px + int(8*scale), close_py + int(8*scale)], fill=(128, 145, 175, 45))
+                d.ellipse([close_px - int(7*scale), close_py - int(7*scale), close_px + int(7*scale), close_py + int(7*scale)], fill=cfg.get('panel_close_hover_bg', (200, 210, 230, 255)))
             csz = int(3.5 * scale)
-            close_col = cfg['text'] if self._hover_target == 'btn_panel_close' else cfg['muted']
+            close_col = (255, 80, 80, 255) if self._hover_target == 'btn_panel_close' else cfg['muted']
             d.line([(close_px - csz, close_py - csz), (close_px + csz, close_py + csz)], fill=close_col, width=max(1, int(1.3 * scale)))
             d.line([(close_px - csz, close_py + csz), (close_px + csz, close_py - csz)], fill=close_col, width=max(1, int(1.3 * scale)))
 
@@ -1310,14 +1335,19 @@ class FloatingOverlay:
         tgl_w = int(self.tgl_btn_w * scale)
         tgl_h = int(self.tgl_btn_h * scale)
 
+        is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
+
         if self.panel_open:
-            d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_active_bg', (72, 94, 220, 42)))
+            if self._hover_target == 'btn_toggle_transcript':
+                d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_active_hover_bg', cfg.get('toggle_active_bg')))
+            else:
+                d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_active_bg'))
             tgl_lbl = "Zwiń transkrypcję"
-            tgl_col = cfg['text']
+            tgl_col = (255, 255, 255, 255) if is_dark else (20, 40, 75, 255)
         elif self._hover_target == 'btn_toggle_transcript':
-            d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=(128, 145, 175, 30))
+            d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_hover_bg', (200, 212, 230, 255)))
             tgl_lbl = "Pokaż transkrypcję"
-            tgl_col = cfg['text']
+            tgl_col = (255, 255, 255, 255) if is_dark else (20, 40, 75, 255)
         else:
             tgl_lbl = "Pokaż transkrypcję"
             tgl_col = cfg['muted']
@@ -1330,25 +1360,25 @@ class FloatingOverlay:
         # 2a. Przycisk Menu ••• (otwiera pełne menu ustawień)
         mcx = int(self.bar_menu_cx * scale)
         if self._hover_target == 'btn_bar_menu':
-            d.rounded_rectangle([mcx - int(9*scale), bar_cy - int(9*scale), mcx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=(128, 145, 175, 35))
+            d.rounded_rectangle([mcx - int(9*scale), bar_cy - int(9*scale), mcx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
         dot_r = int(1.1 * scale)
         sp = int(3.8 * scale)
-        dot_col = cfg['text'] if self._hover_target == 'btn_bar_menu' else cfg['muted']
+        dot_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if self._hover_target == 'btn_bar_menu' else cfg['muted']
         for ox in (-sp, 0, sp):
             d.ellipse([mcx + ox - dot_r, bar_cy - dot_r, mcx + ox + dot_r, bar_cy + dot_r], fill=dot_col)
 
         # 2b. Przycisk Zminimalizuj − (minimalizuje do paska zadań)
         mncx = int(self.bar_min_cx * scale)
         if self._hover_target in ('btn_bar_minimize', 'btn_minimize'):
-            d.rounded_rectangle([mncx - int(9*scale), bar_cy - int(9*scale), mncx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=(128, 145, 175, 35))
+            d.rounded_rectangle([mncx - int(9*scale), bar_cy - int(9*scale), mncx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
         ln_w = int(4.5 * scale)
-        min_col = cfg['text'] if self._hover_target in ('btn_bar_minimize', 'btn_minimize') else cfg['muted']
+        min_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if self._hover_target in ('btn_bar_minimize', 'btn_minimize') else cfg['muted']
         d.line([(mncx - ln_w, bar_cy), (mncx + ln_w, bar_cy)], fill=min_col, width=max(1, int(1.3 * scale)))
 
         # 2c. Przycisk Zamknij ✕ (zamyka / ukrywa aplikację)
         ccx = int(self.bar_close_cx * scale)
         if self._hover_target in ('btn_bar_close', 'btn_close'):
-            d.rounded_rectangle([ccx - int(9*scale), bar_cy - int(9*scale), ccx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=(255, 60, 60, 45))
+            d.rounded_rectangle([ccx - int(9*scale), bar_cy - int(9*scale), ccx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_close_hover_bg', (250, 210, 215, 255)))
         csz = int(3.5 * scale)
         close_col = (255, 80, 80, 255) if self._hover_target in ('btn_bar_close', 'btn_close') else cfg['muted']
         d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=max(1, int(1.3 * scale)))

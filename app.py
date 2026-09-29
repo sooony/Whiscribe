@@ -1061,7 +1061,38 @@ class DictationApp:
         sys.exit(0)
 
     def _show_settings_menu(self, screen_x, screen_y):
-        """Wyświetla zoptymalizowane, czytelne menu ustawień Windows 11 po kliknięciu koła zębatego ⚙."""
+        """Wyświetla pełne menu kontekstowe Whiscribe (identyczne z menu zasobnika systemowego)."""
+        logger.info(f"Otwieranie menu kontekstowego na pozycji ({screen_x}, {screen_y})")
+        # 1. Preferowane: natywne menu pystray tray_icon (100% spójności ze stanem i zasobnikiem)
+        if self.tray_icon and hasattr(self.tray_icon, '_hwnd') and self.tray_icon._hwnd and hasattr(self.tray_icon, '_menu_hwnd'):
+            try:
+                import pystray._util.win32 as w
+                self.tray_icon.update_menu()
+                if self.tray_icon._menu_handle:
+                    hmenu, descriptors = self.tray_icon._menu_handle
+                    w.SetForegroundWindow(self.tray_icon._hwnd)
+                    flags = w.TPM_RIGHTALIGN | w.TPM_TOPALIGN | w.TPM_RETURNCMD
+                    idx = w.TrackPopupMenuEx(
+                        hmenu,
+                        flags,
+                        int(screen_x),
+                        int(screen_y),
+                        self.tray_icon._menu_hwnd,
+                        None
+                    )
+                    w.PostMessage(self.tray_icon._hwnd, 0, 0, 0)
+                    if idx > 0 and idx <= len(descriptors):
+                        cb = descriptors[idx - 1]
+                        cb(self.tray_icon)
+                    return
+            except Exception as e:
+                logger.error(f"Błąd wyświetlania menu przez tray_icon: {e}", exc_info=True)
+
+        # 2. Fallback: bezpośrednie menu Win32 (np. w środowiskach testowych)
+        self._show_fallback_win32_menu(screen_x, screen_y)
+
+    def _show_fallback_win32_menu(self, screen_x, screen_y):
+        """Wyświetla zapasowe menu Win32 gdy pystray nie jest jeszcze zainicjalizowany."""
         user32 = ctypes.windll.user32
 
         h_menu = user32.CreatePopupMenu()
@@ -1162,7 +1193,20 @@ class DictationApp:
         user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
 
         hwnd = self.overlay.hwnd if self.overlay else 0
-        cmd = user32.TrackPopupMenuEx(h_menu, 0x0100 | 0x0002, screen_x, screen_y, hwnd, None)
+        if hwnd:
+            user32.SetForegroundWindow(hwnd)
+        user32.TrackPopupMenuEx.restype = wintypes.UINT
+        user32.TrackPopupMenuEx.argtypes = [
+            wintypes.HMENU,
+            wintypes.UINT,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.HWND,
+            ctypes.c_void_p
+        ]
+        cmd = user32.TrackPopupMenuEx(h_menu, 0x0100 | 0x0008, int(screen_x), int(screen_y), hwnd, None)
+        if hwnd:
+            user32.PostMessageW(hwnd, 0, 0, 0)
         user32.DestroyMenu(h_menu)
 
         if cmd == 101:
