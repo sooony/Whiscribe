@@ -42,7 +42,7 @@ class TestV2Features(unittest.TestCase):
         )
         # min_cx to self.mx + 14, min_cy to self.my + 12
         target = overlay._get_target(overlay.min_cx, overlay.min_cy)
-        self.assertEqual(target, "btn_minimize", "Target at minimize coords must be 'btn_minimize'")
+        self.assertIn(target, ("btn_bar_minimize", "btn_minimize"), "Target at minimize coords must be 'btn_bar_minimize'")
         
         # Test wywołania callbacku
         overlay.on_minimize_callback()

@@ -151,6 +151,8 @@ THEMES = {
         'name': 'Jasny (Light Modern)',
         'panel_bg': (250, 252, 255, 245),
         'panel_border': (99, 122, 160, 48),
+        'bar_bg': (214, 223, 237, 235),
+        'toggle_active_bg': (72, 94, 220, 42),
         'text': (24, 49, 82, 255),
         'muted': (116, 133, 163, 255),
         'wave': (127, 142, 170, 240),
@@ -171,6 +173,8 @@ THEMES = {
         'name': 'Ciemny (Dark Modern)',
         'panel_bg': (20, 28, 41, 238),
         'panel_border': (151, 173, 216, 42),
+        'bar_bg': (18, 24, 36, 235),
+        'toggle_active_bg': (72, 94, 220, 45),
         'text': (237, 243, 255, 255),
         'muted': (145, 161, 191, 255),
         'wave': (132, 147, 177, 240),
@@ -191,6 +195,8 @@ THEMES = {
         'name': 'Glass Jasny (Mica Light)',
         'panel_bg': (255, 255, 255, 185),
         'panel_border': (255, 255, 255, 180),
+        'bar_bg': (206, 218, 236, 190),
+        'toggle_active_bg': (72, 94, 220, 45),
         'text': (42, 65, 102, 255),
         'muted': (113, 132, 165, 255),
         'wave': (128, 145, 179, 240),
@@ -211,6 +217,8 @@ THEMES = {
         'name': 'Glass Ciemny (Mica Dark)',
         'panel_bg': (22, 37, 65, 215),
         'panel_border': (228, 237, 255, 75),
+        'bar_bg': (18, 28, 48, 215),
+        'toggle_active_bg': (78, 105, 239, 50),
         'text': (241, 245, 255, 255),
         'muted': (173, 191, 223, 255),
         'wave': (166, 182, 215, 240),
@@ -231,6 +239,8 @@ THEMES = {
         'name': 'Glass Kolorowy (Vibrant Glass)',
         'panel_bg': (86, 111, 235, 215),
         'panel_border': (255, 255, 255, 140),
+        'bar_bg': (74, 76, 171, 190),
+        'toggle_active_bg': (255, 255, 255, 60),
         'text': (255, 255, 255, 255),
         'muted': (235, 242, 255, 220),
         'wave': (240, 245, 255, 230),
@@ -456,22 +466,48 @@ class FloatingOverlay:
 
         # Wymiary całego okna warstwowego z bezpiecznym buforem dla miękkich cieni (brak uciętych krawędzi)
         self.w = 320
-        self.h = 246
+        self.h = 280
 
         # Moduł dolny (Voice Module): 250x90 px
         self.mw = 250
         self.mh = 90
         self.mx = (self.w - self.mw) // 2       # 35 px margines z lewej i prawej
-        self.my = self.h - self.mh - 22          # 22 px margines od dołu
+        self.my = self.h - self.mh - 20          # 20 px margines od dołu (y=170)
         self.mod_r = 20
 
-        # Panel górny (Transkrypcja z przewijaniem): 250x96 px
+        # Belka górna (Window Bar): 250x27 px
+        self.bw = 250
+        self.bh = 27
+        self.bx = self.mx                       # 35 px (y=143 do 170)
+        self.by = self.my - self.bh             # 143 px
+        self.bar_r = 15
+
+        # Przyciski belki górnej (.window-bar):
+        self.tgl_btn_x = self.bx + 8
+        self.tgl_btn_y = self.by + 4
+        self.tgl_btn_w = 98
+        self.tgl_btn_h = 19
+
+        self.bar_close_cx = self.bx + self.bw - 16   # 269
+        self.bar_close_cy = self.by + 13.5           # 156.5
+        self.bar_min_cx = self.bar_close_cx - 22     # 247
+        self.bar_min_cy = self.by + 13.5             # 156.5
+        self.bar_menu_cx = self.bar_min_cx - 22      # 225
+        self.bar_menu_cy = self.by + 13.5            # 156.5
+
+        # Zachowanie kompatybilności dla dawnych odwołań
+        self.close_cx = self.bar_close_cx
+        self.close_cy = self.bar_close_cy
+        self.min_cx = self.bar_min_cx
+        self.min_cy = self.bar_min_cy
+
+        # Panel górny (Transkrypcja z przewijaniem): 250x110 px
         self.pw = 250
-        self.ph = 96
-        self.px = (self.w - self.pw) // 2       # 35 px margines z lewej i prawej
-        self.py = self.my - self.ph - 8          # 8 px odstęp między panelami (30 px od góry)
+        self.ph = 110
+        self.px = (self.w - self.pw) // 2            # 35 px margines z lewej i prawej
+        self.py = self.by - self.ph - 8              # 8 px odstęp nad belką okna (y=25)
         self.panel_r = 16
-        self.panel_open = False                 # Domyślnie wyłączona transkrypcja!
+        self.panel_open = False                      # Domyślnie wyłączona transkrypcja!
         self.show_live_preview = False
         self._smooth_vol = 0.0
 
@@ -487,14 +523,6 @@ class FloatingOverlay:
         self.handle_h = 3
         self.handle_x = self.mx + (self.mw - self.handle_w) / 2
         self.handle_y = self.my + 6.0
-
-        # Przycisk Zamknij ✕ modułu (prawy górny róg)
-        self.close_cx = self.mx + self.mw - 14
-        self.close_cy = self.my + 12
-
-        # Przycisk Zminimalizuj − do paska zadań (po przeciwnej stronie krzyżyka - lewy górny róg)
-        self.min_cx = self.mx + 14
-        self.min_cy = self.my + 12
 
         # Lewy przycisk mikrofonu (Dyktowanie)
         self.mic_cx = self.mx + 42
@@ -592,6 +620,9 @@ class FloatingOverlay:
     def _is_inside_module(self, x, y):
         return (self.mx <= x <= self.mx + self.mw) and (self.my <= y <= self.my + self.mh)
 
+    def _is_inside_bar(self, x, y):
+        return (self.bx <= x <= self.bx + self.bw) and (self.by <= y <= self.by + self.bh)
+
     def _is_inside_panel(self, x, y):
         if not self.panel_open and not self._balloon_type:
             return False
@@ -611,31 +642,43 @@ class FloatingOverlay:
 
         elif self.panel_open:
             close_px = self.px + self.pw - 14
-            close_py = self.py + 14
+            close_py = self.py + 11
             if abs(x - close_px) <= 12 and abs(y - close_py) <= 12:
                 return 'btn_panel_close'
 
             sb_x = self.px + self.pw - 8
-            sb_y = self.py + 27
-            sb_h = self.ph - 35
+            sb_y = self.py + 24
+            sb_h = self.ph - 32
             if (sb_x - 12 <= x <= sb_x + 12) and (sb_y <= y <= sb_y + sb_h):
                 return 'scrollbar'
 
             if self._is_inside_panel(x, y):
                 return 'panel_content'
-        else:
-            tgl_x = self.mx + self.mw // 2
-            tgl_y = self.my - 10
-            if abs(x - tgl_x) <= 50 and abs(y - tgl_y) <= 10:
-                return 'btn_panel_open'
 
-        # 2. Sprawdź kontrolki w module dolnym
+        # 2. Sprawdź kontrolki na belce okna (.window-bar)
+        if self._is_inside_bar(x, y):
+            # Przycisk Zamknij ✕
+            if abs(x - self.bar_close_cx) <= 11 and abs(y - self.bar_close_cy) <= 11:
+                return 'btn_bar_close'
+
+            # Przycisk Zminimalizuj −
+            if abs(x - self.bar_min_cx) <= 11 and abs(y - self.bar_min_cy) <= 11:
+                return 'btn_bar_minimize'
+
+            # Przycisk Menu •••
+            if abs(x - self.bar_menu_cx) <= 11 and abs(y - self.bar_menu_cy) <= 11:
+                return 'btn_bar_menu'
+
+            # Przycisk Pokaż / Zwiń transkrypcję
+            if (self.tgl_btn_x <= x <= self.tgl_btn_x + self.tgl_btn_w) and (self.tgl_btn_y <= y <= self.tgl_btn_y + self.tgl_btn_h):
+                return 'btn_toggle_transcript'
+
+            # Przeciąganie za belkę okna
+            return 'widget_drag'
+
+        # 3. Sprawdź kontrolki w module dolnym (.voice-module)
         if not self._is_inside_module(x, y):
             return None
-
-        # Zminimalizuj − modułu (po przeciwnej stronie krzyżyka - lewy górny róg)
-        if abs(x - self.min_cx) <= 12 and abs(y - self.min_cy) <= 12:
-            return 'btn_minimize'
 
         # Mikrofon (lewy)
         d_mic = (x - self.mic_cx)**2 + (y - self.mic_cy)**2
@@ -646,10 +689,6 @@ class FloatingOverlay:
         d_meet = (x - self.meet_cx)**2 + (y - self.meet_cy)**2
         if d_meet <= (self.meet_rad + 3)**2:
             return 'btn_meeting'
-
-        # Zamknij ✕ modułu (prawy górny róg)
-        if abs(x - self.close_cx) <= 12 and abs(y - self.close_cy) <= 12:
-            return 'btn_close'
 
         # Przeciąganie modułu
         return 'widget_drag'
@@ -722,10 +761,8 @@ class FloatingOverlay:
             pt = wintypes.POINT(x, y)
             user32.ScreenToClient(hwnd, ctypes.byref(pt))
 
-            if self._is_inside_module(pt.x, pt.y) or self._is_inside_panel(pt.x, pt.y):
+            if self._is_inside_module(pt.x, pt.y) or self._is_inside_bar(pt.x, pt.y) or self._is_inside_panel(pt.x, pt.y):
                 return 1  # HTCLIENT
-            if not self.panel_open and abs(pt.x - (self.mx + self.mw//2)) <= 50 and abs(pt.y - (self.my - 10)) <= 10:
-                return 1
             return -1  # HTTRANSPARENT (kliknięcia obok przelatują bez przeszkód)
 
         elif msg == WM_MOUSEMOVE:
@@ -752,8 +789,8 @@ class FloatingOverlay:
                     0x0001 | 0x0004 | 0x0010
                 )
             elif self._is_scrolling:
-                sb_norm_y = self.py + 27
-                sb_norm_h = max(1, self.ph - 35)
+                sb_norm_y = self.py + 24
+                sb_norm_h = max(1, self.ph - 32)
                 ratio = max(0.0, min(1.0, (y - sb_norm_y) / float(sb_norm_h)))
                 with self._lock:
                     max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
@@ -773,7 +810,7 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_close', 'btn_minimize', 'btn_panel_close', 'btn_panel_open', 'btn_rozumiem', 'scrollbar'):
+            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_transcript', 'btn_close', 'btn_minimize', 'btn_panel_close', 'btn_rozumiem', 'scrollbar'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
             elif self._hover_target in ('widget_drag', 'panel_content', 'balloon_body'):
@@ -804,8 +841,8 @@ class FloatingOverlay:
             elif target == 'scrollbar':
                 self._is_scrolling = True
                 user32.SetCapture(hwnd)
-                sb_norm_y = self.py + 27
-                sb_norm_h = max(1, self.ph - 35)
+                sb_norm_y = self.py + 24
+                sb_norm_h = max(1, self.ph - 32)
                 ratio = max(0.0, min(1.0, (y - sb_norm_y) / float(sb_norm_h)))
                 with self._lock:
                     max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
@@ -857,20 +894,26 @@ class FloatingOverlay:
                     self.panel_open = False
                     self._dirty = True
 
-                elif target == 'btn_panel_open':
-                    self.panel_open = True
+                elif target == 'btn_toggle_transcript':
+                    self.panel_open = not self.panel_open
                     self._dirty = True
 
                 elif target == 'btn_rozumiem':
                     self.hide_balloon()
 
-                elif target == 'btn_minimize':
+                elif target == 'btn_bar_menu':
+                    menu_screen_x = self.pos_x + int(self.bar_menu_cx)
+                    menu_screen_y = self.pos_y + int(self.by + self.bh)
+                    if self.settings_handler:
+                        threading.Thread(target=self.settings_handler, args=(menu_screen_x, menu_screen_y), daemon=True).start()
+
+                elif target in ('btn_bar_minimize', 'btn_minimize'):
                     if self.on_minimize_callback:
                         threading.Thread(target=self.on_minimize_callback, daemon=True).start()
                     else:
                         self.minimize()
 
-                elif target == 'btn_close':
+                elif target in ('btn_bar_close', 'btn_close'):
                     if self.mode == "recording":
                         if self.on_close_callback:
                             threading.Thread(target=self.on_close_callback, daemon=True).start()
@@ -1034,14 +1077,18 @@ class FloatingOverlay:
 
         # Czcionki
         try:
-            fnt_tab = ImageFont.truetype(FONT_BOLD_PATH, int(9.5 * scale))
+            fnt_tab = ImageFont.truetype(FONT_SEMI_PATH, int(8.2 * scale))
             fnt_text = ImageFont.truetype(FONT_REG_PATH, int(8.8 * scale))
             fnt_time = ImageFont.truetype(FONT_REG_PATH, int(8.2 * scale))
             fnt_status = ImageFont.truetype(FONT_REG_PATH, int(8.5 * scale))
-            fnt_timer = ImageFont.truetype(FONT_REG_PATH, int(8.5 * scale))
+            fnt_timer = ImageFont.truetype(FONT_BOLD_PATH, int(8.5 * scale))
             fnt_close = ImageFont.truetype(FONT_REG_PATH, int(15 * scale))
         except Exception:
-            fnt_tab = fnt_text = fnt_time = fnt_status = fnt_timer = fnt_close = ImageFont.load_default()
+            try:
+                fnt_tab = ImageFont.truetype(FONT_BOLD_PATH, int(8.5 * scale))
+            except Exception:
+                fnt_tab = ImageFont.load_default()
+            fnt_text = fnt_time = fnt_status = fnt_timer = fnt_close = ImageFont.load_default()
 
         # Pobierz poziomy głośności
         vol = 0.0
@@ -1107,36 +1154,31 @@ class FloatingOverlay:
             d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), "Rozumiem", fill=cfg['text'], font=fnt_tab, anchor="mm")
 
         elif self.panel_open:
-            # Standardowy panel transkrypcji z prototypu (z miękkim, nieucinającym się cieniem)
-            sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            sd = ImageDraw.Draw(sh)
+            # Uproszczony panel transkrypcji (nagłówek 22px z pojedynczym krzyżykiem z prawej)
+            sh_p = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+            spd = ImageDraw.Draw(sh_p)
             sh_offset_y = int(2.5 * scale)
             sh_blur = int(4.5 * scale)
-            sd.rounded_rectangle([px, py + sh_offset_y, px + pw, py + ph + sh_offset_y], radius=pr, fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
-            sh = sh.filter(ImageFilter.GaussianBlur(radius=sh_blur))
-            img.alpha_composite(sh)
+            spd.rounded_rectangle([px, py + sh_offset_y, px + pw, py + ph + sh_offset_y], radius=pr, fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
+            sh_p = sh_p.filter(ImageFilter.GaussianBlur(radius=sh_blur))
+            img.alpha_composite(sh_p)
 
             d = ImageDraw.Draw(img)
             d.rounded_rectangle([px, py, px + pw, py + ph], radius=pr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
 
-            # Header panelu (27px)
-            head_h = int(27 * scale)
+            # Nagłówek panelu (22px) z linią rozdzielającą
+            head_h = int(22 * scale)
             d.line([(px, py + head_h), (px + pw, py + head_h)], fill=cfg['panel_border'], width=max(1, int(1*scale)))
 
-            # Zakładka Transkrypcja (zgrabna pigułka 66x18 px)
-            tab_x = px + int(8 * scale)
-            tab_y = py + int(4.5 * scale)
-            tab_w = int(66 * scale)
-            tab_h = int(18 * scale)
-            d.rounded_rectangle([tab_x, tab_y, tab_x + tab_w, tab_y + tab_h], radius=int(6*scale), fill=cfg['tab_bg'])
-            d.text((tab_x + tab_w/2, tab_y + tab_h/2 - int(0.5*scale)), "Transkrypcja", fill=cfg['text'], font=fnt_tab, anchor="mm")
-
-            # Przycisk ✕ (zamknij panel)
+            # Przycisk ✕ (zamknij panel transkrypcji z prawej strony)
             close_px = px + pw - int(14 * scale)
-            close_py = py + int(13.5 * scale)
+            close_py = py + int(11 * scale)
             if self._hover_target == 'btn_panel_close':
                 d.ellipse([close_px - int(8*scale), close_py - int(8*scale), close_px + int(8*scale), close_py + int(8*scale)], fill=(128, 145, 175, 45))
-            d.text((close_px, close_py), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
+            csz = int(3.5 * scale)
+            close_col = cfg['text'] if self._hover_target == 'btn_panel_close' else cfg['muted']
+            d.line([(close_px - csz, close_py - csz), (close_px + csz, close_py + csz)], fill=close_col, width=max(1, int(1.3 * scale)))
+            d.line([(close_px - csz, close_py + csz), (close_px + csz, close_py - csz)], fill=close_col, width=max(1, int(1.3 * scale)))
 
             # Linie transkrypcji (pełna treść bez znaczników czasu, z płynnym przewijaniem)
             with self._lock:
@@ -1168,7 +1210,7 @@ class FloatingOverlay:
             self._total_lines_count = len(all_lines)
 
             if not all_lines:
-                d.text((px + pw/2, py + head_h + int(28 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
+                d.text((px + pw/2, py + head_h + int(36 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
             else:
                 max_scroll = max(0, len(all_lines) - max_visible)
                 if not self._user_scrolled:
@@ -1211,39 +1253,40 @@ class FloatingOverlay:
                 thumb_h = int(24 * scale)
                 d.rounded_rectangle([sb_x, sb_y + int(4*scale), sb_x + sb_w, sb_y + int(4*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
 
-        else:
-            # Panel zwinięty: przycisk "Pokaż transkrypcję"
-            tgl_x = int((self.mx + self.mw//2) * scale)
-            tgl_y = int((self.my - 10) * scale)
-            tgl_w = int(92 * scale)
-            tgl_h = int(16 * scale)
-            tgl_fill = cfg['tab_bg'] if self._hover_target == 'btn_panel_open' else cfg['panel_bg']
-            d.rounded_rectangle([tgl_x - tgl_w/2, tgl_y - tgl_h/2, tgl_x + tgl_w/2, tgl_y + tgl_h/2], radius=int(8*scale), fill=tgl_fill, outline=cfg['panel_border'])
-            d.text((tgl_x, tgl_y - int(0.5*scale)), "Pokaż transkrypcję", fill=cfg['text'], font=fnt_time, anchor="mm")
+        # ========================================================
+        # 2. OKNO GŁÓWNE: POŁĄCZONA BELKA I MODUŁ GŁOSU
+        # ========================================================
+        bx = int(self.bx * scale)
+        by = int(self.by * scale)
+        bw = int(self.bw * scale)
+        bh = int(self.bh * scale)
 
-        # ========================================================
-        # 2. MODUŁ GŁÓWNY (Voice Module 250x90 px)
-        # ========================================================
         mx = int(self.mx * scale)
         my = int(self.my * scale)
         mw = int(self.mw * scale)
         mh = int(self.mh * scale)
-        mr = int(self.mod_r * scale)
 
-        # Cień modułu (miękki, złagodzony, bezpiecznie zanikający do zera bez obcinania brzegów)
+        # Cień połączonej karty okna (Window Bar + Voice Module)
         sh_m = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         smd = ImageDraw.Draw(sh_m)
         sh_offset_y = int(2.5 * scale)
-        sh_blur = int(4.5 * scale)
-        smd.rounded_rectangle([mx, my + sh_offset_y, mx + mw, my + mh + sh_offset_y], radius=mr, fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
+        sh_blur = int(5.0 * scale)
+        smd.rounded_rectangle([bx, by + sh_offset_y, bx + bw, my + sh_offset_y], radius=int(self.bar_r * scale), corners=(True, True, False, False), fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
+        smd.rounded_rectangle([mx, my + sh_offset_y, mx + mw, my + mh + sh_offset_y], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
         sh_m = sh_m.filter(ImageFilter.GaussianBlur(radius=sh_blur))
         img.alpha_composite(sh_m)
 
-        # Ciało modułu
+        # Tła i obramowania połączonej karty
         d = ImageDraw.Draw(img)
-        d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=mr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
+        d.rounded_rectangle([bx, by, bx + bw, my], radius=int(self.bar_r * scale), corners=(True, True, False, False), fill=cfg.get('bar_bg', cfg['panel_bg']))
+        d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=cfg['panel_bg'])
 
-        # Subtelne radialne podświetlenie karty (przycięte maską zaokrąglonego modułu, by NIGDY nie wyciekało na zewnątrz!)
+        border_w = max(1, int(1.1 * scale))
+        d.rounded_rectangle([bx, by, bx + bw, my], radius=int(self.bar_r * scale), corners=(True, True, False, False), outline=cfg['panel_border'], width=border_w)
+        d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), outline=cfg['panel_border'], width=border_w)
+        d.line([(bx, my), (bx + bw, my)], fill=cfg['panel_border'], width=border_w)
+
+        # Subtelne radialne podświetlenie karty modułu
         glow_mod = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         gmd = ImageDraw.Draw(glow_mod)
         g_col1 = cfg.get('glow1', (105, 157, 255, 14))
@@ -1254,33 +1297,70 @@ class FloatingOverlay:
 
         card_mask = Image.new('L', (W, H), 0)
         cmd = ImageDraw.Draw(card_mask)
-        cmd.rounded_rectangle([mx, my, mx + mw, my + mh], radius=mr, fill=255)
+        cmd.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=255)
         glow_mod_masked = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         glow_mod_masked.paste(glow_mod, (0, 0), mask=card_mask)
         img.alpha_composite(glow_mod_masked)
         d = ImageDraw.Draw(img)
 
+        # --- KONTROLKI BELKI GÓRNEJ (.window-bar) ---
+        # 1. Przycisk "Pokaż transkrypcję" / "Zwiń transkrypcję"
+        tgl_x = int(self.tgl_btn_x * scale)
+        tgl_y = int(self.tgl_btn_y * scale)
+        tgl_w = int(self.tgl_btn_w * scale)
+        tgl_h = int(self.tgl_btn_h * scale)
+
+        if self.panel_open:
+            d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_active_bg', (72, 94, 220, 42)))
+            tgl_lbl = "Zwiń transkrypcję"
+            tgl_col = cfg['text']
+        elif self._hover_target == 'btn_toggle_transcript':
+            d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=(128, 145, 175, 30))
+            tgl_lbl = "Pokaż transkrypcję"
+            tgl_col = cfg['text']
+        else:
+            tgl_lbl = "Pokaż transkrypcję"
+            tgl_col = cfg['muted']
+
+        d.text((tgl_x + int(8*scale), tgl_y + tgl_h//2 - int(0.5*scale)), tgl_lbl, fill=tgl_col, font=fnt_tab, anchor="lm")
+
+        # 2. Przyciski sterowania oknem po prawej stronie
+        bar_cy = int(self.bar_close_cy * scale)
+
+        # 2a. Przycisk Menu ••• (otwiera pełne menu ustawień)
+        mcx = int(self.bar_menu_cx * scale)
+        if self._hover_target == 'btn_bar_menu':
+            d.rounded_rectangle([mcx - int(9*scale), bar_cy - int(9*scale), mcx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=(128, 145, 175, 35))
+        dot_r = int(1.1 * scale)
+        sp = int(3.8 * scale)
+        dot_col = cfg['text'] if self._hover_target == 'btn_bar_menu' else cfg['muted']
+        for ox in (-sp, 0, sp):
+            d.ellipse([mcx + ox - dot_r, bar_cy - dot_r, mcx + ox + dot_r, bar_cy + dot_r], fill=dot_col)
+
+        # 2b. Przycisk Zminimalizuj − (minimalizuje do paska zadań)
+        mncx = int(self.bar_min_cx * scale)
+        if self._hover_target in ('btn_bar_minimize', 'btn_minimize'):
+            d.rounded_rectangle([mncx - int(9*scale), bar_cy - int(9*scale), mncx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=(128, 145, 175, 35))
+        ln_w = int(4.5 * scale)
+        min_col = cfg['text'] if self._hover_target in ('btn_bar_minimize', 'btn_minimize') else cfg['muted']
+        d.line([(mncx - ln_w, bar_cy), (mncx + ln_w, bar_cy)], fill=min_col, width=max(1, int(1.3 * scale)))
+
+        # 2c. Przycisk Zamknij ✕ (zamyka / ukrywa aplikację)
+        ccx = int(self.bar_close_cx * scale)
+        if self._hover_target in ('btn_bar_close', 'btn_close'):
+            d.rounded_rectangle([ccx - int(9*scale), bar_cy - int(9*scale), ccx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=(255, 60, 60, 45))
+        csz = int(3.5 * scale)
+        close_col = (255, 80, 80, 255) if self._hover_target in ('btn_bar_close', 'btn_close') else cfg['muted']
+        d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=max(1, int(1.3 * scale)))
+        d.line([(ccx - csz, bar_cy + csz), (ccx + csz, bar_cy - csz)], fill=close_col, width=max(1, int(1.3 * scale)))
+
+        # --- WNĘTRZE MODUŁU GŁOSU (.voice-module) ---
         # Uchwyt (Drag Handle) na górze: 29x3 px
         hx = int(self.handle_x * scale)
         hy = int(self.handle_y * scale)
         hw = int(self.handle_w * scale)
         hh = int(self.handle_h * scale)
         d.rounded_rectangle([hx, hy, hx + hw, hy + hh], radius=int(hh/2), fill=cfg['muted'])
-
-        # Przycisk Zminimalizuj − modułu (po przeciwnej stronie krzyżyka - lewy górny róg)
-        min_x = int(self.min_cx * scale)
-        min_y = int(self.min_cy * scale)
-        if self._hover_target == 'btn_minimize':
-            d.ellipse([min_x - int(8*scale), min_y - int(8*scale), min_x + int(8*scale), min_y + int(8*scale)], fill=(128, 145, 175, 45))
-        min_w = int(4.2 * scale)
-        d.line([(min_x - min_w, min_y), (min_x + min_w, min_y)], fill=cfg['muted'], width=max(1, int(1.4*scale)))
-
-        # Przycisk Zamknij ✕ modułu (prawy górny róg)
-        cx = int(self.close_cx * scale)
-        cy = int(self.close_cy * scale)
-        if self._hover_target == 'btn_close':
-            d.ellipse([cx - int(8*scale), cy - int(8*scale), cx + int(8*scale), cy + int(8*scale)], fill=(128, 145, 175, 45))
-        d.text((cx, cy), "×", fill=cfg['muted'], font=fnt_close, anchor="mm")
 
         # Koordynaty przycisków
         mic_x = int(self.mic_cx * scale)
@@ -1366,7 +1446,7 @@ class FloatingOverlay:
         vol_boost = min(1.0, self._smooth_vol * 1.6)
 
         for i, h_vals in enumerate(BAR_HEIGHTS):
-            bx = start_bx + i * (bar_w + bar_gap)
+            bx_cur = start_bx + i * (bar_w + bar_gap)
             if self.mode in ("recording", "transcribing") and vol_boost >= 0.03:
                 # Dynamiczne powiększanie i zmniejszanie w zależności od natężenia głosu
                 prof_factor = (h_vals[1] - h_vals[0]) / 22.0
@@ -1374,12 +1454,12 @@ class FloatingOverlay:
                 dynamic_span = (max_h - base_h) * vol_boost * prof_factor * mod
                 eff_h = min(max_h, max(base_h, base_h + dynamic_span))
             else:
-                # W spoczynku lub w ciszy podczas mówienia: fala stabilizuje się na płaskiej linii bazowej bez ruchu
-                eff_h = base_h
+                # W spoczynku: profil wysokości kresek fali odpowiadający specyfikacji prototypu
+                eff_h = h_vals[0] * 0.75 * scale
 
             by1 = wave_cy - eff_h / 2.0
             by2 = wave_cy + eff_h / 2.0
-            d.rounded_rectangle([bx, by1, bx + bar_w, by2], radius=max(1, int(bar_w/2)), fill=bar_color)
+            d.rounded_rectangle([bx_cur, by1, bx_cur + bar_w, by2], radius=max(1, int(bar_w/2)), fill=bar_color)
 
         # Pasek statusu pod falą: [dot] [statusText] [timer]
         status_y = my + int(64 * scale)
