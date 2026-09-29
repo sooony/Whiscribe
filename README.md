@@ -1,4 +1,4 @@
-# 🎙️ Dyktowanie Mowy AI (Whisper Turbo + Windows 11 Voice Typing)
+# 🎙️ Whiscribe (Whisper Turbo AI Voice Typing)
 
 Lokalna, błyskawiczna wtyczka do zamiany mowy na tekst dla systemu Windows z interfejsem wiernie odwzorowującym **natywne wpisywanie głosowe Windows 11 (Win + H)**. Wykorzystuje lokalny model **Whisper large-v3-turbo** na karcie **NVIDIA RTX 3060**, oferując bezbłędne rozpoznawanie języka polskiego, znaki interpunkcyjne, wielkie litery oraz możliwość bezpośredniego sterowania myszką **Logitech MX Master** lub skrótem klawiszowym.
 

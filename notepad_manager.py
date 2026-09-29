@@ -61,15 +61,9 @@ class NotepadManager:
         except Exception as e:
             logger.error(f"Nie udało się utworzyć pliku {self.filepath}: {e}")
 
-        # Uruchomienie Notatnika Windows z plikiem
-        try:
-            self.process = subprocess.Popen(["notepad.exe", self.filepath])
-            logger.info(f"Uruchomiono Notatnik: PID={self.process.pid}, plik='{self.filepath}'")
-        except Exception as e:
-            logger.error(f"Błąd uruchamiania notepad.exe: {e}")
-
-        # Podłączenie UIAutomation w tle
-        threading.Thread(target=self._connect_ui_automation, daemon=True).start()
+        # Bezpieczny zapis do pliku tekstowego bez uruchamiania aplikacji Notepad.exe,
+        # co zapobiega otwieraniu starych zakładek i zawieszaniu systemu Windows 11.
+        logger.info(f"Sesja spotkania przygotowana, plik='{self.filepath}'")
         return self.filepath
 
     def _connect_ui_automation(self):

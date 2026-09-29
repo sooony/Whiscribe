@@ -30,6 +30,12 @@ user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 user32.GetForegroundWindow.restype = wintypes.HWND
 
+try:
+    user32.SystemParametersInfoW(0x2001, 0, ctypes.c_void_p(0), 2)
+    user32.AllowSetForegroundWindow(-1)
+except Exception:
+    pass
+
 WM_SETTEXT = 0x000C
 WM_GETTEXT = 0x000D
 WM_GETTEXTLENGTH = 0x000E
@@ -77,7 +83,16 @@ class Win32EditContext:
             safe_bring_to_foreground(self.wnd)
         except Exception:
             user32.SetForegroundWindow(self.wnd)
-        user32.SetFocus(self.wnd)
+        for _ in range(20):
+            if user32.GetForegroundWindow() == self.wnd:
+                break
+            try:
+                from app import safe_bring_to_foreground
+                safe_bring_to_foreground(self.wnd)
+            except Exception:
+                user32.SetForegroundWindow(self.wnd)
+            user32.SetFocus(self.wnd)
+            time.sleep(0.03)
         self.pump(5)
         time.sleep(0.08)
         return self

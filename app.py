@@ -14,36 +14,172 @@ import struct
 
 import tempfile
 
-def _generate_soft_chime(freq1=540, freq2=None, duration_ms=35, volume=0.18):
-    sr = 22050
-    n = int(sr * duration_ms / 1000.0)
+def _generate_wav(samples, sr=22050):
     buf = io.BytesIO()
     with wave.open(buf, 'wb') as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sr)
-        frames = []
-        for i in range(n):
-            env = math.sin(math.pi * i / n) ** 1.8
-            f = freq1 if (freq2 is None or i < n/2) else freq2
-            s = math.sin(2 * math.pi * f * i / sr)
-            val = int(32767 * volume * env * s)
-            frames.append(struct.pack('<h', max(-32767, min(32767, val))))
+        frames = [struct.pack('<h', max(-32767, min(32767, int(s)))) for s in samples]
         wf.writeframes(b''.join(frames))
     return buf.getvalue()
 
-CHIME_START = _generate_soft_chime(560, duration_ms=45, volume=0.25)
-CHIME_STOP = _generate_soft_chime(440, duration_ms=38, volume=0.22)
-CHIME_READY = _generate_soft_chime(520, duration_ms=30, volume=0.18)
-CHIME_ERROR = _generate_soft_chime(380, freq2=320, duration_ms=55, volume=0.22)
+def _make_sound_start_1():
+    # 1. Nowoczesny dzwonek (Bell Chime): 580Hz -> 720Hz z ciepłą harmoniczną
+    sr, dur_s, vol = 22050, 0.052, 0.22
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = (math.sin(math.pi * t) ** 1.3) * math.exp(-1.8 * t)
+        f = 580.0 + 140.0 * t
+        s = 0.8 * math.sin(2 * math.pi * f * i / sr) + 0.2 * math.sin(4 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_start_2():
+    # 2. Subtelny Pop (Win11 Soft Bubble): szybki wznoszący chirp 460Hz -> 860Hz
+    sr, dur_s, vol = 22050, 0.034, 0.20
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = math.sin(math.pi * t) ** 1.8
+        f = 460.0 + 400.0 * (t ** 1.4)
+        s = math.sin(2 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_start_3():
+    # 3. Harmonia (Arpeggio Akord): C5 (523Hz) -> G5 (784Hz)
+    sr, dur_s, vol = 22050, 0.065, 0.20
+    n = int(sr * dur_s)
+    samples = []
+    mid = n // 2
+    for i in range(n):
+        if i < mid:
+            t = i / mid
+            env = math.sin(math.pi * t) ** 1.4
+            f = 523.25
+        else:
+            t = (i - mid) / (n - mid)
+            env = (math.sin(math.pi * t) ** 1.2) * math.exp(-1.2 * t)
+            f = 783.99
+        s = 0.85 * math.sin(2 * math.pi * f * i / sr) + 0.15 * math.sin(4 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_start_4():
+    # 4. Cyber Minimal (Dyskretny tik): krótki krystaliczny impuls 940Hz
+    sr, dur_s, vol = 22050, 0.019, 0.17
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = math.exp(-6.5 * t)
+        s = math.sin(2 * math.pi * 940.0 * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_stop_1():
+    # 1. Łagodny spadek: 480Hz -> 380Hz
+    sr, dur_s, vol = 22050, 0.048, 0.20
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = (math.sin(math.pi * t) ** 1.3) * math.exp(-1.5 * t)
+        f = 480.0 - 100.0 * t
+        s = 0.85 * math.sin(2 * math.pi * f * i / sr) + 0.15 * math.sin(4 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_stop_2():
+    # 2. Subtelny Pop (Win11 Soft Bubble opadający): 680Hz -> 340Hz
+    sr, dur_s, vol = 22050, 0.032, 0.18
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = math.sin(math.pi * t) ** 1.8
+        f = 680.0 - 340.0 * (t ** 1.2)
+        s = math.sin(2 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_stop_3():
+    # 3. Harmonia (Arpeggio Akord opadający): G5 (784Hz) -> C5 (523Hz)
+    sr, dur_s, vol = 22050, 0.065, 0.20
+    n = int(sr * dur_s)
+    samples = []
+    mid = n // 2
+    for i in range(n):
+        if i < mid:
+            t = i / mid
+            env = math.sin(math.pi * t) ** 1.4
+            f = 783.99
+        else:
+            t = (i - mid) / (n - mid)
+            env = (math.sin(math.pi * t) ** 1.2) * math.exp(-1.2 * t)
+            f = 523.25
+        s = 0.85 * math.sin(2 * math.pi * f * i / sr) + 0.15 * math.sin(4 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_stop_4():
+    # 4. Cyber Minimal (Dyskretny niski tik): 440Hz
+    sr, dur_s, vol = 22050, 0.019, 0.17
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = math.exp(-6.5 * t)
+        s = math.sin(2 * math.pi * 440.0 * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_ready():
+    sr, dur_s, vol = 22050, 0.035, 0.16
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = math.sin(math.pi * t) ** 1.5
+        s = math.sin(2 * math.pi * 540.0 * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
+
+def _make_sound_error():
+    sr, dur_s, vol = 22050, 0.060, 0.20
+    n = int(sr * dur_s)
+    samples = []
+    for i in range(n):
+        t = i / n
+        env = math.sin(math.pi * t) ** 1.3
+        f = 380.0 if t < 0.5 else 320.0
+        s = math.sin(2 * math.pi * f * i / sr)
+        samples.append(32767 * vol * env * s)
+    return _generate_wav(samples, sr)
 
 _CHIME_FILES = {}
 try:
     _temp_dir = tempfile.gettempdir()
-    for _name, _data in [('start', CHIME_START), ('stop', CHIME_STOP), ('ready', CHIME_READY), ('error', CHIME_ERROR)]:
+    _generators = [
+        ('start_1', _make_sound_start_1),
+        ('start_2', _make_sound_start_2),
+        ('start_3', _make_sound_start_3),
+        ('start_4', _make_sound_start_4),
+        ('stop_1', _make_sound_stop_1),
+        ('stop_2', _make_sound_stop_2),
+        ('stop_3', _make_sound_stop_3),
+        ('stop_4', _make_sound_stop_4),
+        ('ready', _make_sound_ready),
+        ('error', _make_sound_error)
+    ]
+    for _name, _fn in _generators:
         _fpath = os.path.join(_temp_dir, f"voice_ui_chime_{_name}.wav")
         with open(_fpath, 'wb') as _f:
-            _f.write(_data)
+            _f.write(_fn())
         _CHIME_FILES[_name] = _fpath
 except Exception as _e:
     logging.getLogger("App").debug(f"Błąd zapisu plików dźwiękowych: {_e}")
@@ -74,6 +210,12 @@ except Exception:
         ctypes.windll.user32.SetProcessDPIAware()
     except Exception:
         pass
+
+try:
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Whiscribe.VoiceTyping.1.0")
+except Exception:
+    pass
+
 import numpy as np
 from PIL import Image, ImageDraw
 import pystray
@@ -83,7 +225,7 @@ from config import load_config, save_config, CONFIG_FILE
 from recorder import AudioRecorder
 from transcriber import Transcriber
 from injector import inject_text, sync_text, send_unicode_string, ForwardStreamCommitter
-from overlay import FloatingOverlay, THEMES
+from overlay import FloatingOverlay, THEMES, draw_svg_mic
 from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd
 from meeting_manager import MeetingManager
 
@@ -166,35 +308,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger("DictationApp")
 
-def create_tray_icon_image(state="idle") -> Image.Image:
-    """Generuje dynamiczną ikonę dla paska zadań w zależności od stanu."""
-    size = (64, 64)
-    img = Image.new('RGBA', size, color=(0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
+def create_tray_icon_image(state="idle", frame_idx=0, vol=0.0) -> Image.Image:
+    """Generuje ikonę dla zasobnika systemowego Windows 11 (granatowa bez obwiedni, biały mikrofon)."""
+    img_hi = Image.new('RGBA', (256, 256), color=(0, 0, 0, 0))
+    d = ImageDraw.Draw(img_hi)
+    navy_color = (18, 28, 58, 255)
+    # Granatowe tło bez obwiedni (identyczne jak na pasku zadań)
+    d.ellipse((10, 10, 246, 246), fill=navy_color)
+    # Czysty biały mikrofon wektorowy
+    draw_svg_mic(img_hi, 128, 128, 124, color=(255, 255, 255, 255))
 
     if state == "recording":
-        # Czerwona pulsująca kropka
-        d.ellipse((6, 6, 58, 58), fill='#f38ba8')
-        d.ellipse((18, 18, 46, 46), fill='#d20f39')
+        # Wskaźnik nagrywania: subtelna czerwona dioda REC w prawym górnym rogu
+        pulse = 0.5 + 0.5 * math.sin(frame_idx * 0.5)
+        rec_r = int(22 + pulse * 8)
+        d.ellipse((196 - rec_r, 60 - rec_r, 196 + rec_r, 60 + rec_r), fill=(255, 45, 65, 255))
     elif state == "meeting":
-        # Fioletowo-indygo pulsująca kropka (spotkanie)
-        d.ellipse((6, 6, 58, 58), fill='#a5b4fc')
-        d.ellipse((18, 18, 46, 46), fill='#6366f1')
+        # Wskaźnik spotkania: subtelna dioda w prawym górnym rogu
+        pulse = 0.5 + 0.5 * math.sin(frame_idx * 0.5)
+        rec_r = int(22 + pulse * 8)
+        d.ellipse((196 - rec_r, 60 - rec_r, 196 + rec_r, 60 + rec_r), fill=(99, 133, 248, 255))
     elif state == "processing":
-        # Żółta/pomarańczowa kropka
-        d.ellipse((6, 6, 58, 58), fill='#fab387')
-        d.ellipse((20, 20, 44, 44), fill='#fe640b')
-    else:
-        # Ciemne tło z niebieską/zieloną obwódką (czuwanie)
-        d.ellipse((6, 6, 58, 58), fill='#1e1e2e', outline='#89b4fa', width=5)
-        # Mała ikonka mikrofonu w środku
-        d.rectangle((28, 20, 36, 36), fill='#89b4fa')
-        d.ellipse((26, 16, 38, 26), fill='#89b4fa')
-        d.arc((22, 26, 42, 42), start=0, end=180, fill='#89b4fa', width=3)
-        d.line((32, 42, 32, 48), fill='#89b4fa', width=3)
-        d.line((24, 48, 40, 48), fill='#89b4fa', width=3)
+        # Wskaźnik przetwarzania: subtelna bursztynowa dioda w prawym górnym rogu
+        pulse = 0.5 + 0.5 * math.sin(frame_idx * 0.5)
+        rec_r = int(22 + pulse * 8)
+        d.ellipse((196 - rec_r, 60 - rec_r, 196 + rec_r, 60 + rec_r), fill=(245, 158, 11, 255))
 
-    return img
+    return img_hi.resize((64, 64), Image.Resampling.LANCZOS)
 
 def format_hotkey(hk: str) -> str:
     """Konwertuje zwykły string skrótu (np. ctrl+alt+d lub f8) na format akceptowany przez pynput."""
@@ -231,7 +371,9 @@ class DictationApp:
                 on_stop=self.stop_and_transcribe,
                 on_close=self.cancel_dictation,
                 on_toggle=self.toggle_dictation,
-                on_meeting_toggle=self.toggle_meeting
+                on_meeting_toggle=self.toggle_meeting,
+                on_minimize=self.minimize_to_tray,
+                on_restore=self._on_overlay_restored
             )
             self.overlay.set_settings_handler(self._show_settings_menu)
             self.overlay.show()
@@ -241,6 +383,7 @@ class DictationApp:
         self._play_ready_chime()
         
         self.state = "idle"  # "idle", "recording", "processing"
+        self._is_minimized_to_tray = False
         self._lock = threading.RLock()
         self._type_lock = threading.RLock()
         self._stream_stop_event = threading.Event()
@@ -276,6 +419,23 @@ class DictationApp:
         # Wątek monitorujący stan skrótów klawiszowych (np. po Winlogon/Ctrl+Alt+Del)
         self._hotkey_watchdog_thread = threading.Thread(target=self._watchdog_hotkey, daemon=True)
         self._hotkey_watchdog_thread.start()
+
+        # Wątek animacji ikony w pasku zadań (Windows 11 System Tray)
+        self._tray_anim_thread = threading.Thread(target=self._tray_anim_worker, daemon=True)
+        self._tray_anim_thread.start()
+
+    @property
+    def is_minimized_to_tray(self) -> bool:
+        if self.overlay:
+            return self.overlay.is_minimized()
+        return getattr(self, '_is_minimized_to_tray', False)
+
+    @is_minimized_to_tray.setter
+    def is_minimized_to_tray(self, val: bool):
+        self._is_minimized_to_tray = bool(val)
+
+    def _on_overlay_restored(self):
+        self._is_minimized_to_tray = False
 
     def _type_stream_chunk(self, chunk: str):
         """Wpisuje słowa w przód (Forward-only) z ciągłym streamingiem do zablokowanego okna docelowego (nawet przy pracy na 2 monitorach)."""
@@ -323,30 +483,100 @@ class DictationApp:
             else:
                 send_unicode_string(chunk)
 
+    def _tray_anim_worker(self):
+        """Animuje ikonę w pasku menu/zadań (obszarze powiadomień) podczas nagrywania lub spotkania."""
+        frame = 0
+        while self._running:
+            if self.tray_icon and self.state in ("recording", "meeting_recording", "processing"):
+                try:
+                    vol = self.recorder.get_volume_level() if self.state == "recording" else (
+                        self.meeting_manager.recorder.get_total_volume() if hasattr(self, "meeting_manager") and self.meeting_manager else 0.0
+                    )
+                except Exception:
+                    vol = 0.0
+                st = "recording" if self.state == "recording" else ("meeting" if self.state == "meeting_recording" else "processing")
+                try:
+                    self.tray_icon.icon = create_tray_icon_image(st, frame_idx=frame, vol=vol)
+                except Exception:
+                    pass
+                frame += 1
+                time.sleep(0.08)
+            else:
+                time.sleep(0.18)
+
+    def minimize_to_taskbar(self):
+        """Minimalizuje widżet do dolnego paska zadań Windows (Taskbar)."""
+        self.is_minimized_to_tray = True
+        if self.overlay:
+            self.overlay.minimize()
+        logger.info("Widżet pomyślnie zminimalizowany do dolnego paska zadań Windows.")
+
+    def restore_from_taskbar(self):
+        """Przywraca widżet z dolnego paska zadań na ekran."""
+        self.is_minimized_to_tray = False
+        if self.overlay:
+            self.overlay.restore()
+            if self.state == "recording":
+                self.overlay.show_recording()
+            elif self.state == "meeting_recording":
+                self.overlay.show_meeting_recording()
+            elif self.state == "processing":
+                self.overlay.show_processing()
+            else:
+                self.overlay.show_idle()
+        logger.info("Widżet przywrócony z dolnego paska zadań na ekran.")
+
+    def toggle_overlay_visibility(self):
+        if not self.overlay:
+            return
+        if self.overlay.is_minimized():
+            self.restore_from_taskbar()
+        else:
+            self.minimize_to_taskbar()
+
+    minimize_to_tray = minimize_to_taskbar
+    restore_from_tray = restore_from_taskbar
+
     def _listen_for_show_event(self):
         """Nasłuchuje sygnału IPC z kolejnej próby uruchomienia aplikacji i natychmiast przywraca widżet PIL."""
-        EVENT_NAME = r"Global\DyktowanieAI_ShowOverlay_Event"
+        EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
         h_event = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_NAME)
         while self._running:
             res = ctypes.windll.kernel32.WaitForSingleObject(h_event, 500)
             if res == 0:  # WAIT_OBJECT_0
                 logger.info("Odebrano sygnał wybudzenia/pokazania widżetu PIL.")
-                if self.overlay:
-                    self.overlay.show()
-                    self.overlay.show_idle()
+                self.restore_from_tray()
                 self._play_ready_chime()
         if h_event:
             ctypes.windll.kernel32.CloseHandle(h_event)
 
     def _play_start_chime(self):
-        """Łagodny, krótki dźwięk rozpoczęcia wpisywania głosowego."""
+        """Dźwięk rozpoczęcia wpisywania głosowego wg wybranego presetu."""
         if self.config.get("sound_feedback", True):
-            _play_chime_file('start')
+            p = int(self.config.get("sound_start_preset", 1))
+            if p > 0:
+                _play_chime_file(f'start_{p}')
 
     def _play_stop_chime(self):
-        """Łagodny, krótki dźwięk zakończenia wpisywania głosowego."""
+        """Dźwięk zakończenia wpisywania głosowego wg wybranego presetu."""
         if self.config.get("sound_feedback", True):
-            _play_chime_file('stop')
+            p = int(self.config.get("sound_stop_preset", 1))
+            if p > 0:
+                _play_chime_file(f'stop_{p}')
+
+    def set_sound_start_preset(self, preset_idx: int):
+        self.config["sound_start_preset"] = preset_idx
+        save_config(self.config)
+        logger.info(f"Ustawiono preset dźwięku startu: {preset_idx}")
+        if preset_idx > 0 and self.config.get("sound_feedback", True):
+            _play_chime_file(f"start_{preset_idx}")
+
+    def set_sound_stop_preset(self, preset_idx: int):
+        self.config["sound_stop_preset"] = preset_idx
+        save_config(self.config)
+        logger.info(f"Ustawiono preset dźwięku stopu: {preset_idx}")
+        if preset_idx > 0 and self.config.get("sound_feedback", True):
+            _play_chime_file(f"stop_{preset_idx}")
 
     def _play_error_chime(self):
         """Łagodny dźwięk ostrzegawczy przy braku pola tekstowego."""
@@ -413,8 +643,11 @@ class DictationApp:
         self._stream_stop_event.clear()
 
         if self.overlay:
-            self.overlay.show()
-            self.overlay.show_recording()
+            if self.overlay.is_minimized():
+                self.restore_from_taskbar()
+            else:
+                self.overlay.show()
+                self.overlay.show_recording()
         if self.tray_icon:
             self.tray_icon.icon = create_tray_icon_image("recording")
 
@@ -497,6 +730,8 @@ class DictationApp:
     def stop_and_transcribe(self):
         with self._lock:
             if self.state != "recording":
+                if self.overlay and self.overlay.mode != "idle":
+                    self.overlay.show_idle()
                 return
             self.state = "processing"
 
@@ -505,7 +740,6 @@ class DictationApp:
         self._play_stop_chime()
 
         if self.overlay:
-            self.overlay.clear_transcript()
             self.overlay.show_processing()
         if self.tray_icon:
             self.tray_icon.icon = create_tray_icon_image("processing")
@@ -675,7 +909,11 @@ class DictationApp:
 
         logger.info("Rozpoczęto tryb spotkania (Meeting Mode)...")
         if self.overlay:
-            self.overlay.show_meeting_recording()
+            if self.overlay.is_minimized():
+                self.restore_from_taskbar()
+            else:
+                self.overlay.show()
+                self.overlay.show_meeting_recording()
         if self.tray_icon:
             self.tray_icon.icon = create_tray_icon_image("meeting")
 
@@ -787,12 +1025,6 @@ class DictationApp:
         except Exception as e:
             logger.error(f"Nie udało się zarejestrować skrótów: {e}")
 
-    def open_config_file(self):
-        try:
-            os.system(f'notepad.exe "{CONFIG_FILE}"')
-        except Exception as e:
-            logger.error(f"Błąd otwierania config: {e}")
-
     def toggle_sound_feedback(self):
         self.config["sound_feedback"] = not self.config.get("sound_feedback", True)
         save_config(self.config)
@@ -807,25 +1039,6 @@ class DictationApp:
         self.config["stream_realtime"] = not self.config.get("stream_realtime", True)
         save_config(self.config)
         logger.info(f"Pisanie na żywo: {'Włączone' if self.config['stream_realtime'] else 'Wyłączone'}")
-
-    def toggle_overlay_visibility(self):
-        if not self.overlay:
-            return
-        if self.overlay._visible:
-            self.overlay.hide()
-        else:
-            self.overlay.show()
-            self.overlay.show_idle()
-
-    def toggle_live_preview(self):
-        cur = self.config.get("show_live_preview", False)
-        self.config["show_live_preview"] = not cur
-        save_config(self.config)
-        if self.overlay:
-            self.overlay.show_live_preview = not cur
-            if cur:
-                self.overlay.hide_balloon()
-        logger.info(f"Podgląd tekstu w dymku: {'Włączony' if not cur else 'Wyłączony'}")
 
     def exit_app(self):
         logger.info("Zamykanie aplikacji...")
@@ -848,75 +1061,114 @@ class DictationApp:
         sys.exit(0)
 
     def _show_settings_menu(self, screen_x, screen_y):
-        """Wyświetla natywne menu ustawień Windows 11 po kliknięciu koła zębatego ⚙."""
+        """Wyświetla zoptymalizowane, czytelne menu ustawień Windows 11 po kliknięciu koła zębatego ⚙."""
         user32 = ctypes.windll.user32
-        
+
         h_menu = user32.CreatePopupMenu()
-        h_silence_sub = user32.CreatePopupMenu()
         h_theme_sub = user32.CreatePopupMenu()
-        
+        h_sound_sub = user32.CreatePopupMenu()
+        h_sound_start_sub = user32.CreatePopupMenu()
+        h_sound_stop_sub = user32.CreatePopupMenu()
+        h_silence_sub = user32.CreatePopupMenu()
+
         MF_STRING = 0x0000
         MF_SEPARATOR = 0x0800
         MF_POPUP = 0x0010
         MF_CHECKED = 0x0008
         MF_UNCHECKED = 0x0000
-        
-        # 1. Pisanie na żywo (Streaming)
-        chk_stream = MF_CHECKED if self.config.get("stream_realtime", False) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_stream, 101, "🎙️ Pisanie na żywo (Streaming)")
-        
-        # 2. Wymagaj aktywnego pola tekstowego
-        chk_field = MF_CHECKED if self.config.get("require_text_field", True) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_field, 102, "🛡️ Wymagaj aktywnego pola tekstowego")
-        
-        # 3. Dźwięki powiadomień
-        chk_sound = MF_CHECKED if self.config.get("sound_feedback", True) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_sound, 103, "🔊 Dźwięki potwierdzenia")
 
-        # 4. Podgląd tekstu w dymku
-        chk_preview = MF_CHECKED if self.config.get("show_live_preview", False) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_preview, 106, "💬 Podgląd tekstu w dymku")
-
-        # 5. Spotkania (Notatnik)
-        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-        user32.AppendMenuW(h_menu, MF_STRING, 104, "👥 Transkrypcja spotkania (Notatnik)")
-        user32.AppendMenuW(h_menu, MF_STRING, 105, "📁 Otwórz folder transkrypcji spotkań")
-        
-        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-        
-        # Podmenu: Automatyczne zatrzymanie ciszy
-        cur_silence = self.config.get("auto_stop_silence_seconds", 4.5)
-        user32.AppendMenuW(h_silence_sub, MF_STRING | (MF_CHECKED if cur_silence == 3.0 else 0), 201, "3.0 sekundy (Krótka pauza)")
-        user32.AppendMenuW(h_silence_sub, MF_STRING | (MF_CHECKED if cur_silence == 4.5 else 0), 202, "4.5 sekundy (Zalecane)")
-        user32.AppendMenuW(h_silence_sub, MF_STRING | (MF_CHECKED if cur_silence == 6.0 else 0), 203, "6.0 sekund (Spokojne)")
-        user32.AppendMenuW(h_silence_sub, MF_STRING | (MF_CHECKED if cur_silence == 10.0 else 0), 204, "10 sekund (Długa pauza)")
-        user32.AppendMenuW(h_silence_sub, MF_STRING | (MF_CHECKED if cur_silence == 0 else 0), 205, "Wyłączone (Tylko ręcznie)")
-        user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "⏱️ Automatyczne zatrzymanie ciszy")
-        
-        # Podmenu: Styl widżetu
+        # 1. Podmenu: Styl widżetu (Wszystkie 5 dopracowanych motywów)
         cur_theme = self.config.get("theme", "light")
-        if cur_theme not in ("light", "dark"):
-            cur_theme = "light"
-        user32.AppendMenuW(h_theme_sub, MF_STRING | (MF_CHECKED if cur_theme == "light" else 0), 301, "☀️ Windows 11 Jasny (Fluent)")
-        user32.AppendMenuW(h_theme_sub, MF_STRING | (MF_CHECKED if cur_theme == "dark" else 0), 302, "🌙 Windows 11 Ciemny (Fluent Dark)")
-        user32.AppendMenuW(h_menu, MF_POPUP, h_theme_sub, "🎨 Styl widżetu")
-        
+        themes = [
+            ("light", "Jasny (Fluent Light)", 301),
+            ("dark", "Ciemny (Fluent Dark)", 302),
+            ("glass_light", "Glass Jasny (Mica Light)", 303),
+            ("glass_dark", "Glass Ciemny (Mica Dark)", 304),
+            ("glass_color", "Glass Kolorowy (Vibrant Glass)", 305),
+        ]
+        for t_key, t_label, t_id in themes:
+            chk = MF_CHECKED if cur_theme == t_key else MF_UNCHECKED
+            user32.AppendMenuW(h_theme_sub, MF_STRING | chk, t_id, t_label)
+        user32.AppendMenuW(h_menu, MF_POPUP, h_theme_sub, "Styl widżetu")
+
+        # 2. Podmenu: Dźwięki i powiadomienia (Konfiguracja 4 presetów potwierdzenia i wyłączenia)
+        sound_enabled = self.config.get("sound_feedback", True)
+        chk_sound = MF_CHECKED if sound_enabled else MF_UNCHECKED
+        user32.AppendMenuW(h_sound_sub, MF_STRING | chk_sound, 501, "Włącz dźwięki potwierdzenia")
+        user32.AppendMenuW(h_sound_sub, MF_SEPARATOR, 0, "")
+
+        cur_start = int(self.config.get("sound_start_preset", 1))
+        start_presets = [
+            (1, "1. Dzwonek Soft (Chime)", 511),
+            (2, "2. Bąbelek Win 11 (Bubble)", 512),
+            (3, "3. Arpeggio Wznoszące (Harmonia)", 513),
+            (4, "4. Cyber Minimal Klik", 514),
+            (0, "Brak dźwięku startu", 510),
+        ]
+        for p_id, p_label, cmd_id in start_presets:
+            chk = MF_CHECKED if cur_start == p_id else MF_UNCHECKED
+            user32.AppendMenuW(h_sound_start_sub, MF_STRING | chk, cmd_id, p_label)
+        user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_start_sub, "Dźwięk włączenia (Start)")
+
+        cur_stop = int(self.config.get("sound_stop_preset", 1))
+        stop_presets = [
+            (1, "1. Dzwonek Wyłączenia (Chime Low)", 521),
+            (2, "2. Bąbelek Opadający (Bubble Low)", 522),
+            (3, "3. Arpeggio Opadające (Harmonia)", 523),
+            (4, "4. Cyber Minimal Tik", 524),
+            (0, "Brak dźwięku wyłączenia", 520),
+        ]
+        for p_id, p_label, cmd_id in stop_presets:
+            chk = MF_CHECKED if cur_stop == p_id else MF_UNCHECKED
+            user32.AppendMenuW(h_sound_stop_sub, MF_STRING | chk, cmd_id, p_label)
+        user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_stop_sub, "Dźwięk wyłączenia (Stop)")
+
+        user32.AppendMenuW(h_menu, MF_POPUP, h_sound_sub, "Dźwięki i powiadomienia")
+
+        # 3. Podmenu: Automatyczne zatrzymanie ciszy
+        cur_silence = float(self.config.get("auto_stop_silence_seconds", 4.5))
+        silence_opts = [
+            (3.0, "3.0 sekundy (Krótka pauza)", 201),
+            (4.5, "4.5 sekundy (Zalecane)", 202),
+            (6.0, "6.0 sekund (Spokojne)", 203),
+            (10.0, "10 sekund (Długa pauza)", 204),
+            (0.0, "Wyłączone (Tylko ręcznie)", 205),
+        ]
+        for s_val, s_label, s_id in silence_opts:
+            chk = MF_CHECKED if cur_silence == s_val else MF_UNCHECKED
+            user32.AppendMenuW(h_silence_sub, MF_STRING | chk, s_id, s_label)
+        user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "Automatyczne zatrzymanie ciszy")
+
         user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-        user32.AppendMenuW(h_menu, MF_STRING, 401, "⚙️ Otwórz plik konfiguracyjny (config.json)")
-        user32.AppendMenuW(h_menu, MF_STRING, 402, "❌ Zamknij aplikację")
-        
+
+        # 4. Główne opcje wpisywania
+        chk_stream = MF_CHECKED if self.config.get("stream_realtime", False) else MF_UNCHECKED
+        user32.AppendMenuW(h_menu, MF_STRING | chk_stream, 101, "Pisanie na żywo (Streaming)")
+
+        chk_field = MF_CHECKED if self.config.get("require_text_field", True) else MF_UNCHECKED
+        user32.AppendMenuW(h_menu, MF_STRING | chk_field, 102, "Wymagaj aktywnego pola tekstowego")
+
+        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
+        # 5. Spotkania
+        chk_meeting = MF_CHECKED if self.state == "meeting_recording" else MF_UNCHECKED
+        user32.AppendMenuW(h_menu, MF_STRING | chk_meeting, 104, "Transkrypcja spotkań")
+        user32.AppendMenuW(h_menu, MF_STRING, 105, "Otwórz folder transkrypcji spotkań")
+
+        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
+        # 6. Zarządzanie oknem / Aplikacją
+        user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj do paska zadań")
+        user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
+
         hwnd = self.overlay.hwnd if self.overlay else 0
         cmd = user32.TrackPopupMenuEx(h_menu, 0x0100 | 0x0002, screen_x, screen_y, hwnd, None)
         user32.DestroyMenu(h_menu)
-        
+
         if cmd == 101:
             self.toggle_streaming_mode()
         elif cmd == 102:
             self.toggle_require_text_field()
-        elif cmd == 103:
-            self.toggle_sound_feedback()
-        elif cmd == 106:
-            self.toggle_live_preview()
         elif cmd == 104:
             self.toggle_meeting()
         elif cmd == 105:
@@ -934,18 +1186,25 @@ class DictationApp:
             self.config["auto_stop_silence_seconds"] = 10.0
             save_config(self.config)
         elif cmd == 205:
-            self.config["auto_stop_silence_seconds"] = 0
+            self.config["auto_stop_silence_seconds"] = 0.0
             save_config(self.config)
-        elif cmd == 301:
-            self.config["theme"] = "light"
+        elif cmd in (301, 302, 303, 304, 305):
+            t_map = {301: "light", 302: "dark", 303: "glass_light", 304: "glass_dark", 305: "glass_color"}
+            t_choice = t_map.get(cmd, "light")
+            self.config["theme"] = t_choice
             save_config(self.config)
-            if self.overlay: self.overlay.set_theme("light")
-        elif cmd == 302:
-            self.config["theme"] = "dark"
-            save_config(self.config)
-            if self.overlay: self.overlay.set_theme("dark")
-        elif cmd == 401:
-            self.open_config_file()
+            if self.overlay:
+                self.overlay.set_theme(t_choice)
+        elif cmd == 501:
+            self.toggle_sound_feedback()
+        elif cmd in (511, 512, 513, 514, 510):
+            p_map = {511: 1, 512: 2, 513: 3, 514: 4, 510: 0}
+            self.set_sound_start_preset(p_map[cmd])
+        elif cmd in (521, 522, 523, 524, 520):
+            p_map = {521: 1, 522: 2, 523: 3, 524: 4, 520: 0}
+            self.set_sound_stop_preset(p_map[cmd])
+        elif cmd == 601:
+            self.minimize_to_taskbar()
         elif cmd == 402:
             self.exit_app()
 
@@ -958,7 +1217,7 @@ class DictationApp:
         self.setup_hotkey()
 
         def set_theme_action(t_key):
-            def handler(icon, item):
+            def handler(icon=None, item=None):
                 self.config["theme"] = t_key
                 save_config(self.config)
                 if self.overlay:
@@ -966,73 +1225,99 @@ class DictationApp:
             return handler
 
         theme_items = [
-            pystray.MenuItem("☀️ Windows 11 Jasny (Fluent Light)", set_theme_action("light"), checked=lambda item: self.config.get("theme", "light") == "light"),
-            pystray.MenuItem("🌙 Windows 11 Ciemny (Fluent Dark)", set_theme_action("dark"), checked=lambda item: self.config.get("theme", "light") == "dark")
+            pystray.MenuItem("Jasny (Fluent Light)", set_theme_action("light"), checked=lambda item: self.config.get("theme", "light") == "light"),
+            pystray.MenuItem("Ciemny (Fluent Dark)", set_theme_action("dark"), checked=lambda item: self.config.get("theme", "light") == "dark"),
+            pystray.MenuItem("Glass Jasny (Mica Light)", set_theme_action("glass_light"), checked=lambda item: self.config.get("theme", "light") == "glass_light"),
+            pystray.MenuItem("Glass Ciemny (Mica Dark)", set_theme_action("glass_dark"), checked=lambda item: self.config.get("theme", "light") == "glass_dark"),
+            pystray.MenuItem("Glass Kolorowy (Vibrant Glass)", set_theme_action("glass_color"), checked=lambda item: self.config.get("theme", "light") == "glass_color"),
         ]
         theme_menu = pystray.Menu(*theme_items)
 
-        silence_menu = pystray.Menu(
-            pystray.MenuItem("3.0 sekundy (Krótka pauza)", self.set_silence_timeout(3.0), checked=lambda item: self.config.get("auto_stop_silence_seconds", 4.5) == 3.0),
-            pystray.MenuItem("4.5 sekundy (Zalecane)", self.set_silence_timeout(4.5), checked=lambda item: self.config.get("auto_stop_silence_seconds", 4.5) == 4.5),
-            pystray.MenuItem("6.0 sekund (Spokojne)", self.set_silence_timeout(6.0), checked=lambda item: self.config.get("auto_stop_silence_seconds", 4.5) == 6.0),
-            pystray.MenuItem("10 sekund (Długa pauza)", self.set_silence_timeout(10.0), checked=lambda item: self.config.get("auto_stop_silence_seconds", 4.5) == 10.0),
-            pystray.MenuItem("Wyłączone (tylko ręcznie przyciskiem ⏹)", self.set_silence_timeout(0), checked=lambda item: self.config.get("auto_stop_silence_seconds", 4.5) == 0)
+        def set_sound_start_action(p):
+            def handler(icon=None, item=None):
+                self.set_sound_start_preset(p)
+            return handler
+
+        def set_sound_stop_action(p):
+            def handler(icon=None, item=None):
+                self.set_sound_stop_preset(p)
+            return handler
+
+        sound_start_menu = pystray.Menu(
+            pystray.MenuItem("1. Dzwonek Soft (Chime)", set_sound_start_action(1), checked=lambda item: int(self.config.get("sound_start_preset", 1)) == 1),
+            pystray.MenuItem("2. Bąbelek Win 11 (Bubble)", set_sound_start_action(2), checked=lambda item: int(self.config.get("sound_start_preset", 1)) == 2),
+            pystray.MenuItem("3. Arpeggio Wznoszące", set_sound_start_action(3), checked=lambda item: int(self.config.get("sound_start_preset", 1)) == 3),
+            pystray.MenuItem("4. Cyber Minimal Klik", set_sound_start_action(4), checked=lambda item: int(self.config.get("sound_start_preset", 1)) == 4),
+            pystray.MenuItem("Brak dźwięku startu", set_sound_start_action(0), checked=lambda item: int(self.config.get("sound_start_preset", 1)) == 0),
         )
 
+        sound_stop_menu = pystray.Menu(
+            pystray.MenuItem("1. Dzwonek Wyłączenia", set_sound_stop_action(1), checked=lambda item: int(self.config.get("sound_stop_preset", 1)) == 1),
+            pystray.MenuItem("2. Bąbelek Opadający", set_sound_stop_action(2), checked=lambda item: int(self.config.get("sound_stop_preset", 1)) == 2),
+            pystray.MenuItem("3. Arpeggio Opadające", set_sound_stop_action(3), checked=lambda item: int(self.config.get("sound_stop_preset", 1)) == 3),
+            pystray.MenuItem("4. Cyber Minimal Tik", set_sound_stop_action(4), checked=lambda item: int(self.config.get("sound_stop_preset", 1)) == 4),
+            pystray.MenuItem("Brak dźwięku wyłączenia", set_sound_stop_action(0), checked=lambda item: int(self.config.get("sound_stop_preset", 1)) == 0),
+        )
+
+        sound_menu = pystray.Menu(
+            pystray.MenuItem("Włącz dźwięki potwierdzenia", lambda icon=None, item=None: self.toggle_sound_feedback(), checked=lambda item: self.config.get("sound_feedback", True)),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Dźwięk włączenia (Start)", sound_start_menu),
+            pystray.MenuItem("Dźwięk wyłączenia (Stop)", sound_stop_menu),
+        )
+
+        silence_menu = pystray.Menu(
+            pystray.MenuItem("3.0 sekundy (Krótka pauza)", self.set_silence_timeout(3.0), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 3.0),
+            pystray.MenuItem("4.5 sekundy (Zalecane)", self.set_silence_timeout(4.5), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 4.5),
+            pystray.MenuItem("6.0 sekund (Spokojne)", self.set_silence_timeout(6.0), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 6.0),
+            pystray.MenuItem("10 sekund (Długa pauza)", self.set_silence_timeout(10.0), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 10.0),
+            pystray.MenuItem("Wyłączone (tylko ręcznie)", self.set_silence_timeout(0.0), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 0.0)
+        )
+
+        def toggle_vis_action(icon=None, item=None):
+            self.toggle_overlay_visibility()
+
         menu = pystray.Menu(
-            pystray.MenuItem("🎙️ Dyktowanie & Spotkania AI (RTX 3060)", None, enabled=False),
+            pystray.MenuItem("Whiscribe (Whisper AI Voice)", None, enabled=False),
             pystray.MenuItem(f"Dyktowanie: {self.config.get('hotkey', 'Ctrl+Alt+D')}", None, enabled=False),
             pystray.MenuItem(f"Spotkanie: {self.config.get('hotkey_meeting', 'Ctrl+Alt+M')}", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                "👥 Transkrypcja spotkania (Notatnik)",
+                "Pokaż / Zminimalizuj widżet",
+                toggle_vis_action,
+                default=True,
+                checked=lambda item: (not self.overlay.is_minimized()) if self.overlay else False
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "Transkrypcja spotkań",
                 self.toggle_meeting,
                 checked=lambda item: self.state == "meeting_recording"
             ),
-            pystray.MenuItem("📁 Otwórz folder z transkrypcjami spotkań", self.open_transcripts_folder),
+            pystray.MenuItem("Otwórz folder z transkrypcjami spotkań", self.open_transcripts_folder),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem(
-                "Pokaż widżet na ekranie (Win 11)",
-                self.toggle_overlay_visibility,
-                checked=lambda item: self.overlay._visible if self.overlay else False
-            ),
-            pystray.MenuItem(
-                "Podgląd tekstu w dymku",
-                self.toggle_live_preview,
-                checked=lambda item: self.config.get("show_live_preview", False)
-            ),
-            pystray.MenuItem(
-                "Styl widżetu (Motyw)",
-                theme_menu
-            ),
-            pystray.MenuItem(
-                "Wymagaj aktywnego pola tekstowego",
-                self.toggle_require_text_field,
-                checked=lambda item: self.config.get("require_text_field", True)
-            ),
+            pystray.MenuItem("Styl widżetu", theme_menu),
+            pystray.MenuItem("Dźwięki i powiadomienia", sound_menu),
+            pystray.MenuItem("Automatyczne zatrzymanie ciszy", silence_menu),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem(
                 "Pisanie na żywo (Streaming)",
                 self.toggle_streaming_mode,
                 checked=lambda item: self.config.get("stream_realtime", False)
             ),
             pystray.MenuItem(
-                "Automatyczne zatrzymanie ciszy",
-                silence_menu
+                "Wymagaj aktywnego pola tekstowego",
+                self.toggle_require_text_field,
+                checked=lambda item: self.config.get("require_text_field", True)
             ),
-            pystray.MenuItem(
-                "Dźwięk potwierdzenia",
-                self.toggle_sound_feedback,
-                checked=lambda item: self.config.get("sound_feedback", True)
-            ),
-            pystray.MenuItem("Otwórz plik konfiguracyjny (config.json)", self.open_config_file),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Zakończ", self.exit_app)
+            pystray.MenuItem("Zakończ Whiscribe", self.exit_app)
         )
 
         self.tray_icon = pystray.Icon(
-            "DictationAI",
+            "Whiscribe",
             create_tray_icon_image("idle"),
-            "Dyktowanie Mowy AI (Windows 11 Voice Typing)",
+            "Whiscribe (AI Voice Typing)",
             menu
         )
 
@@ -1048,11 +1333,15 @@ if __name__ == "__main__":
                 ctypes.windll.user32.SetThreadDesktop(h_def)
         except Exception:
             pass
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Whiscribe.VoiceTyping.1.0")
+        except Exception:
+            pass
         ERROR_ALREADY_EXISTS = 183
-        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Global\DyktowanieAI_Whisper_SingleInstance_Mutex")
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Local\Whiscribe_SingleInstance_Mutex")
         if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
             # Aplikacja już działa w tle! Wybudzamy i pokazujemy widżet PIL bez blokującego okna modalnego
-            EVENT_NAME = r"Global\DyktowanieAI_ShowOverlay_Event"
+            EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
             h_send = ctypes.windll.kernel32.OpenEventW(0x0002, False, EVENT_NAME)  # EVENT_MODIFY_STATE = 0x0002
             if h_send:
                 ctypes.windll.kernel32.SetEvent(h_send)

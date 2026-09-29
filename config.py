@@ -12,15 +12,17 @@ DEFAULT_CONFIG = {
     "compute_type": "float16",  # "float16" dla GPU, "int8" dla CPU
     "language": "pl",
     "sound_feedback": True,
+    "sound_start_preset": 1,  # 1: Nowoczesny dzwonek, 2: Soft Pop, 3: Harmonia, 4: Cyber Minimal, 0: Brak
+    "sound_stop_preset": 1,   # 1: Łagodny spadek, 2: Soft Pop, 3: Harmonia, 4: Cyber Minimal, 0: Brak
     "show_overlay": True,
     "require_text_field": True,  # Wymaga aktywnego pola tekstowego przed rozpoczęciem dyktowania (zapobiega chodzeniu po ikonkach)
     "stream_realtime": False,  # Domyślnie False (czyste wklejanie końcowego tekstu bez pożerania liter i cofania kursora)
     "auto_stop_silence_seconds": 4.5,  # Automatyczne zatrzymanie po ciszy (domyślnie 4.5s)
-    "theme": "light",  # Styl widżetu: light (Windows 11 Fluent Jasny), dark (Windows 11 Fluent Ciemny)
+    "theme": "light",  # Styl widżetu: light, dark, glass_light, glass_dark, glass_color
     "restore_clipboard": False,
     "hotkey_meeting": "<ctrl>+<alt>+m",
     "hotkey_meeting_description": "Skrót klawiszowy uruchamiający transkrypcję spotkań z podziałem na mówców do Notatnika",
-    "open_notepad_on_meeting": True,
+    "open_notepad_on_meeting": False,
     "meetings_folder": "transkrypcje",
     "diarization_enabled": True,
     "meeting_summary_llm": True,
