@@ -17,12 +17,15 @@ __pycache__/
 # Meeting transcripts
 transkrypcje/
 
-# Temporary test files
+# Internal tests and development artifacts
+tests/
+smoke_test_*.py
+test_*.py
+run_all_qa_tests.py
+*.png
 test_*.txt
 test pola wpisu.txt
 *.tmp
-test_tray_*.png
-test_navy_icon.png
 
 # PyInstaller & Portable Build
 build/
