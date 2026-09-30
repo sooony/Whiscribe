@@ -202,18 +202,28 @@ class MeetingManager:
             summary_text = ""
 
             if provider == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.config.get('llm_model', 'gemini-2.0-flash')}:generateContent?key={api_key}"
+                primary_model = self.config.get('llm_model', 'gemini-flash-latest')
+                candidate_models = [primary_model]
+                for fb in ("gemini-flash-latest", "gemini-3.1-flash-lite"):
+                    if fb not in candidate_models: candidate_models.append(fb)
                 payload = {
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1000}
                 }
                 with httpx.Client(timeout=8.0) as client:
-                    resp = client.post(url, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        candidates = data.get("candidates", [])
-                        if candidates:
-                            summary_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    for model_name in candidate_models:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                        try:
+                            resp = client.post(url, json=payload)
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                candidates = data.get("candidates", [])
+                                if candidates:
+                                    summary_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                                    if summary_text:
+                                        break
+                        except Exception:
+                            continue
             else:
                 if provider == "groq":
                     base_url = "https://api.groq.com/openai/v1"

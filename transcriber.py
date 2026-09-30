@@ -369,7 +369,12 @@ class Transcriber:
         try:
             if provider == "gemini":
                 # Google Gemini API
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.config.get('llm_model', 'gemini-2.0-flash')}:generateContent?key={api_key}"
+                primary_model = self.config.get('llm_model', 'gemini-flash-latest')
+                candidate_models = [primary_model]
+                for fallback_m in ("gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"):
+                    if fallback_m not in candidate_models:
+                        candidate_models.append(fallback_m)
+
                 payload = {
                     "contents": [
                         {
@@ -384,15 +389,22 @@ class Transcriber:
                         "maxOutputTokens": 1000
                     }
                 }
-                with httpx.Client(timeout=4.0) as client:
-                    resp = client.post(url, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        candidates = data.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            if parts:
-                                return parts[0].get("text", "").strip()
+                with httpx.Client(timeout=4.5) as client:
+                    for model_name in candidate_models:
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                        try:
+                            resp = client.post(url, json=payload)
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                candidates = data.get("candidates", [])
+                                if candidates:
+                                    parts = candidates[0].get("content", {}).get("parts", [])
+                                    if parts:
+                                        cleaned = parts[0].get("text", "").strip()
+                                        if cleaned:
+                                            return cleaned
+                        except Exception:
+                            continue
             
             elif provider in ("groq", "openai", "ollama", "local", "lmstudio"):
                 # OpenAI-compatible API (Chmura lub 100% lokalna Ollama / LM Studio)

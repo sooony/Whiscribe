@@ -1184,6 +1184,7 @@ class DictationApp:
             h_sound_start_sub = user32.CreatePopupMenu()
             h_sound_stop_sub = user32.CreatePopupMenu()
             h_silence_sub = user32.CreatePopupMenu()
+            h_ai_sub = user32.CreatePopupMenu()
 
             MF_STRING = 0x0000
             MF_SEPARATOR = 0x0800
@@ -1251,6 +1252,17 @@ class DictationApp:
                 chk = MF_CHECKED if cur_silence == s_val else MF_UNCHECKED
                 user32.AppendMenuW(h_silence_sub, MF_STRING | chk, s_id, s_label)
             user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "Automatyczne zatrzymanie ciszy")
+
+            # 4. Podmenu: Korekta AI (Google Gemini Flash)
+            use_ai = self.config.get("use_llm", False)
+            chk_ai = MF_CHECKED if use_ai else MF_UNCHECKED
+            user32.AppendMenuW(h_ai_sub, MF_STRING | chk_ai, 701, "Włącz korektę Gemini Flash")
+            user32.AppendMenuW(h_ai_sub, MF_STRING, 702, "Wprowadź klucz API Gemini...")
+            user32.AppendMenuW(h_ai_sub, MF_SEPARATOR, 0, "")
+            has_key = bool(self.config.get("llm_api_key", "").strip())
+            key_label = "Status: Klucz API skonfigurowany" if has_key else "Status: Brak klucza API"
+            user32.AppendMenuW(h_ai_sub, MF_STRING | 0x0002, 703, key_label)
+            user32.AppendMenuW(h_menu, MF_POPUP, h_ai_sub, "Korekta AI (Gemini Flash)")
 
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
@@ -1350,6 +1362,10 @@ class DictationApp:
             elif cmd in (521, 522, 523, 524, 520):
                 p_map = {521: 1, 522: 2, 523: 3, 524: 4, 520: 0}
                 self.set_sound_stop_preset(p_map[cmd])
+            elif cmd == 701:
+                self.toggle_gemini_correction()
+            elif cmd == 702:
+                self.prompt_and_set_gemini_api_key()
             elif cmd == 601:
                 self.minimize_to_taskbar()
             elif cmd == 402:
@@ -1363,6 +1379,64 @@ class DictationApp:
         self.config["theme"] = new_theme
         save_config(self.config)
         logger.info(f"Zmieniono motyw graficzny na: {new_theme}")
+
+    def toggle_gemini_correction(self):
+        """Włącza lub wyłącza korektę AI (Gemini Flash)."""
+        curr = self.config.get("use_llm", False)
+        if not curr:
+            if not self.config.get("llm_api_key", "").strip():
+                self.prompt_and_set_gemini_api_key()
+                return
+            self.config["use_llm"] = True
+            self.config["llm_provider"] = "gemini"
+            if not self.config.get("llm_model"):
+                self.config["llm_model"] = "gemini-flash-latest"
+        else:
+            self.config["use_llm"] = False
+
+        save_config(self.config)
+        if hasattr(self, "transcriber") and self.transcriber:
+            self.transcriber.config = self.config
+        state_str = "włączona" if self.config["use_llm"] else "wyłączona"
+        logger.info(f"Korekta językowa Gemini Flash: {state_str}")
+        if self.overlay:
+            self.overlay.show_balloon("info", f"Korekta Gemini: {state_str}")
+
+    def prompt_and_set_gemini_api_key(self):
+        """Wyświetla okno dialogowe pozwalające wprowadzić lub zmienić klucz API Google Gemini."""
+        def _dialog():
+            try:
+                import tkinter as tk
+                from tkinter import simpledialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                curr_key = self.config.get("llm_api_key", "")
+                new_key = simpledialog.askstring(
+                    "Klucz API Google Gemini",
+                    "Wprowadź swój klucz API Google Gemini (np. ze strony aistudio.google.com):",
+                    initialvalue=curr_key,
+                    parent=root
+                )
+                root.destroy()
+                if new_key is not None:
+                    cleaned = new_key.strip()
+                    self.config["llm_api_key"] = cleaned
+                    if cleaned:
+                        self.config["use_llm"] = True
+                        self.config["llm_provider"] = "gemini"
+                        self.config["llm_model"] = "gemini-flash-latest"
+                    save_config(self.config)
+                    if hasattr(self, "transcriber") and self.transcriber:
+                        self.transcriber.config = self.config
+                    msg = "Klucz API Gemini zapisany i aktywowany!" if cleaned else "Klucz API Gemini usunięty."
+                    logger.info(msg)
+                    if self.overlay:
+                        self.overlay.show_balloon("info", msg)
+            except Exception as e:
+                logger.error(f"Błąd okna wprowadzania klucza API Gemini: {e}", exc_info=True)
+
+        threading.Thread(target=_dialog, daemon=True).start()
 
     def toggle_autostart(self):
         curr = is_autostart_enabled()
@@ -1430,6 +1504,13 @@ class DictationApp:
             pystray.MenuItem("Wyłączone (tylko ręcznie)", self.set_silence_timeout(0.0), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 0.0)
         )
 
+        ai_menu = pystray.Menu(
+            pystray.MenuItem("Włącz korektę Gemini Flash", lambda icon=None, item=None: self.toggle_gemini_correction(), checked=lambda item: self.config.get("use_llm", False)),
+            pystray.MenuItem("Wprowadź klucz API Gemini...", lambda icon=None, item=None: self.prompt_and_set_gemini_api_key()),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(lambda item: "Status: Klucz API skonfigurowany" if self.config.get("llm_api_key", "").strip() else "Status: Brak klucza API", None, enabled=False)
+        )
+
         def toggle_vis_action(icon=None, item=None):
             self.toggle_overlay_visibility()
 
@@ -1452,6 +1533,7 @@ class DictationApp:
             ),
             pystray.MenuItem("Otwórz folder z transkrypcjami spotkań", self.open_transcripts_folder),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Korekta AI (Gemini Flash)", ai_menu),
             pystray.MenuItem("Styl widżetu", theme_menu),
             pystray.MenuItem("Dźwięki i powiadomienia", sound_menu),
             pystray.MenuItem("Automatyczne zatrzymanie ciszy", silence_menu),
