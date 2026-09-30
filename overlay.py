@@ -546,10 +546,16 @@ class FloatingOverlay:
         self.bar_r = 15
 
         # Przyciski belki górnej (.window-bar):
-        # Przycisk przełączania trybu streamingu: "Streaming ON" / "Streaming OFF"
-        self.stream_btn_x = self.bx + 8
+        # Przełącznik trybu streamingu: Etykieta "Streaming" + pastylka [ ON ] / [ OFF ]
+        self.stream_lbl_x = self.bx + 8
+        self.stream_lbl_y = self.by + 13.5
+        self.stream_pill_w = 34
+        self.stream_pill_h = 18
+        self.stream_total_w = 98
+
+        self.stream_btn_x = self.stream_lbl_x
         self.stream_btn_y = self.by + 4
-        self.stream_btn_w = 88
+        self.stream_btn_w = self.stream_total_w
         self.stream_btn_h = 19
         self.stream_realtime = False
         self.on_stream_toggle_callback = None
@@ -1278,33 +1284,38 @@ class FloatingOverlay:
         d = ImageDraw.Draw(img)
 
         # --- KONTROLKI BELKI GÓRNEJ (.window-bar) ---
-        # 1. Przycisk przełączania trybu streamingu: "Streaming ON" / "Streaming OFF"
-        st_x = int(self.stream_btn_x * scale)
-        st_y = int(self.stream_btn_y * scale)
-        st_w = int(self.stream_btn_w * scale)
-        st_h = int(self.stream_btn_h * scale)
+        # 1. Przełącznik trybu streamingu: Etykieta "Streaming" + pastylka [ ON ] / [ OFF ]
+        lbl_x = int(self.stream_lbl_x * scale)
+        bar_cy = int(self.stream_lbl_y * scale)
         is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
 
-        # Tło przycisku
+        # 1a. Tekst "Streaming" poza pastylką
+        lbl_col = (220, 230, 245, 255) if (self._hover_target == 'btn_toggle_stream' or self.stream_realtime) else cfg['muted']
+        d.text((lbl_x, bar_cy), "Streaming", fill=lbl_col, font=fnt_tab, anchor="lm")
+        bbox_lbl = d.textbbox((lbl_x, bar_cy), "Streaming", font=fnt_tab, anchor="lm")
+
+        # 1b. Zwięzła, krótsza pastylka wyłącznie dla statusu [ ON ] / [ OFF ]
+        pill_x = bbox_lbl[2] + int(6 * scale)
+        pill_w = int(self.stream_pill_w * scale)
+        pill_h = int(self.stream_pill_h * scale)
+        pill_y = bar_cy - pill_h // 2
+        pill_r = int(5 * scale)
+
+        # Tło i obramowanie pastylki
         if self._hover_target == 'btn_toggle_stream':
-            d.rounded_rectangle([st_x, st_y, st_x + st_w, st_y + st_h], radius=int(6*scale), fill=cfg.get('toggle_active_hover_bg' if self.stream_realtime else 'btn_hover_bg', (200, 212, 230, 255)))
+            pill_bg = cfg.get('toggle_active_hover_bg' if self.stream_realtime else 'btn_hover_bg', (200, 212, 230, 255))
+            d.rounded_rectangle([pill_x, pill_y, pill_x + pill_w, pill_y + pill_h], radius=pill_r, fill=pill_bg)
         elif self.stream_realtime:
-            d.rounded_rectangle([st_x, st_y, st_x + st_w, st_y + st_h], radius=int(6*scale), fill=cfg.get('toggle_active_bg', (36, 50, 78, 255)))
+            pill_bg = cfg.get('toggle_active_bg', (36, 50, 78, 255))
+            d.rounded_rectangle([pill_x, pill_y, pill_x + pill_w, pill_y + pill_h], radius=pill_r, fill=pill_bg)
         else:
-            d.rounded_rectangle([st_x, st_y, st_x + st_w, st_y + st_h], radius=int(6*scale), fill=cfg.get('btn_hover_bg', (30, 34, 44, 255)) if is_dark else (240, 244, 250, 255), outline=cfg['panel_border'], width=max(1, int(1*scale)))
+            off_bg = (28, 32, 42, 255) if is_dark else (240, 244, 250, 255)
+            d.rounded_rectangle([pill_x, pill_y, pill_x + pill_w, pill_y + pill_h], radius=pill_r, fill=off_bg, outline=cfg['panel_border'], width=max(1, int(1*scale)))
 
-        # Tekst: "Streaming" oraz zmieniający się status "ON" / "OFF"
-        prefix_text = "Streaming "
+        # 1c. Wyśrodkowany napis wewnątrz pastylki ("ON" / "OFF")
         state_text = "ON" if self.stream_realtime else "OFF"
-        prefix_col = ((220, 230, 245, 255) if is_dark else (20, 40, 75, 255)) if self.stream_realtime else cfg['muted']
         state_col = cfg.get('accent', (56, 189, 248, 255)) if self.stream_realtime else ((239, 68, 68, 220) if is_dark else (220, 38, 38, 220))
-
-        # Rysowanie tekstu wyśrodkowanego w pionie
-        tx_start = st_x + int(8 * scale)
-        ty_text = st_y + st_h // 2 - int(0.5 * scale)
-        d.text((tx_start, ty_text), prefix_text, fill=prefix_col, font=fnt_tab, anchor="lm")
-        bbox_prefix = d.textbbox((tx_start, ty_text), prefix_text, font=fnt_tab, anchor="lm")
-        d.text((bbox_prefix[2], ty_text), state_text, fill=state_col, font=fnt_tab, anchor="lm")
+        d.text((pill_x + pill_w / 2, bar_cy - int(0.5 * scale)), state_text, fill=state_col, font=fnt_tab, anchor="mm")
 
         # 2. Przyciski sterowania oknem po prawej stronie
         bar_cy = int(self.bar_close_cy * scale)
