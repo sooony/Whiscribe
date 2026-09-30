@@ -11,7 +11,7 @@
   "sound_stop_preset": 1,
   "show_overlay": true,
   "require_text_field": true,
-  "stream_realtime": true,
+  "stream_realtime": false,
   "auto_stop_silence_seconds": 10.0,
   "theme": "dark",
   "restore_clipboard": false,

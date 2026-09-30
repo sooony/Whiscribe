@@ -50,10 +50,15 @@ def is_valid_segment(s, text: str) -> bool:
     # Zaufane słowa i zwroty konwersacyjne (np. powitania, pożegnania, krótkie odpowiedzi)
     # Whisper może przypisać im wyższe no_speech_prob z powodu krótkiego czasu trwania w oknie analizy
     COMMON_WORDS = (
-        "cześć", "czesc", "hej", "halo", "słuchaj", "sluchaj", "na razie", "narazie",
-        "dzień dobry", "dzien dobry", "witam", "witajcie", "do widzenia", "dzięki", "dzieki",
-        "dziękuję", "dziekuje", "pozdrawiam", "miłego dnia", "milego dnia", "miłego wieczoru",
-        "tak", "nie", "proszę", "prosze", "jasne", "dobrze", "super", "dokładnie", "oczywiście"
+        "cześć", "czesc", "hej", "hejka", "siema", "siemanko", "halo",
+        "słuchaj", "sluchaj", "słuchajcie", "sluchajcie", "jak się macie", "jak sie macie", "jak się masz", "jak sie masz",
+        "witaj", "witajcie", "dzień dobry", "dzien dobry", "dobry wieczór", "dobry wieczor",
+        "na razie", "narazie", "do zobaczenia", "do widzenia", "było fajnie", "bylo fajnie",
+        "spotkamy się", "spotkamy sie", "będzie okej", "bedzie okej", "trzymaj się", "trzymaj sie",
+        "dzięki", "dzieki", "dzięki za informację", "dzieki za informacje", "dzięki za info", "dzieki za info",
+        "dziękuję", "dziekuje", "dziękuję bardzo", "dziekuje bardzo", "proszę", "prosze",
+        "pozdrawiam", "miłego dnia", "milego dnia", "miłego wieczoru", "milego wieczoru",
+        "tak", "nie", "jasne", "dobrze", "super", "dokładnie", "oczywiście"
     )
     if any(cw in t for cw in COMMON_WORDS):
         return s.no_speech_prob < 0.85 and s.avg_logprob > -1.8
@@ -90,7 +95,10 @@ def clean_hallucinations(text: str) -> str:
     # 5. Upewnij się, że początek zdania po kropce/pytajniku zaczyna się wielką literą
     cleaned = re.sub(r'([.!?]\s+)([a-ząćęłńóśźż])', lambda m: m.group(1) + m.group(2).upper(), cleaned)
 
-    # 6. Upewnij się, że pierwszy znak tekstu zaczyna się wielką literą
+    # 6. Napraw sztuczne wielkie litery po przecinku (np. 'Cześć, Jak się masz' -> 'Cześć, jak się masz')
+    cleaned = re.sub(r',\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)', lambda m: ', ' + m.group(1).lower() if m.group(1).lower() in ("jak", "co", "gdzie", "kiedy", "dlaczego", "który", "która", "które", "że", "ponieważ", "bo", "ale", "lecz", "czyli", "mam", "masz", "trzymaj", "witam") else m.group(0), cleaned)
+
+    # 7. Upewnij się, że pierwszy znak tekstu zaczyna się wielką literą
     cleaned = cleaned.strip()
     if cleaned and cleaned[0].islower():
         cleaned = cleaned[0].upper() + cleaned[1:]
@@ -171,12 +179,11 @@ class Transcriber:
                     beam_size=2,
                     without_timestamps=False,
                     condition_on_previous_text=False,
-                    vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=450, threshold=0.35, speech_pad_ms=250),
-                    no_speech_threshold=0.5,
-                    log_prob_threshold=-0.9,
+                    vad_filter=False,  # W streamingu sub-segmentów VAD nie może ucinać próbek, bo rozjeżdża timestampy!
+                    no_speech_threshold=0.6,
+                    log_prob_threshold=-1.0,
                     compression_ratio_threshold=2.4,
-                    hallucination_silence_threshold=1.8,
+                    hallucination_silence_threshold=2.0,
                     repetition_penalty=1.15,
                     no_repeat_ngram_size=3,
                     suppress_blank=True,
