@@ -10,6 +10,7 @@
   "sound_start_preset": 4,
   "sound_stop_preset": 1,
   "show_overlay": true,
+  "always_on_top": true,
   "require_text_field": true,
   "stream_realtime": false,
   "auto_stop_silence_seconds": 10.0,

@@ -602,6 +602,12 @@ class DictationApp:
 
     def minimize_to_taskbar(self):
         """Minimalizuje widżet do dolnego paska zadań Windows (Taskbar)."""
+        if self.config.get("always_on_top", True):
+            logger.info("Tryb 'Zawsze na wierzchu' aktywny – widżet pozostaje stale widoczny na ekranie.")
+            if self.overlay:
+                self.overlay.show()
+                self.overlay.show_idle()
+            return
         self.is_minimized_to_tray = True
         if self.overlay:
             self.overlay.minimize()
@@ -937,6 +943,11 @@ class DictationApp:
                 self.tray_icon.icon = create_tray_icon_image("idle")
             if self.overlay:
                 self.overlay.show_idle()
+                if self.config.get("always_on_top", True) and getattr(self.overlay, "hwnd", None):
+                    try:
+                        user32.SetWindowPos(self.overlay.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+                    except Exception:
+                        pass
 
     def toggle_dictation(self):
         """Obsługa naciśnięcia klawisza/przycisku myszy w trybie Toggle."""
@@ -1179,6 +1190,10 @@ class DictationApp:
         save_config(self.config)
         if self.overlay:
             self.overlay.set_always_on_top(self.config["always_on_top"])
+            if self.config["always_on_top"]:
+                self.is_minimized_to_tray = False
+                self.overlay.show()
+                self.overlay.show_idle()
         logger.info(f"Zawsze na wierzchu: {'Włączone' if self.config['always_on_top'] else 'Wyłączone'}")
 
     def exit_app(self):

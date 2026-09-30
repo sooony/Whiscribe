@@ -82,7 +82,8 @@ class TestV2Features(unittest.TestCase):
     def test_taskbar_minimize_and_restore(self):
         """Weryfikacja minimalizacji do dolnego paska zadań Windows i przywracania."""
         import time
-        overlay = FloatingOverlay(theme="light")
+        # Gdy always_on_top=False, minimalizacja do paska działa standardowo
+        overlay = FloatingOverlay(theme="light", always_on_top=False)
         overlay.show()
         time.sleep(0.1)
         self.assertFalse(overlay.is_minimized())
@@ -93,6 +94,15 @@ class TestV2Features(unittest.TestCase):
         time.sleep(0.1)
         self.assertFalse(overlay.is_minimized())
         overlay.close()
+
+        # Gdy always_on_top=True, okno nie pozwala się zminimalizować do paska i pozostaje na ekranie
+        overlay_top = FloatingOverlay(theme="light", always_on_top=True)
+        overlay_top.show()
+        time.sleep(0.1)
+        overlay_top.minimize()
+        time.sleep(0.1)
+        self.assertFalse(overlay_top.is_minimized())
+        overlay_top.close()
 
     def test_hover_and_active_no_alpha_punching(self):
         """Weryfikacja czy stany hover i aktywny we wszystkich 5 motywach nie dziurawią kanału alpha (brak białych plam)."""

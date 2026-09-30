@@ -1074,14 +1074,13 @@ class FloatingOverlay:
 
             WS_EX_LAYERED = 0x00080000
             WS_EX_TOPMOST = 0x00000008
-            WS_EX_APPWINDOW = 0x00040000
+            WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_NOACTIVATE = 0x08000000
 
             WS_POPUP = 0x80000000
-            WS_MINIMIZEBOX = 0x00020000
             WS_SYSMENU = 0x00080000
 
-            ex_flags = WS_EX_LAYERED | WS_EX_APPWINDOW | WS_EX_NOACTIVATE
+            ex_flags = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
             if self.always_on_top:
                 ex_flags |= WS_EX_TOPMOST
 
@@ -1089,7 +1088,7 @@ class FloatingOverlay:
                 ex_flags,
                 self._class_name,
                 "Whiscribe",
-                WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
+                WS_POPUP | WS_SYSMENU,
                 self.pos_x, self.pos_y, self.w, self.h,
                 None, None, wc.hInstance, None
             )
@@ -1123,6 +1122,8 @@ class FloatingOverlay:
 
             msg = wintypes.MSG()
             last_frame_time = time.time()
+            last_topmost_check = time.time()
+            last_fg = None
             prev_hover = self._hover_target
 
             while self._running:
@@ -1131,6 +1132,19 @@ class FloatingOverlay:
                     user32.DispatchMessageW(ctypes.byref(msg))
 
                 now = time.time()
+
+                # Topmost Keep-Alive: gwarantuje, że widżet nigdy nie zostaje przykryty ani zminimalizowany
+                if self.always_on_top and self._visible and self.hwnd:
+                    cur_fg = user32.GetForegroundWindow()
+                    if cur_fg != last_fg or (now - last_topmost_check > 0.8):
+                        last_topmost_check = now
+                        last_fg = cur_fg
+                        if user32.IsIconic(self.hwnd):
+                            user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
+                        user32.SetWindowPos(
+                            self.hwnd, -1, 0, 0, 0, 0,
+                            0x0001 | 0x0002 | 0x0010  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+                        )
                 elapsed = now - last_frame_time
                 if elapsed < 0.030:
                     time.sleep(max(0.001, 0.030 - elapsed))
@@ -1567,14 +1581,14 @@ class FloatingOverlay:
             self.clear_transcript()
             self._balloon_type = None
             self._dirty = True
-        if not self.is_minimized() and self._visible:
+        if self.always_on_top or (not self.is_minimized() and self._visible):
             self.show()
 
     def show_processing(self):
         with self._lock:
             self.mode = "processing"
             self._dirty = True
-        if not self.is_minimized() and self._visible:
+        if self.always_on_top or (not self.is_minimized() and self._visible):
             self.show()
 
     def show_meeting_recording(self):
@@ -1615,7 +1629,7 @@ class FloatingOverlay:
             self.live_tail = ""
             if not self._user_scrolled:
                 self.scroll_line = 999999
-        self._dirty = True
+            self._dirty = True
 
     def clear_transcript(self):
         with self._lock:
@@ -1644,6 +1658,9 @@ class FloatingOverlay:
 
     def minimize(self):
         """Minimalizuje okno do dolnego paska zadań Windows (Taskbar)."""
+        if self.always_on_top:
+            self.show_idle()
+            return
         self._dirty = True
         if self.hwnd:
             user32.ShowWindow(self.hwnd, 6)  # SW_MINIMIZE
@@ -1667,6 +1684,12 @@ class FloatingOverlay:
         with self._lock:
             self.always_on_top = bool(enable)
         if self.hwnd:
+            self._visible = True
+            if self.always_on_top:
+                if user32.IsIconic(self.hwnd):
+                    user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
+                else:
+                    user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA
             GWL_EXSTYLE = -20
             WS_EX_TOPMOST = 0x00000008
             cur_ex = _GetWindowLong(self.hwnd, GWL_EXSTYLE)
@@ -1681,6 +1704,7 @@ class FloatingOverlay:
                 self.hwnd, hwnd_insert, 0, 0, 0, 0,
                 0x0001 | 0x0002 | 0x0010 | 0x0020  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED
             )
+            self._dirty = True
 
     def set_theme(self, theme_name: str):
         if theme_name in THEME_MAP:
