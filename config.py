@@ -9,7 +9,7 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.1.7"
+APP_VERSION = "2.1.8"
 __version__ = APP_VERSION
 
 CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
     "sound_start_preset": 1,  # 1: Nowoczesny dzwonek, 2: Soft Pop, 3: Harmonia, 4: Cyber Minimal, 0: Brak
     "sound_stop_preset": 1,   # 1: Łagodny spadek, 2: Soft Pop, 3: Harmonia, 4: Cyber Minimal, 0: Brak
     "show_overlay": True,
+    "always_on_top": True,  # Zawsze na wierzchu (Always on Top) - widżet pozostaje nad wszystkimi oknami aplikacji
     "require_text_field": True,  # Wymaga aktywnego pola tekstowego przed rozpoczęciem dyktowania (zapobiega chodzeniu po ikonkach)
     "stream_realtime": False,  # Domyślnie False (czyste wklejanie końcowego tekstu bez pożerania liter i cofania kursora)
     "auto_stop_silence_seconds": 4.5,  # Automatyczne zatrzymanie po ciszy (domyślnie 4.5s)

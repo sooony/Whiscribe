@@ -178,6 +178,38 @@ class TestV2Features(unittest.TestCase):
 
         icon.stop()
 
+    def test_always_on_top_feature(self):
+        """Weryfikacja dynamicznego włączania i wyłączania trybu 'Zawsze na wierzchu'."""
+        from overlay import _GetWindowLong
+        WS_EX_TOPMOST = 0x00000008
+
+        # 1. Start domyślny (always_on_top=True)
+        ov = FloatingOverlay(theme="dark", always_on_top=True)
+        ex = _GetWindowLong(ov.hwnd, -20)
+        self.assertTrue(bool(ex & WS_EX_TOPMOST), "Overlay powinien mieć flagę WS_EX_TOPMOST przy always_on_top=True")
+        self.assertTrue(ov.always_on_top)
+
+        # 2. Wyłączenie 'Zawsze na wierzchu'
+        ov.set_always_on_top(False)
+        self.assertFalse(ov.always_on_top)
+        ex_off = _GetWindowLong(ov.hwnd, -20)
+        self.assertFalse(bool(ex_off & WS_EX_TOPMOST), "Flaga WS_EX_TOPMOST powinna zostać usunięta przy wyłączeniu")
+
+        # 3. Ponowne włączenie 'Zawsze na wierzchu'
+        ov.set_always_on_top(True)
+        self.assertTrue(ov.always_on_top)
+        ex_on = _GetWindowLong(ov.hwnd, -20)
+        self.assertTrue(bool(ex_on & WS_EX_TOPMOST), "Flaga WS_EX_TOPMOST powinna zostać przywrócona")
+
+        ov.close()
+
+        # 4. Start z wyłączonym always_on_top=False
+        ov2 = FloatingOverlay(theme="dark", always_on_top=False)
+        self.assertFalse(ov2.always_on_top)
+        ex2 = _GetWindowLong(ov2.hwnd, -20)
+        self.assertFalse(bool(ex2 & WS_EX_TOPMOST), "Overlay nie powinien mieć WS_EX_TOPMOST jeśli utworzono z always_on_top=False")
+        ov2.close()
+
 if __name__ == "__main__":
     unittest.main()
 

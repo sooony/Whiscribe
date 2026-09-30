@@ -447,7 +447,7 @@ class DictationApp:
         self._last_toggle_time = 0.0
         self._last_meeting_toggle_time = 0.0
         theme = self.config.get("theme", "light")
-        self.overlay = FloatingOverlay(theme=theme) if self.config.get("show_overlay", True) else None
+        self.overlay = FloatingOverlay(theme=theme, always_on_top=self.config.get("always_on_top", True)) if self.config.get("show_overlay", True) else None
         if self.overlay:
             self.overlay.show_live_preview = self.config.get("show_live_preview", False)
             self.overlay.stream_realtime = self.config.get("stream_realtime", False)
@@ -1174,6 +1174,13 @@ class DictationApp:
             self.overlay._dirty = True
         logger.info(f"Pisanie na żywo: {'Włączone' if self.config['stream_realtime'] else 'Wyłączone'}")
 
+    def toggle_always_on_top(self):
+        self.config["always_on_top"] = not self.config.get("always_on_top", True)
+        save_config(self.config)
+        if self.overlay:
+            self.overlay.set_always_on_top(self.config["always_on_top"])
+        logger.info(f"Zawsze na wierzchu: {'Włączone' if self.config['always_on_top'] else 'Wyłączone'}")
+
     def exit_app(self):
         logger.info("Zamykanie aplikacji...")
         self._running = False
@@ -1339,9 +1346,12 @@ class DictationApp:
 
         user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
-        # 4. Główne opcje wpisywania
+        # 4. Główne opcje wpisywania i zachowania okna
         chk_stream = MF_CHECKED if self.config.get("stream_realtime", False) else MF_UNCHECKED
         user32.AppendMenuW(h_menu, MF_STRING | chk_stream, 101, "Pisanie na żywo (Streaming)")
+
+        chk_topmost = MF_CHECKED if self.config.get("always_on_top", True) else MF_UNCHECKED
+        user32.AppendMenuW(h_menu, MF_STRING | chk_topmost, 103, "Zawsze na wierzchu")
 
         chk_field = MF_CHECKED if self.config.get("require_text_field", True) else MF_UNCHECKED
         user32.AppendMenuW(h_menu, MF_STRING | chk_field, 102, "Wymagaj aktywnego pola tekstowego")
@@ -1387,6 +1397,8 @@ class DictationApp:
             self.toggle_streaming_mode()
         elif cmd == 102:
             self.toggle_require_text_field()
+        elif cmd == 103:
+            self.toggle_always_on_top()
         elif cmd == 104:
             self.toggle_meeting()
         elif cmd == 105:
@@ -1527,6 +1539,11 @@ class DictationApp:
                 "Pisanie na żywo (Streaming)",
                 self.toggle_streaming_mode,
                 checked=lambda item: self.config.get("stream_realtime", False)
+            ),
+            pystray.MenuItem(
+                "Zawsze na wierzchu",
+                lambda icon=None, item=None: self.toggle_always_on_top(),
+                checked=lambda item: self.config.get("always_on_top", True)
             ),
             pystray.MenuItem(
                 "Wymagaj aktywnego pola tekstowego",

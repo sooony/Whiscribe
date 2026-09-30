@@ -139,6 +139,21 @@ user32.UnregisterHotKey.restype = wintypes.BOOL
 user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.SendMessageW.restype = LRESULT
 
+if hasattr(user32, 'GetWindowLongPtrW'):
+    _GetWindowLong = user32.GetWindowLongPtrW
+    _SetWindowLong = user32.SetWindowLongPtrW
+    _GetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int]
+    _GetWindowLong.restype = ctypes.c_longlong
+    _SetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_longlong]
+    _SetWindowLong.restype = ctypes.c_longlong
+else:
+    _GetWindowLong = user32.GetWindowLongW
+    _SetWindowLong = user32.SetWindowLongW
+    _GetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int]
+    _GetWindowLong.restype = ctypes.c_long
+    _SetWindowLong.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+    _SetWindowLong.restype = ctypes.c_long
+
 def parse_hotkey_to_win32(hk: str) -> tuple[int, int]:
     """Konwertuje string skrótu (np. <ctrl>+<alt>+d) na flagi modyfikatorów i Virtual Key Code dla RegisterHotKey."""
     clean = hk.lower().replace("<", "").replace(">", "").replace(" ", "")
@@ -507,12 +522,13 @@ class FloatingOverlay:
     - Dymek błędu braku pola tekstowego
     """
 
-    def __init__(self, theme='dark'):
+    def __init__(self, theme='dark', always_on_top=True):
         self.hwnd = None
         self._thread = None
         self._ready_event = threading.Event()
         self._running = True
         self._lock = threading.RLock()
+        self.always_on_top = bool(always_on_top)
 
         if theme in THEME_MAP:
             theme = THEME_MAP[theme]
@@ -914,6 +930,9 @@ class FloatingOverlay:
                 return 1
 
         elif msg == WM_LBUTTONDOWN:
+            if not self.always_on_top:
+                user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)  # HWND_TOP, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
+
             x = lparam & 0xFFFF
             y = (lparam >> 16) & 0xFFFF
             if x > 0x7FFF: x -= 0x10000
@@ -1062,8 +1081,12 @@ class FloatingOverlay:
             WS_MINIMIZEBOX = 0x00020000
             WS_SYSMENU = 0x00080000
 
+            ex_flags = WS_EX_LAYERED | WS_EX_APPWINDOW | WS_EX_NOACTIVATE
+            if self.always_on_top:
+                ex_flags |= WS_EX_TOPMOST
+
             self.hwnd = user32.CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_APPWINDOW | WS_EX_NOACTIVATE,
+                ex_flags,
                 self._class_name,
                 "Whiscribe",
                 WS_POPUP | WS_MINIMIZEBOX | WS_SYSMENU,
@@ -1091,7 +1114,8 @@ class FloatingOverlay:
 
             if self._visible:
                 user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA
-                user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+                hwnd_insert = -1 if self.always_on_top else -2
+                user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
             self._ready_event.set()
             self._dirty = True
@@ -1609,7 +1633,8 @@ class FloatingOverlay:
                 user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
             else:
                 user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA
-            user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+            hwnd_insert = -1 if self.always_on_top else -2
+            user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
     def hide(self):
         self._visible = False
@@ -1629,12 +1654,33 @@ class FloatingOverlay:
         self._dirty = True
         if self.hwnd:
             user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
-            user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+            hwnd_insert = -1 if self.always_on_top else -2
+            user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
     def is_minimized(self) -> bool:
         if self.hwnd:
             return bool(user32.IsIconic(self.hwnd))
         return False
+
+    def set_always_on_top(self, enable: bool):
+        """Dynamicznie włącza lub wyłącza tryb 'Zawsze na wierzchu' (HWND_TOPMOST vs HWND_NOTOPMOST)."""
+        with self._lock:
+            self.always_on_top = bool(enable)
+        if self.hwnd:
+            GWL_EXSTYLE = -20
+            WS_EX_TOPMOST = 0x00000008
+            cur_ex = _GetWindowLong(self.hwnd, GWL_EXSTYLE)
+            if self.always_on_top:
+                new_ex = cur_ex | WS_EX_TOPMOST
+                hwnd_insert = -1  # HWND_TOPMOST
+            else:
+                new_ex = cur_ex & ~WS_EX_TOPMOST
+                hwnd_insert = -2  # HWND_NOTOPMOST
+            _SetWindowLong(self.hwnd, GWL_EXSTYLE, new_ex)
+            user32.SetWindowPos(
+                self.hwnd, hwnd_insert, 0, 0, 0, 0,
+                0x0001 | 0x0002 | 0x0010 | 0x0020  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED
+            )
 
     def set_theme(self, theme_name: str):
         if theme_name in THEME_MAP:
