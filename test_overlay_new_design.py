@@ -10,17 +10,16 @@ class TestOverlayNewDesign(unittest.TestCase):
         self.assertEqual(ov.mw, 250)
         self.assertEqual(ov.mh, 90)
 
-        # Panel transkrypcji jest domyślnie wyłączony (zwinięty)
-        self.assertFalse(ov.panel_open)
+        # Domyślnie streaming jest wyłączony
+        self.assertFalse(ov.stream_realtime)
 
         # Test recording
         ov.show_recording()
         self.assertEqual(ov.mode, "recording")
-        self.assertFalse(ov.panel_open)  # Pozostaje zwinięty, nie narzuca się użytkownikowi
 
-        # Otwieranie na żądanie
-        ov.panel_open = True
-        self.assertTrue(ov.panel_open)
+        # Przełączenie trybu streamingu
+        ov.stream_realtime = True
+        self.assertTrue(ov.stream_realtime)
 
         # Test transcript update
         ov.update_live_text("Bieżący ogon transkrypcji")
@@ -34,9 +33,9 @@ class TestOverlayNewDesign(unittest.TestCase):
         ov.add_transcript_entry("Rozmówca: Cześć wszystkim", timestamp_s=10.0)
         self.assertEqual(len(ov.transcript_lines), 1)
 
-        # Test closing panel
-        ov.panel_open = False
-        self.assertFalse(ov.panel_open)
+        # Test wyłączenia streamingu
+        ov.stream_realtime = False
+        self.assertFalse(ov.stream_realtime)
 
         # Test idle (powinno wyczyścić transkrypcję po zakończeniu sesji)
         ov.show_idle()
@@ -52,29 +51,41 @@ class TestOverlayNewDesign(unittest.TestCase):
         ov.close()
         time.sleep(0.1)
 
-    def test_scroll_and_timestamp_free_transcript(self):
+    def test_streaming_mode_toggle_and_render(self):
+        """Weryfikacja przełączania trybu streamingu (ikona błyskawicy po lewej stronie belki)."""
         ov = FloatingOverlay(theme='dark')
-        ov.panel_open = True
-        
-        for i in range(12):
-            ov.add_transcript_entry(f"Zdanie testowe {i+1}: weryfikacja przewijania i braku znaczników czasu.")
-        
-        # Renderuj klatkę
+        toggle_called = []
+        ov.set_callbacks(on_stream_toggle=lambda: toggle_called.append(True))
+
+        self.assertFalse(ov.stream_realtime)
+
+        # Symulacja kliknięcia lewym przyciskiem myszy w przycisk streamingu
+        click_x = int(ov.bar_stream_cx)
+        click_y = int(ov.bar_stream_cy)
+        lparam = (click_y << 16) | (click_x & 0xFFFF)
+
+        # WM_LBUTTONDOWN i WM_LBUTTONUP
+        ov._wnd_proc(ov.hwnd, 0x0201, 0, lparam)
+        ov._wnd_proc(ov.hwnd, 0x0202, 0, lparam)
+        time.sleep(0.05)
+
+        self.assertTrue(ov.stream_realtime)
+        self.assertTrue(len(toggle_called) > 0)
+
+        # Renderuj klatkę z aktywnym streamingiem
         ov._render_frame(time.time())
-        self.assertGreater(ov._total_lines_count, ov._max_visible_lines)
-        self.assertFalse(ov._user_scrolled)
-        
-        # Przewiń kółkiem myszy w górę (delta = +120)
-        ov._wnd_proc(ov.hwnd, 0x020A, (120 << 16), 0)
+
+        # Drugie kliknięcie - wyłączenie streamingu
+        ov._wnd_proc(ov.hwnd, 0x0201, 0, lparam)
+        ov._wnd_proc(ov.hwnd, 0x0202, 0, lparam)
+        time.sleep(0.05)
+
+        self.assertFalse(ov.stream_realtime)
+        self.assertEqual(len(toggle_called), 2)
+
+        # Renderuj klatkę z wyłączonym streamingiem
         ov._render_frame(time.time())
-        self.assertTrue(ov._user_scrolled)
-        
-        # Przewiń z powrotem w dół do końca
-        for _ in range(10):
-            ov._wnd_proc(ov.hwnd, 0x020A, ((-120 & 0xFFFF) << 16), 0)
-        ov._render_frame(time.time())
-        self.assertFalse(ov._user_scrolled)
-        
+
         ov.close()
         time.sleep(0.1)
 

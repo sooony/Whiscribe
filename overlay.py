@@ -546,9 +546,16 @@ class FloatingOverlay:
         self.bar_r = 15
 
         # Przyciski belki górnej (.window-bar):
-        self.tgl_btn_x = self.bx + 8
+        # Przycisk przełączania trybu streamingu (po lewej stronie belki)
+        self.bar_stream_cx = self.bx + 16            # 51
+        self.bar_stream_cy = self.by + 13.5          # 156.5
+        self.stream_realtime = False
+        self.on_stream_toggle_callback = None
+
+        # Zachowanie kompatybilności dla dawnych odwołań
+        self.tgl_btn_x = self.bar_stream_cx - 10
         self.tgl_btn_y = self.by + 4
-        self.tgl_btn_w = 98
+        self.tgl_btn_w = 20
         self.tgl_btn_h = 19
 
         self.bar_close_cx = self.bx + self.bw - 16   # 269
@@ -659,7 +666,7 @@ class FloatingOverlay:
                     self._start_time = time.time()
             self._dirty = True
 
-    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None):
+    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None, on_stream_toggle=None):
         self.on_stop_callback = on_stop
         self.on_close_callback = on_close
         self.on_toggle_callback = on_toggle
@@ -668,6 +675,8 @@ class FloatingOverlay:
         self.on_restore_callback = on_restore
         if on_hotkey is not None:
             self.on_hotkey_callback = on_hotkey
+        if on_stream_toggle is not None:
+            self.on_stream_toggle_callback = on_stream_toggle
 
     def set_meeting_volume_getter(self, getter):
         self.loopback_volume_getter = getter
@@ -690,12 +699,12 @@ class FloatingOverlay:
         return (self.bx <= x <= self.bx + self.bw) and (self.by <= y <= self.by + self.bh)
 
     def _is_inside_panel(self, x, y):
-        if not self.panel_open and not self._balloon_type:
+        if not self._balloon_type:
             return False
         return (self.px <= x <= self.px + self.pw) and (self.py <= y <= self.py + self.ph)
 
     def _get_target(self, x, y):
-        # 1. Sprawdź kliknięcie w panelu górnym
+        # 1. Sprawdź kliknięcie w panelu górnym (tylko w dymku błędu)
         if self._balloon_type == "error":
             btn_x = self.px + 16
             btn_y = self.py + self.ph - 30
@@ -706,23 +715,12 @@ class FloatingOverlay:
             if self._is_inside_panel(x, y):
                 return 'balloon_body'
 
-        elif self.panel_open:
-            close_px = self.px + self.pw - 14
-            close_py = self.py + 11
-            if abs(x - close_px) <= 12 and abs(y - close_py) <= 12:
-                return 'btn_panel_close'
-
-            sb_x = self.px + self.pw - 8
-            sb_y = self.py + 24
-            sb_h = self.ph - 32
-            if (sb_x - 12 <= x <= sb_x + 12) and (sb_y <= y <= sb_y + sb_h):
-                return 'scrollbar'
-
-            if self._is_inside_panel(x, y):
-                return 'panel_content'
-
         # 2. Sprawdź kontrolki na belce okna (.window-bar)
         if self._is_inside_bar(x, y):
+            # Przycisk Przełączania Streamingu (po lewej stronie belki)
+            if abs(x - self.bar_stream_cx) <= 12 and (self.by <= y <= self.by + self.bh):
+                return 'btn_toggle_stream'
+
             # Przycisk Zamknij ✕
             if abs(x - self.bar_close_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_close'
@@ -734,10 +732,6 @@ class FloatingOverlay:
             # Przycisk Menu •••
             if abs(x - self.bar_menu_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_menu'
-
-            # Przycisk Pokaż / Zwiń transkrypcję
-            if (self.tgl_btn_x <= x <= self.tgl_btn_x + self.tgl_btn_w) and (self.by <= y <= self.by + self.bh):
-                return 'btn_toggle_transcript'
 
             # Przeciąganie za belkę okna
             return 'widget_drag'
@@ -899,7 +893,7 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_transcript', 'btn_close', 'btn_minimize', 'btn_panel_close', 'btn_rozumiem', 'scrollbar'):
+            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_close', 'btn_minimize', 'btn_rozumiem'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
             elif self._hover_target in ('widget_drag', 'panel_content', 'balloon_body'):
@@ -927,17 +921,6 @@ class FloatingOverlay:
                 self._drag_start_cursor_y = cur_pt.y
                 self._drag_start_win_x = self.pos_x
                 self._drag_start_win_y = self.pos_y
-            elif target == 'scrollbar':
-                self._is_scrolling = True
-                user32.SetCapture(hwnd)
-                sb_norm_y = self.py + 24
-                sb_norm_h = max(1, self.ph - 32)
-                ratio = max(0.0, min(1.0, (y - sb_norm_y) / float(sb_norm_h)))
-                with self._lock:
-                    max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
-                    self.scroll_line = int(round(ratio * max_scroll))
-                    self._user_scrolled = (self.scroll_line < max_scroll)
-                self._dirty = True
             return 0
 
         elif msg == WM_LBUTTONUP:
@@ -979,13 +962,11 @@ class FloatingOverlay:
                         if self.on_meeting_toggle_callback:
                             threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
 
-                elif target == 'btn_panel_close':
-                    self.panel_open = False
+                elif target == 'btn_toggle_stream':
+                    self.stream_realtime = not self.stream_realtime
                     self._dirty = True
-
-                elif target == 'btn_toggle_transcript':
-                    self.panel_open = not self.panel_open
-                    self._dirty = True
+                    if self.on_stream_toggle_callback:
+                        threading.Thread(target=self.on_stream_toggle_callback, daemon=True).start()
 
                 elif target == 'btn_rozumiem':
                     self.hide_balloon()
@@ -1242,106 +1223,6 @@ class FloatingOverlay:
             d.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=int(6*scale), fill=btn_fill, outline=cfg['panel_border'])
             d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), "Rozumiem", fill=cfg['text'], font=fnt_tab, anchor="mm")
 
-        elif self.panel_open:
-            # Uproszczony panel transkrypcji (nagłówek 22px z pojedynczym krzyżykiem z prawej)
-            sh_p = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            spd = ImageDraw.Draw(sh_p)
-            sh_offset_y = int(2.5 * scale)
-            sh_blur = int(4.5 * scale)
-            spd.rounded_rectangle([px, py + sh_offset_y, px + pw, py + ph + sh_offset_y], radius=pr, fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
-            sh_p = sh_p.filter(ImageFilter.GaussianBlur(radius=sh_blur))
-            img.alpha_composite(sh_p)
-
-            d = ImageDraw.Draw(img)
-            d.rounded_rectangle([px, py, px + pw, py + ph], radius=pr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
-
-            # Nagłówek panelu (22px) z linią rozdzielającą
-            head_h = int(22 * scale)
-            d.line([(px, py + head_h), (px + pw, py + head_h)], fill=cfg['panel_border'], width=max(1, int(1*scale)))
-
-            # Przycisk ✕ (zamknij panel transkrypcji z prawej strony)
-            close_px = px + pw - int(14 * scale)
-            close_py = py + int(11 * scale)
-            if self._hover_target == 'btn_panel_close':
-                d.ellipse([close_px - int(7*scale), close_py - int(7*scale), close_px + int(7*scale), close_py + int(7*scale)], fill=cfg.get('panel_close_hover_bg', (200, 210, 230, 255)))
-            csz = int(3.5 * scale)
-            close_col = (255, 80, 80, 255) if self._hover_target == 'btn_panel_close' else cfg['muted']
-            d.line([(close_px - csz, close_py - csz), (close_px + csz, close_py + csz)], fill=close_col, width=max(1, int(1.3 * scale)))
-            d.line([(close_px - csz, close_py + csz), (close_px + csz, close_py - csz)], fill=close_col, width=max(1, int(1.3 * scale)))
-
-            # Linie transkrypcji (pełna treść bez znaczników czasu, z płynnym przewijaniem)
-            with self._lock:
-                lines = list(self.transcript_lines)
-                live_text = self.live_tail
-
-            max_text_w = pw - int(24 * scale)
-            tx_x = px + int(12 * scale)
-            all_lines = []
-
-            for item in lines:
-                txt = item.get("text", "") if isinstance(item, dict) else str(item)
-                if not txt:
-                    continue
-                w_lines = _wrap_text_lines(txt, max_text_w, d, fnt_text)
-                for wl in w_lines:
-                    all_lines.append((wl, False))
-
-            if live_text and (not all_lines or self.mode in ("recording", "transcribing")):
-                w_live = _wrap_text_lines(live_text, max_text_w, d, fnt_text)
-                for idx, wl in enumerate(w_live):
-                    is_last = (idx == len(w_live) - 1)
-                    all_lines.append((wl, is_last))
-
-            line_h = int(14 * scale)
-            content_h = (ph - head_h - int(12 * scale))
-            max_visible = max(1, content_h // line_h)
-            self._max_visible_lines = max_visible
-            self._total_lines_count = len(all_lines)
-
-            if not all_lines:
-                d.text((px + pw/2, py + head_h + int(36 * scale)), "Transkrypcja pojawi się tutaj podczas mówienia.", fill=cfg['muted'], font=fnt_text, anchor="mm")
-            else:
-                max_scroll = max(0, len(all_lines) - max_visible)
-                if not self._user_scrolled:
-                    self.scroll_line = max_scroll
-                else:
-                    self.scroll_line = max(0, min(max_scroll, self.scroll_line))
-
-                start_idx = self.scroll_line
-                visible_slice = all_lines[start_idx : start_idx + max_visible]
-
-                cur_y = py + head_h + int(6 * scale)
-                for wl, is_last_live in visible_slice:
-                    d.text((tx_x, cur_y), wl, fill=cfg['text'], font=fnt_text)
-
-                    # Karetka | na końcu ostatniej linii podczas nagrywania na żywo
-                    if is_last_live and self.mode in ("recording", "transcribing"):
-                        bbox = d.textbbox((tx_x, cur_y), wl, font=fnt_text)
-                        caret_x = bbox[2] + int(2 * scale)
-                        caret_y = cur_y + int(1.5 * scale)
-                        if int(t_now * 2) % 2 == 0:
-                            d.rounded_rectangle([caret_x, caret_y, caret_x + int(2.5 * scale), caret_y + int(9 * scale)], radius=int(1*scale), fill=cfg['accent'])
-
-                    cur_y += line_h
-
-            # Pasek przewijania (interaktywny suwak)
-            sb_x = px + pw - int(8 * scale)
-            sb_y = py + head_h + int(5 * scale)
-            sb_w = int(3.5 * scale)
-            sb_h = max(10, ph - head_h - int(10 * scale))
-            d.rounded_rectangle([sb_x, sb_y, sb_x + sb_w, sb_y + sb_h], radius=int(sb_w/2), fill=cfg['scroll_track'])
-
-            if len(all_lines) > max_visible:
-                max_scroll = len(all_lines) - max_visible
-                thumb_h = max(int(14 * scale), int(sb_h * (max_visible / float(len(all_lines)))))
-                scroll_ratio = max(0.0, min(1.0, self.scroll_line / float(max_scroll)))
-                thumb_y = sb_y + int((sb_h - thumb_h) * scroll_ratio)
-                thumb_fill = cfg['accent'] if self._hover_target == 'scrollbar' or self._is_scrolling else cfg['scroll_thumb']
-                d.rounded_rectangle([sb_x, thumb_y, sb_x + sb_w, thumb_y + thumb_h], radius=int(sb_w/2), fill=thumb_fill)
-            else:
-                thumb_h = int(24 * scale)
-                d.rounded_rectangle([sb_x, sb_y + int(4*scale), sb_x + sb_w, sb_y + int(4*scale) + thumb_h], radius=int(sb_w/2), fill=cfg['scroll_thumb'])
-
         # ========================================================
         # 2. OKNO GŁÓWNE: POŁĄCZONA BELKA I MODUŁ GŁOSU
         # ========================================================
@@ -1393,30 +1274,35 @@ class FloatingOverlay:
         d = ImageDraw.Draw(img)
 
         # --- KONTROLKI BELKI GÓRNEJ (.window-bar) ---
-        # 1. Przycisk "Pokaż transkrypcję" / "Zwiń transkrypcję"
-        tgl_x = int(self.tgl_btn_x * scale)
-        tgl_y = int(self.tgl_btn_y * scale)
-        tgl_w = int(self.tgl_btn_w * scale)
-        tgl_h = int(self.tgl_btn_h * scale)
-
+        # 1. Przycisk przełączania trybu streamingu (po lewej stronie belki)
+        scx = int(self.bar_stream_cx * scale)
+        bar_cy = int(self.bar_close_cy * scale)
         is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
 
-        if self.panel_open:
-            if self._hover_target == 'btn_toggle_transcript':
-                d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_active_hover_bg', cfg.get('toggle_active_bg')))
-            else:
-                d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_active_bg'))
-            tgl_lbl = "Zwiń transkrypcję"
-            tgl_col = (255, 255, 255, 255) if is_dark else (20, 40, 75, 255)
-        elif self._hover_target == 'btn_toggle_transcript':
-            d.rounded_rectangle([tgl_x, tgl_y, tgl_x + tgl_w, tgl_y + tgl_h], radius=int(6*scale), fill=cfg.get('toggle_hover_bg', (200, 212, 230, 255)))
-            tgl_lbl = "Pokaż transkrypcję"
-            tgl_col = (255, 255, 255, 255) if is_dark else (20, 40, 75, 255)
-        else:
-            tgl_lbl = "Pokaż transkrypcję"
-            tgl_col = cfg['muted']
+        # Tło przycisku streamingu (aktywne / hover)
+        if self._hover_target == 'btn_toggle_stream':
+            d.rounded_rectangle([scx - int(9*scale), bar_cy - int(9*scale), scx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
+        elif self.stream_realtime:
+            d.rounded_rectangle([scx - int(9*scale), bar_cy - int(9*scale), scx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('toggle_active_bg', (36, 50, 78, 255)))
 
-        d.text((tgl_x + int(8*scale), tgl_y + tgl_h//2 - int(0.5*scale)), tgl_lbl, fill=tgl_col, font=fnt_tab, anchor="lm")
+        # Ikona błyskawicy (Streaming na żywo vs Wklejanie wsadowe)
+        pts_bolt = [
+            (scx + int(0.8 * scale), bar_cy - int(6.0 * scale)),
+            (scx - int(3.5 * scale), bar_cy - int(0.5 * scale)),
+            (scx - int(0.5 * scale), bar_cy - int(0.5 * scale)),
+            (scx - int(1.8 * scale), bar_cy + int(6.0 * scale)),
+            (scx + int(3.5 * scale), bar_cy + int(0.5 * scale)),
+            (scx + int(0.5 * scale), bar_cy + int(0.5 * scale)),
+        ]
+
+        if self.stream_realtime:
+            bolt_fill = cfg.get('accent', (56, 189, 248, 255))
+            d.polygon(pts_bolt, fill=bolt_fill)
+        else:
+            bolt_fill = cfg.get('muted', (120, 130, 150, 255))
+            d.polygon(pts_bolt, fill=bolt_fill)
+            slash_col = (239, 68, 68, 220) if is_dark else (220, 38, 38, 220)
+            d.line([(scx - int(5.5 * scale), bar_cy - int(5.5 * scale)), (scx + int(5.5 * scale), bar_cy + int(5.5 * scale))], fill=slash_col, width=max(1, int(1.5 * scale)))
 
         # 2. Przyciski sterowania oknem po prawej stronie
         bar_cy = int(self.bar_close_cy * scale)

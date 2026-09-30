@@ -103,7 +103,7 @@ class TestV2Features(unittest.TestCase):
                 ('btn_bar_menu', int(overlay.bar_menu_cx), int(overlay.bar_menu_cy)),
                 ('btn_bar_minimize', int(overlay.bar_min_cx), int(overlay.bar_min_cy)),
                 ('btn_bar_close', int(overlay.bar_close_cx), int(overlay.bar_close_cy)),
-                ('btn_toggle_transcript', int(overlay.tgl_btn_x + overlay.tgl_btn_w/2), int(overlay.tgl_btn_y + overlay.tgl_btn_h/2))
+                ('btn_toggle_stream', int(overlay.bar_stream_cx), int(overlay.bar_stream_cy))
             ]
             for t_name, cx, cy in targets:
                 overlay._hover_target = t_name
@@ -114,17 +114,17 @@ class TestV2Features(unittest.TestCase):
                 min_a = np.min(patch)
                 self.assertGreaterEqual(min_a, 200, f"Theme {theme} {t_name} min_alpha={min_a} (musi być kryjący >= 200)")
 
-            # Aktywny przycisk transkrypcji (Zwiń transkrypcję)
-            overlay.panel_open = True
+            # Aktywny przycisk streamingu (ikona błyskawicy włączona)
+            overlay.stream_realtime = True
             overlay._hover_target = None
             overlay._render_frame(1.0)
             arr = np.ctypeslib.as_array(ctypes.cast(overlay.p_bits, ctypes.POINTER(ctypes.c_uint8)), shape=(overlay.h, overlay.w, 4))
-            cy = int(overlay.tgl_btn_y + overlay.tgl_btn_h/2)
-            cx = int(overlay.tgl_btn_x + 25)
+            cy = int(overlay.bar_stream_cy)
+            cx = int(overlay.bar_stream_cx)
             dib_y = overlay.h - 1 - cy
             patch = arr[dib_y-4:dib_y+5, cx-4:cx+5, 3]
             min_a = np.min(patch)
-            self.assertGreaterEqual(min_a, 200, f"Theme {theme} panel_open min_alpha={min_a}")
+            self.assertGreaterEqual(min_a, 200, f"Theme {theme} stream_realtime min_alpha={min_a}")
 
             overlay.close()
 

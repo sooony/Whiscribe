@@ -450,6 +450,7 @@ class DictationApp:
         self.overlay = FloatingOverlay(theme=theme) if self.config.get("show_overlay", True) else None
         if self.overlay:
             self.overlay.show_live_preview = self.config.get("show_live_preview", False)
+            self.overlay.stream_realtime = self.config.get("stream_realtime", False)
         
         logger.info("Inicjalizacja modułu rozpoznawania mowy Whisper...")
         self.transcriber = Transcriber(self.config)
@@ -467,7 +468,8 @@ class DictationApp:
                 on_meeting_toggle=self.toggle_meeting,
                 on_minimize=self.minimize_to_tray,
                 on_restore=self._on_overlay_restored,
-                on_hotkey=self._on_system_hotkey
+                on_hotkey=self._on_system_hotkey,
+                on_stream_toggle=self.toggle_streaming_mode
             )
             self.overlay.set_settings_handler(self._show_settings_menu)
             self.overlay.show()
@@ -1167,6 +1169,9 @@ class DictationApp:
     def toggle_streaming_mode(self):
         self.config["stream_realtime"] = not self.config.get("stream_realtime", True)
         save_config(self.config)
+        if self.overlay:
+            self.overlay.stream_realtime = self.config["stream_realtime"]
+            self.overlay._dirty = True
         logger.info(f"Pisanie na żywo: {'Włączone' if self.config['stream_realtime'] else 'Wyłączone'}")
 
     def exit_app(self):
