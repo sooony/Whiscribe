@@ -546,17 +546,21 @@ class FloatingOverlay:
         self.bar_r = 15
 
         # Przyciski belki górnej (.window-bar):
-        # Przycisk przełączania trybu streamingu (po lewej stronie belki)
-        self.bar_stream_cx = self.bx + 16            # 51
-        self.bar_stream_cy = self.by + 13.5          # 156.5
+        # Przycisk przełączania trybu streamingu: "Streaming ON" / "Streaming OFF"
+        self.stream_btn_x = self.bx + 8
+        self.stream_btn_y = self.by + 4
+        self.stream_btn_w = 88
+        self.stream_btn_h = 19
         self.stream_realtime = False
         self.on_stream_toggle_callback = None
 
         # Zachowanie kompatybilności dla dawnych odwołań
-        self.tgl_btn_x = self.bar_stream_cx - 10
-        self.tgl_btn_y = self.by + 4
-        self.tgl_btn_w = 20
-        self.tgl_btn_h = 19
+        self.bar_stream_cx = self.stream_btn_x + self.stream_btn_w // 2
+        self.bar_stream_cy = self.by + 13.5
+        self.tgl_btn_x = self.stream_btn_x
+        self.tgl_btn_y = self.stream_btn_y
+        self.tgl_btn_w = self.stream_btn_w
+        self.tgl_btn_h = self.stream_btn_h
 
         self.bar_close_cx = self.bx + self.bw - 16   # 269
         self.bar_close_cy = self.by + 13.5           # 156.5
@@ -717,8 +721,8 @@ class FloatingOverlay:
 
         # 2. Sprawdź kontrolki na belce okna (.window-bar)
         if self._is_inside_bar(x, y):
-            # Przycisk Przełączania Streamingu (po lewej stronie belki)
-            if abs(x - self.bar_stream_cx) <= 12 and (self.by <= y <= self.by + self.bh):
+            # Przycisk Przełączania Streamingu ("Streaming ON" / "Streaming OFF")
+            if (self.stream_btn_x <= x <= self.stream_btn_x + self.stream_btn_w) and (self.by <= y <= self.by + self.bh):
                 return 'btn_toggle_stream'
 
             # Przycisk Zamknij ✕
@@ -1274,35 +1278,33 @@ class FloatingOverlay:
         d = ImageDraw.Draw(img)
 
         # --- KONTROLKI BELKI GÓRNEJ (.window-bar) ---
-        # 1. Przycisk przełączania trybu streamingu (po lewej stronie belki)
-        scx = int(self.bar_stream_cx * scale)
-        bar_cy = int(self.bar_close_cy * scale)
+        # 1. Przycisk przełączania trybu streamingu: "Streaming ON" / "Streaming OFF"
+        st_x = int(self.stream_btn_x * scale)
+        st_y = int(self.stream_btn_y * scale)
+        st_w = int(self.stream_btn_w * scale)
+        st_h = int(self.stream_btn_h * scale)
         is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
 
-        # Tło przycisku streamingu (aktywne / hover)
+        # Tło przycisku
         if self._hover_target == 'btn_toggle_stream':
-            d.rounded_rectangle([scx - int(9*scale), bar_cy - int(9*scale), scx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
+            d.rounded_rectangle([st_x, st_y, st_x + st_w, st_y + st_h], radius=int(6*scale), fill=cfg.get('toggle_active_hover_bg' if self.stream_realtime else 'btn_hover_bg', (200, 212, 230, 255)))
         elif self.stream_realtime:
-            d.rounded_rectangle([scx - int(9*scale), bar_cy - int(9*scale), scx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('toggle_active_bg', (36, 50, 78, 255)))
-
-        # Ikona błyskawicy (Streaming na żywo vs Wklejanie wsadowe)
-        pts_bolt = [
-            (scx + int(0.8 * scale), bar_cy - int(6.0 * scale)),
-            (scx - int(3.5 * scale), bar_cy - int(0.5 * scale)),
-            (scx - int(0.5 * scale), bar_cy - int(0.5 * scale)),
-            (scx - int(1.8 * scale), bar_cy + int(6.0 * scale)),
-            (scx + int(3.5 * scale), bar_cy + int(0.5 * scale)),
-            (scx + int(0.5 * scale), bar_cy + int(0.5 * scale)),
-        ]
-
-        if self.stream_realtime:
-            bolt_fill = cfg.get('accent', (56, 189, 248, 255))
-            d.polygon(pts_bolt, fill=bolt_fill)
+            d.rounded_rectangle([st_x, st_y, st_x + st_w, st_y + st_h], radius=int(6*scale), fill=cfg.get('toggle_active_bg', (36, 50, 78, 255)))
         else:
-            bolt_fill = cfg.get('muted', (120, 130, 150, 255))
-            d.polygon(pts_bolt, fill=bolt_fill)
-            slash_col = (239, 68, 68, 220) if is_dark else (220, 38, 38, 220)
-            d.line([(scx - int(5.5 * scale), bar_cy - int(5.5 * scale)), (scx + int(5.5 * scale), bar_cy + int(5.5 * scale))], fill=slash_col, width=max(1, int(1.5 * scale)))
+            d.rounded_rectangle([st_x, st_y, st_x + st_w, st_y + st_h], radius=int(6*scale), fill=cfg.get('btn_hover_bg', (30, 34, 44, 255)) if is_dark else (240, 244, 250, 255), outline=cfg['panel_border'], width=max(1, int(1*scale)))
+
+        # Tekst: "Streaming" oraz zmieniający się status "ON" / "OFF"
+        prefix_text = "Streaming "
+        state_text = "ON" if self.stream_realtime else "OFF"
+        prefix_col = ((220, 230, 245, 255) if is_dark else (20, 40, 75, 255)) if self.stream_realtime else cfg['muted']
+        state_col = cfg.get('accent', (56, 189, 248, 255)) if self.stream_realtime else ((239, 68, 68, 220) if is_dark else (220, 38, 38, 220))
+
+        # Rysowanie tekstu wyśrodkowanego w pionie
+        tx_start = st_x + int(8 * scale)
+        ty_text = st_y + st_h // 2 - int(0.5 * scale)
+        d.text((tx_start, ty_text), prefix_text, fill=prefix_col, font=fnt_tab, anchor="lm")
+        bbox_prefix = d.textbbox((tx_start, ty_text), prefix_text, font=fnt_tab, anchor="lm")
+        d.text((bbox_prefix[2], ty_text), state_text, fill=state_col, font=fnt_tab, anchor="lm")
 
         # 2. Przyciski sterowania oknem po prawej stronie
         bar_cy = int(self.bar_close_cy * scale)
