@@ -9,21 +9,13 @@ class TestHallucinationsAndStreaming(unittest.TestCase):
     def test_01_all_whisper_hallucinations_eliminated(self):
         cases = [
             ("Dziękuje za uwagę.", ""),
-            ("Dzień dobry.", ""),
-            ("Dziękuję bardzo.", ""),
             ("Wielkie dzięki za uwagę!", ""),
             ("Dziękujemy za wysłuchanie.", ""),
             ("Subskrybuj mój kanał i zostaw lajka!", ""),
             ("Napisy stworzone przez społeczność YouTube.", ""),
-            ("Do widzenia państwu.", ""),
-            ("Miłego dnia!", ""),
-            ("Pozdrawiamy.", ""),
             ("I to by było na tyle.", ""),
             ("To wszystko na dzisiaj.", ""),
-            ("coś sobie robimy. Dziękuje i zobaczmy", "Coś sobie robimy. I zobaczmy"),
-            ("Dziękuje mi się, że to dziwnie działa", "Mi się, że to dziwnie działa"),
-            ("Dziękuje czas pisze", "Czas pisze"),
-            ("Transkrypcję jeszcze raz zobaczmy w tle na żywo. Dziękuję.", "Transkrypcję jeszcze raz zobaczmy w tle na żywo."),
+            ("coś sobie robimy. Dziękuję za uwagę i zobaczmy", "Coś sobie robimy. I zobaczmy"),
             ("ZA OBSERWACIE ", ""),
             ("zaobserwujcie", ""),
             ("Zaobserwujcie mój profil", ""),
@@ -37,6 +29,23 @@ class TestHallucinationsAndStreaming(unittest.TestCase):
         for inp, expected in cases:
             cleaned = clean_hallucinations(inp)
             self.assertEqual(cleaned, expected, f"Halucynacja nie została poprawnie usunięta dla: {inp!r} (otrzymano: {cleaned!r})")
+
+    def test_01b_conversational_phrases_preserved(self):
+        cases = [
+            ("Cześć", "Cześć"),
+            ("Cześć, jak się masz?", "Cześć, jak się masz?"),
+            ("Hej, jak się masz", "Hej, jak się masz"),
+            ("Słuchaj", "Słuchaj"),
+            ("Na razie", "Na razie"),
+            ("Dzień dobry.", "Dzień dobry."),
+            ("Do widzenia państwu.", "Do widzenia państwu."),
+            ("Dziękuję bardzo za pomoc.", "Dziękuję bardzo za pomoc."),
+            ("Pozdrawiam serdecznie.", "Pozdrawiam serdecznie."),
+            ("Miłego dnia!", "Miłego dnia!")
+        ]
+        for inp, expected in cases:
+            cleaned = clean_hallucinations(inp)
+            self.assertEqual(cleaned, expected, f"Fraza konwersacyjna została błędnie usunięta dla: {inp!r} (otrzymano: {cleaned!r})")
 
     def test_02_forward_committer_with_hallucinations(self):
         chunks = []

@@ -9,22 +9,21 @@ from config import get_app_dir
 
 logger = logging.getLogger("Transcriber")
 
-# Predefiniowane wyrażenia regularne do usuwania artefaktów i halucynacji Whisper (np. z filmów YouTube, TikTok, Reels)
+# Predefiniowane wyrażenia regularne do usuwania artefaktów i halucynacji Whisper (filmy YouTube, TikTok, Reels)
+# ZACHOWUJĄC wszystkie naturalne powitania, zwroty grzecznościowe i codzienne słowa (np. Cześć, Dzień dobry, Dziękuję, Pozdrawiam, Słuchaj, Na razie).
 HALLUCINATION_PATTERNS = [
-    # 1. Dziękuję / Dzięki za uwagę / za oglądanie / za wysłuchanie / pomoc (z 'ę' lub 'e' lub 'emy')
-    r'\b[Dd]ziękuj(emy|[eę])(\s+bardzo|\s+państwu|\s+serdecznie)*(\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie|pomoc))?[.!,]?\s*',
-    r'\b([Ww]ielkie\s+)?[Dd]zięki(\s+bardzo|\s+serdecznie)*(\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie))?[.!,]?\s*',
-    r'\b[Bb]ardzo\s+dziękuj(emy|[eę])[.!,]?\s*',
+    # 1. Dziękuję / Dzięki za uwagę / za oglądanie / za wysłuchanie / za obejrzenie (WYŁĄCZNIE z frazą 'za uwagę/oglądanie/itp.')
+    r'\b[Dd]ziękuj(emy|[eę])(\s+bardzo|\s+państwu|\s+serdecznie)*\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie)[.!,]?\s*',
+    r'\b([Ww]ielkie\s+)?[Dd]zięki(\s+bardzo|\s+serdecznie)*\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie)[.!,]?\s*',
 
     # 2. Obserwacje / zaobserwujcie / TikTok / Instagram / YouTube
     r'\b((wielkie\s+)?dzięki|(bardzo\s+)?dziękuj[eę])?\s*za\s+obserwac[ji][eęia][.!,]?\s*',
     r'\bzaobserwuj(cie)?(\s+(mój|nasz)?\s*(profil|kanał|konto|tiktoka|tik\s*tok|instagrama?))?(\s+po\s+więcej)?[.!,]?\s*',
-    r'\bobserwuj(cie)?(\s+(nas|mój\s+profil|nasz\s+profil))?(\s+po\s+więcej)?[.!,]?\s*',
+    r'\bobserwuj(cie)?\s+(nas|mój\s+profil|nasz\s+profil)(\s+po\s+więcej)?[.!,]?\s*',
     r'\b(zostaw|daj)\s+(suba|lajka|obserwację|łapkę|komentarz)[.!,]?\s*',
     r'\bkliknij\s+(w\s+)?dzwoneczek[.!,]?\s*',
     r'\blink\s+w\s+opis(ie)?[.!,]?\s*',
     r'\budostępnij(cie)?(\s+(ten\s+film|rolkę|materiał))?[.!,]?\s*',
-    r'\bpo\s+więcej\s+(informacji|materiałów|filmów|wiedzy)[.!,]?\s*',
     r'\bwpadajcie\s+na\s+(mojego|naszego)?\s*(tiktoka|tik\s*toka|instagrama|yt|youtube)[.!,]?\s*',
     r'\b(obejrzyj|zobacz)\s+(kolejny|następny)\s+(film|odcinek|materiał)[.!,]?\s*',
 
@@ -32,27 +31,40 @@ HALLUCINATION_PATTERNS = [
     r'\b[Nn]apisy\s+(stworzone|przygotowane|wykonane|tłumaczenie).*?([.!?]|$)',
     r'\b[Ss]ubskrybuj(cie)?(\s+mój)?\s+(kanał|profil)[.!,]?\s*',
     r'\b[Zz]ostaw\s+(suba|lajka|łapkę\s+w\s+górę)[.!,]?\s*',
-    r'\b[Dd]o\s+zobaczenia(\s+w\s+(następnym|kolejnym)\s+(filmie|odcinku|materiale|wideo))?[.!,]?\s*',
-    r'\b[Ii]\s+to\s+by\s+było\s+na\s+tyle[.!,]?\s*',
-    r'\b[Tt]o\s+wszystko\s+na\s+(dziś|dzisiaj)[.!,]?\s*',
-    r'\b[Tt]o\s+tyle\s+na\s+(dziś|dzisiaj)[.!,]?\s*',
-    r'\b[Mm]iłego\s+(dnia|oglądania|wieczoru)[.!,]?\s*',
-    r'\b[Pp]ozdrawiam(y)?[.!,]?\s*',
+    r'\b[Dd]o\s+zobaczenia\s+w\s+(następnym|kolejnym)\s+(filmie|odcinku|materiale|wideo)[.!,]?\s*',
+    r'\b[Mm]iłego\s+oglądania[.!,]?\s*',
     r'\b[Tt]hank\s+you\s+(very\s+much\s+)?for\s+watching[.!,]?\s*',
     r'\b[Tt]hanks\s+for\s+watching[.!,]?\s*',
     r'\b[Ss]ubscribe\s+(to\s+my\s+channel)?[.!,]?\s*',
     r'\b[Ss]ee\s+you\s+next\s+time[.!,]?\s*',
-
-    # 4. Samotne powitania/pożegnania-widma wtrącone na ciszy
-    r'\b[Dd]zień\s+dobry(\s+państwu)?[.!,]?\s*',
-    r'\b[Dd]o\s+widzenia(\s+państwu)?[.!,]?\s*'
 ]
+
+def is_valid_segment(s, text: str) -> bool:
+    """Sprawdza, czy segment nie jest czystym szumem/halucynacją."""
+    if not text:
+        return False
+    t = text.strip().lower()
+    if not t:
+        return False
+
+    # Zaufane słowa i zwroty konwersacyjne (np. powitania, pożegnania, krótkie odpowiedzi)
+    # Whisper może przypisać im wyższe no_speech_prob z powodu krótkiego czasu trwania w oknie analizy
+    COMMON_WORDS = (
+        "cześć", "czesc", "hej", "halo", "słuchaj", "sluchaj", "na razie", "narazie",
+        "dzień dobry", "dzien dobry", "witam", "witajcie", "do widzenia", "dzięki", "dzieki",
+        "dziękuję", "dziekuje", "pozdrawiam", "miłego dnia", "milego dnia", "miłego wieczoru",
+        "tak", "nie", "proszę", "prosze", "jasne", "dobrze", "super", "dokładnie", "oczywiście"
+    )
+    if any(cw in t for cw in COMMON_WORDS):
+        return s.no_speech_prob < 0.85 and s.avg_logprob > -1.8
+
+    return s.no_speech_prob <= 0.65 and s.avg_logprob >= -1.4
 
 def clean_hallucinations(text: str) -> str:
     """
     Oczyszcza transkrybowany tekst z typowych halucynacji modelu Whisper:
-    - Usuwa wtrącenia 'Zaobserwujcie', 'Dzięki za obserwację', 'Dziękuję za uwagę', 'Subskrybuj kanał' z całego tekstu.
-    - Usuwa samotne powitania na początku zdania.
+    - Usuwa wtrącenia YouTube/TikTok: 'Zaobserwujcie', 'Dzięki za obserwację', 'Dziękuję za uwagę', 'Subskrybuj kanał'.
+    - ZACHOWUJE wszystkie naturalne powitania i zwroty: Cześć, Dzień dobry, Hej, Słuchaj, Na razie, Dziękuję, Pozdrawiam, Miłego dnia.
     - Normalizuje interpunkcję, wielkie litery na początku i spacje.
     """
     if not text:
@@ -63,24 +75,22 @@ def clean_hallucinations(text: str) -> str:
     for pat in HALLUCINATION_PATTERNS:
         cleaned = re.sub(pat, ' ', cleaned, flags=re.IGNORECASE)
 
-    # 2. Usunięcie samotnych powitań na początku zdania
-    cleaned = re.sub(r'^\s*(dzień dobry|cześć|witam|witajcie)[.!,]?\s*', '', cleaned, flags=re.IGNORECASE)
-
-    # 3. Jeśli cały tekst był wyłącznie słowem "Koniec" lub outro
+    # 2. Jeśli cały tekst był wyłącznie artefaktem outro filmu ("Koniec filmu", "I to by było na tyle")
     cleaned = re.sub(r'^(koniec(\s+filmu|\s+transmisji)?)[.!?\s]*$', '', cleaned, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r'^(i\s+to\s+by\s+było\s+na\s+tyle|to\s+wszystko\s+na\s+(dziś|dzisiaj))[.!?\s]*$', '', cleaned, flags=re.IGNORECASE).strip()
 
-    # 4. Usunięcie nadmiarowych spacji i wiszącej interpunkcji
+    # 3. Usunięcie nadmiarowych spacji i wiszącej interpunkcji
     cleaned = re.sub(r'\s{2,}', ' ', cleaned)
     cleaned = re.sub(r'\s+([,.\?!])', r'\1', cleaned)
     cleaned = re.sub(r'([,.\?!])\1+', r'\1', cleaned)
 
-    # 5. Usunięcie samotnych spójników pozostałych po złożonych halucynacjach (np. 'i', 'oraz')
+    # 4. Usunięcie samotnych spójników pozostałych po złożonych halucynacjach (np. 'i', 'oraz')
     cleaned = re.sub(r'^(i|a|oraz|więc|ale|lub|albo)[.!?\s]*$', '', cleaned, flags=re.IGNORECASE).strip()
 
-    # 6. Upewnij się, że początek zdania po kropce/pytajniku zaczyna się wielką literą
+    # 5. Upewnij się, że początek zdania po kropce/pytajniku zaczyna się wielką literą
     cleaned = re.sub(r'([.!?]\s+)([a-ząćęłńóśźż])', lambda m: m.group(1) + m.group(2).upper(), cleaned)
 
-    # 7. Upewnij się, że pierwszy znak tekstu zaczyna się wielką literą
+    # 6. Upewnij się, że pierwszy znak tekstu zaczyna się wielką literą
     cleaned = cleaned.strip()
     if cleaned and cleaned[0].islower():
         cleaned = cleaned[0].upper() + cleaned[1:]
@@ -92,7 +102,14 @@ class Transcriber:
         self.config = config
         self.model = None
         self._lock = threading.Lock()
-        self.initial_prompt = "Ciągłe profesjonalne dyktowanie tekstu w języku polskim. Pisz poprawną polszczyzną, z pełną interpunkcją (kropki, przecinki, pytajniki) oraz wielkimi literami na początku zdań. Zapisuj dokładnie słowa mówcy. Nigdy nie dodawaj powitań ani pożegnań, takich jak Dzień dobry, Dziękuję za uwagę czy Do widzenia. Bezwzględnie unikaj zwrotów z mediów społecznościowych, takich jak zaobserwujcie, dzięki za obserwację, subskrybuj kanał czy zostaw lajka."
+        self.initial_prompt = (
+            "Ciągłe profesjonalne dyktowanie tekstu w języku polskim. "
+            "Pisz poprawną polszczyzną, z pełną interpunkcją (kropki, przecinki, pytajniki) oraz wielkimi literami na początku zdań. "
+            "Zapisuj dokładnie każde wypowiedziane słowo mówcy, w tym powitania (np. Cześć, Dzień dobry, Hej), "
+            "pożegnania (np. Na razie, Do widzenia, Pozdrawiam), krótkie wtrącenia (np. Słuchaj, Tak, Nie) "
+            "oraz zwroty grzecznościowe (np. Dziękuję bardzo, Proszę). "
+            "Bezwzględnie unikaj jedynie zwrotów z filmów i mediów społecznościowych, takich jak zaobserwuj profil, subskrybuj kanał czy dziękuję za uwagę."
+        )
         self._init_model()
 
     def _init_model(self):
@@ -165,7 +182,7 @@ class Transcriber:
                     suppress_blank=True,
                     initial_prompt=self.initial_prompt
                 )
-                segments = [s for s in segments_gen if s.no_speech_prob <= 0.45 and s.avg_logprob >= -1.2]
+                segments = [s for s in segments_gen if is_valid_segment(s, s.text)]
         except Exception as e:
             logger.warning(f"Błąd transkrypcji strumieniowej: {e}")
             return [], ""
@@ -235,7 +252,7 @@ class Transcriber:
                     suppress_blank=True,
                     initial_prompt=self.initial_prompt
                 )
-                texts = [segment.text for segment in segments if segment.no_speech_prob <= 0.45]
+                texts = [segment.text for segment in segments if is_valid_segment(segment, segment.text)]
                 raw_fast = " ".join(texts).strip()
                 return clean_hallucinations(raw_fast)
         except Exception as e:
@@ -244,7 +261,7 @@ class Transcriber:
 
     def transcribe(self, audio: np.ndarray) -> str:
         """Transkrybuje tablicę audio float32 (16kHz) na tekst z pełną dokładnością i filtrem halucynacji."""
-        if audio is None or len(audio) < 16000 * 0.3:  # poniżej 0.3s ignorujemy
+        if audio is None or len(audio) < 16000 * 0.2:  # poniżej 0.2s ignorujemy
             return ""
 
         # Odetnij zbędny ogon ciszy przed transkrypcją (eliminuje halucynacje Whisper na wygasaniu głosu)
@@ -253,7 +270,7 @@ class Transcriber:
 
         # Jeśli nagranie zawiera wyłącznie ciszę poniżej progu słyszalności mowy
         max_val = np.max(np.abs(audio)) if len(audio) > 0 else 0.0
-        if max_val < 0.012:
+        if max_val < 0.008:
             logger.info("Pominięto transkrypcję – brak energii mowy w buforze audio.")
             return ""
 
@@ -269,8 +286,8 @@ class Transcriber:
                     without_timestamps=True,
                     vad_filter=True,  # automatyczne odfiltrowanie ciszy (Silero VAD)
                     vad_parameters=dict(min_silence_duration_ms=600, threshold=0.35, speech_pad_ms=250),
-                    no_speech_threshold=0.5,
-                    log_prob_threshold=-0.9,
+                    no_speech_threshold=0.6,
+                    log_prob_threshold=-1.0,
                     compression_ratio_threshold=2.4,
                     condition_on_previous_text=False,
                     hallucination_silence_threshold=2.0,
@@ -284,7 +301,7 @@ class Transcriber:
                     t = s.text.strip()
                     if not t:
                         continue
-                    if s.no_speech_prob > 0.45 or s.avg_logprob < -1.1:
+                    if not is_valid_segment(s, t):
                         logger.debug(f"Odrzucono podejrzany segment (no_speech={s.no_speech_prob:.2f}): '{t}'")
                         continue
                     valid_texts.append(t)
