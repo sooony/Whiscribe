@@ -601,17 +601,11 @@ class DictationApp:
                 time.sleep(0.18)
 
     def minimize_to_taskbar(self):
-        """Minimalizuje widżet do dolnego paska zadań Windows (Taskbar)."""
-        if self.config.get("always_on_top", True):
-            logger.info("Tryb 'Zawsze na wierzchu' aktywny – widżet pozostaje stale widoczny na ekranie.")
-            if self.overlay:
-                self.overlay.show()
-                self.overlay.show_idle()
-            return
+        """Minimalizuje widżet (chowa go z ekranu do zasobnika systemowego)."""
         self.is_minimized_to_tray = True
         if self.overlay:
             self.overlay.minimize()
-        logger.info("Widżet pomyślnie zminimalizowany do dolnego paska zadań Windows.")
+        logger.info("Widżet pomyślnie zminimalizowany do zasobnika systemowego.")
 
     def restore_from_taskbar(self):
         """Przywraca widżet z dolnego paska zadań na ekran."""
@@ -1348,7 +1342,7 @@ class DictationApp:
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
             # 6. Zarządzanie oknem / Aplikacją
-            user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj do paska zadań")
+            user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj widżet (do paska)")
             user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
 
             # Host window z WS_EX_TOPMOST (0x0008) i WS_EX_TOOLWINDOW (0x0080)

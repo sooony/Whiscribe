@@ -37,14 +37,57 @@ Zaawansowany inspektor oparty na Windows UI Automation:
 - Rejestracja skrótów na poziomie jądra Windows (`RegisterHotKey`) połączona z uniwersalnym listenerem przechwytującym zdarzenia wstrzykiwane przez oprogramowanie myszy (np. **Logi Options+**).
 - Wystarczy przypisać skrót `Ctrl + Alt + D` do przycisku pod kciukiem (Gesture Button) w Logi Options+, aby sterować dyktowaniem jednym kliknięciem myszy.
 
-### 6. 🧠 Modułowa Architektura LLM (Opcjonalny Post-Processing)
-- **Silnik domyślny (100% Offline):** Whisper large-v3-turbo / small / base na CUDA / CPU — nie wymaga żadnych kluczy API ani połączenia z siecią.
-- **Wymienny silnik korekty językowej (LLM Post-Processing):** Opcjonalna możliwość włączenia zewnętrznego modelu językowego do usuwania zająknięć (*„yyy”*, *„eee”*), poprawy stylu czy zaawansowanego formatowania:
-  - **Google Gemini** (`gemini-2.0-flash`)
-  - **OpenAI** (`gpt-4o-mini`, `gpt-4o`)
-  - **Groq** (`llama-3.3-70b-versatile`)
-  - **Lokalne modele open-source** (Ollama, LM Studio, vLLM przez interfejs zgodny z OpenAI)
-- Użytkownik ma pełną swobodę wyboru dostawcy, modelu oraz własnego promptu systemowego w `config.json`.
+### 6. 🧠 Architektura AI: Czysty Offline Whisper vs Korekta LLM
+
+Whiscribe został zaprojektowany z myślą o **bezwzględnej prywatności i zerowej zależności od chmury**.
+
+#### 🔒 Tryb 1: Domyślny — 100% Offline (Tylko Lokalny Whisper)
+Domyślnie w pliku `config.json` opcja `use_llm` ma wartość `false`, a `llm_api_key` jest puste.
+Aplikacja **nie wysyła ani jednego bajta do internetu**. Całe rozpoznawanie mowy odbywa się na Twojej karcie graficznej NVIDIA (lub CPU):
+
+```mermaid
+flowchart LR
+    A["🎤 Twój głos"] --> B["⚡ Lokalny Whisper GPU<br/>(model turbo / large)"]
+    B -->|"Natychmiastowy tekst (0.2s)"| C["💻 Aktywne pole tekstowe<br/>(Word / Notatnik / Przeglądarka)"]
+```
+
+#### 🏠 Tryb 2: 100% Offline z Własnym Lokalnym LLM (Ollama / LM Studio)
+Jeśli masz na komputerze uruchomiony lokalny model językowy (np. **Ollama** z modelem `llama3.2` / `bielik` na porcie 11434 lub **LM Studio** na porcie 1234), możesz włączyć inteligentną korektę tekstu **w 100% lokalnie i bez dostępu do sieci**:
+
+```mermaid
+flowchart LR
+    A["🎤 Twój głos"] --> B["⚡ Lokalny Whisper GPU<br/>(modele offline)"]
+    B -->|"Surowy tekst"| C["🏠 Lokalny LLM (localhost)<br/>Ollama / LM Studio"]
+    C -->|"Oczyszczony tekst bez 'yyy'"| D["💻 Aktywne pole tekstowe"]
+```
+
+**Konfiguracja w `config.json` dla Ollama:**
+```json
+"use_llm": true,
+"llm_provider": "ollama",
+"llm_endpoint": "http://localhost:11434/v1",
+"llm_model": "llama3.2",
+"llm_api_key": ""
+```
+
+#### ☁️ Tryb 3: Opcjonalny Chmurowy (Google Gemini 2.0 Flash / Groq / OpenAI)
+Dla użytkowników, którzy nie mają zasobów na uruchomienie drugiego modelu na komputerze, istnieje opcja podpięcia ultraszybkiego chmurowego API:
+
+```mermaid
+flowchart LR
+    A["🎤 Twój głos"] --> B["⚡ Lokalny Whisper GPU"]
+    B -->|"Tekst po transkrypcji"| C["☁️ Gemini 2.0 Flash / Groq<br/>(Korekta w 150ms)"]
+    C -->|"Sformatowany tekst"| D["💻 Aktywne pole tekstowe"]
+```
+
+#### 📝 Dlaczego prompt systemowy (`llm_system_prompt`) ma taką formę?
+```text
+"Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów."
+```
+1. **„Popraw zająknięcia (np. yyy, eee)”** – usuwa naturalne zawahania głosu i powtórzenia słów.
+2. **„Nie zmieniaj sensu wypowiedzi”** – zabrania modelowi dopowiadania własnych myśli i przeinaczania Twoich słów.
+3. **„Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów”** – kluczowa instrukcja techniczna. Gwarantuje, że model nie doda wstępu typu *„Oto poprawiony tekst:”* ani cudzysłowów, dzięki czemu do dokumentu trafia idealnie czysta treść.
+4. **Pełna personalizacja:** Możesz zmienić ten prompt w `config.json`, np. nakazując modelowi formatowanie wypowiedzi w stylu oficjalnego maila biznesowego lub tworzenie punktowanej listy zadań!
 
 ---
 

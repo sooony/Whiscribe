@@ -651,6 +651,7 @@ class FloatingOverlay:
         self.on_hotkey_callback = None
         self.settings_handler = None
         self.is_menu_open = False
+        self._user_minimized = False
 
         # Pozycja wyjściowa: wycentrowana na dole ekranu
         screen_w = user32.GetSystemMetrics(0)
@@ -1139,13 +1140,13 @@ class FloatingOverlay:
 
                 now = time.time()
 
-                # Topmost Keep-Alive: gwarantuje, że widżet nigdy nie zostaje przykryty ani zminimalizowany
-                if self.always_on_top and self._visible and self.hwnd and not getattr(self, 'is_menu_open', False):
+                # Topmost Keep-Alive: gwarantuje, że widżet nigdy nie zostaje przykryty ani zminimalizowany (poza celową minimalizacją użytkownika)
+                if self.always_on_top and self._visible and self.hwnd and not getattr(self, '_user_minimized', False) and not getattr(self, 'is_menu_open', False):
                     cur_fg = user32.GetForegroundWindow()
                     if cur_fg != last_fg or (now - last_topmost_check > 0.8):
                         last_topmost_check = now
                         last_fg = cur_fg
-                        if user32.IsIconic(self.hwnd):
+                        if user32.IsIconic(self.hwnd) and not getattr(self, '_user_minimized', False):
                             user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
                         user32.SetWindowPos(
                             self.hwnd, -1, 0, 0, 0, 0,
@@ -1663,27 +1664,29 @@ class FloatingOverlay:
             user32.ShowWindow(self.hwnd, 0)
 
     def minimize(self):
-        """Minimalizuje okno do dolnego paska zadań Windows (Taskbar)."""
-        if self.always_on_top:
-            self.show_idle()
-            return
+        """Minimalizuje i chowa widżet z ekranu do zasobnika systemowego."""
+        self._user_minimized = True
+        self._visible = False
         self._dirty = True
         if self.hwnd:
-            user32.ShowWindow(self.hwnd, 6)  # SW_MINIMIZE
+            user32.ShowWindow(self.hwnd, 0)  # SW_HIDE
 
     def restore(self):
-        """Przywraca okno z dolnego paska zadań Windows (Taskbar)."""
+        """Przywraca okno widżetu z zasobnika na ekran."""
+        self._user_minimized = False
         self._visible = True
         self._dirty = True
         if self.hwnd:
-            user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
+            user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA (nie kradnie fokusu z aktywnego okna)
             hwnd_insert = -1 if self.always_on_top else -2
             user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
     def is_minimized(self) -> bool:
+        if getattr(self, '_user_minimized', False):
+            return True
         if self.hwnd:
-            return bool(user32.IsIconic(self.hwnd))
-        return False
+            return bool(user32.IsIconic(self.hwnd)) or not self._visible
+        return not self._visible
 
     def set_always_on_top(self, enable: bool):
         """Dynamicznie włącza lub wyłącza tryb 'Zawsze na wierzchu' (HWND_TOPMOST vs HWND_NOTOPMOST)."""
