@@ -1604,13 +1604,46 @@ if __name__ == "__main__":
         if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
             if is_toggle_req:
                 EVENT_NAME = r"Local\Whiscribe_Toggle_Event"
+                h_send = ctypes.windll.kernel32.OpenEventW(0x0002, False, EVENT_NAME)
+                if h_send:
+                    ctypes.windll.kernel32.SetEvent(h_send)
+                    ctypes.windll.kernel32.CloseHandle(h_send)
+                sys.exit(0)
             else:
-                EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
-            h_send = ctypes.windll.kernel32.OpenEventW(0x0002, False, EVENT_NAME)  # EVENT_MODIFY_STATE = 0x0002
-            if h_send:
-                ctypes.windll.kernel32.SetEvent(h_send)
-                ctypes.windll.kernel32.CloseHandle(h_send)
-            sys.exit(0)
+                # Zapytaj użytkownika czy chce zrestartować Whiscribe z nowo otwartej lokalizacji
+                MB_YESNO = 0x00000004
+                MB_ICONQUESTION = 0x00000020
+                MB_TOPMOST = 0x00040000
+                IDYES = 6
+                msg = (
+                    "Aplikacja Whiscribe jest już uruchomiona w tle na tym komputerze.\n\n"
+                    "Czy chcesz zamknąć poprzednio działającą instancję i uruchomić tę wersję?"
+                )
+                res = ctypes.windll.user32.MessageBoxW(0, msg, "Whiscribe AI", MB_YESNO | MB_ICONQUESTION | MB_TOPMOST)
+                if res == IDYES:
+                    my_pid = os.getpid()
+                    try:
+                        import subprocess
+                        subprocess.run(
+                            ["powershell", "-NoProfile", "-Command", f"Get-Process -Name '*Whiscribe*' | Where-Object {{ $_.Id -ne {my_pid} }} | Stop-Process -Force"],
+                            creationflags=0x08000000
+                        )
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+                    if mutex:
+                        try:
+                            ctypes.windll.kernel32.CloseHandle(mutex)
+                        except Exception:
+                            pass
+                    mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Local\Whiscribe_SingleInstance_Mutex")
+                else:
+                    EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
+                    h_send = ctypes.windll.kernel32.OpenEventW(0x0002, False, EVENT_NAME)
+                    if h_send:
+                        ctypes.windll.kernel32.SetEvent(h_send)
+                        ctypes.windll.kernel32.CloseHandle(h_send)
+                    sys.exit(0)
 
         # Kreator pierwszego uruchomienia i automatyczny dobór silnika AI do sprzętu
         try:
@@ -1627,4 +1660,13 @@ if __name__ == "__main__":
         app.run_tray()
     except Exception as e:
         logger.critical("FATAL UNCAUGHT EXCEPTION in main: %s", e, exc_info=True)
+        try:
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"Wystąpił błąd podczas uruchamiania Whiscribe:\n\n{e}\n\nSzczegóły zapisano w pliku app.log.",
+                "Błąd Whiscribe",
+                0x00000010 | 0x00040000
+            )
+        except Exception:
+            pass
         sys.exit(1)
