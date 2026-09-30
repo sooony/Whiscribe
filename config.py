@@ -39,7 +39,8 @@ DEFAULT_CONFIG = {
     "diarization_enabled": True,
     "meeting_summary_llm": True,
     "use_llm": False,
-    "llm_provider": "gemini",
+    "llm_provider": "gemini",  # gemini, groq, openai, ollama, local (LM Studio)
+    "llm_endpoint": "http://localhost:11434/v1",  # URL dla lokalnego LLM (Ollama: 11434, LM Studio: 1234)
     "llm_api_key": "",
     "llm_model": "gemini-2.0-flash",
     "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów."

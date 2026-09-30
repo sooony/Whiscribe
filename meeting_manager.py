@@ -184,13 +184,14 @@ class MeetingManager:
         if not full_text or len(full_text) < 100:
             return
 
+        provider = self.config.get("llm_provider", "gemini").lower()
         api_key = self.config.get("llm_api_key", "").strip()
-        if not api_key:
+        is_local = provider in ("ollama", "local", "lmstudio")
+        if not api_key and not is_local:
             return
 
         try:
             import httpx
-            provider = self.config.get("llm_provider", "gemini").lower()
             prompt = (
                 "Jesteś asystentem biznesowym. Przeanalizuj poniższą transkrypcję spotkania i sporządź zwięzłe podsumowanie:\n"
                 "1. Główne tematy rozmowy\n"
@@ -198,6 +199,7 @@ class MeetingManager:
                 "3. Zadania do wykonania (Action Items)\n\n"
                 f"Transkrypcja:\n{full_text}"
             )
+            summary_text = ""
 
             if provider == "gemini":
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.config.get('llm_model', 'gemini-2.0-flash')}:generateContent?key={api_key}"
@@ -212,23 +214,57 @@ class MeetingManager:
                         candidates = data.get("candidates", [])
                         if candidates:
                             summary_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                            if summary_text:
-                                llm_block = (
-                                    "\n"
-                                    "----------------------------------------------------------------------\n"
-                                    " SYNTETYCZNE PODSUMOWANIE AI (GEMINI):\n"
-                                    f"{summary_text.strip()}\n"
-                                    "----------------------------------------------------------------------\n"
-                                )
-                                with self.notepad._lock:
-                                    self.notepad._all_text += llm_block
-                                    if self.notepad.filepath:
-                                        with open(self.notepad.filepath, "a", encoding="utf-8") as f:
-                                            f.write(llm_block)
-                                            f.flush()
-                                    self.notepad._update_notepad_display()
+            else:
+                if provider == "groq":
+                    base_url = "https://api.groq.com/openai/v1"
+                    default_model = "llama-3.3-70b-versatile"
+                elif provider == "openai":
+                    base_url = "https://api.openai.com/v1"
+                    default_model = "gpt-4o-mini"
+                elif provider == "ollama":
+                    base_url = self.config.get("llm_endpoint", "http://localhost:11434/v1").rstrip("/")
+                    default_model = "llama3.2"
+                else:
+                    base_url = self.config.get("llm_endpoint", "http://localhost:1234/v1").rstrip("/")
+                    default_model = "local-model"
+
+                headers = {}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                elif is_local:
+                    headers["Authorization"] = "Bearer ollama"
+
+                payload = {
+                    "model": self.config.get("llm_model", default_model),
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.2
+                }
+                with httpx.Client(timeout=12.0 if is_local else 8.0) as client:
+                    resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        choices = data.get("choices", [])
+                        if choices:
+                            summary_text = choices[0].get("message", {}).get("content", "")
+
+            if summary_text:
+                provider_tag = "LOKALNE AI (OLLAMA)" if provider == "ollama" else ("LOKALNE AI" if is_local else f"AI ({provider.upper()})")
+                llm_block = (
+                    "\n"
+                    "----------------------------------------------------------------------\n"
+                    f" SYNTETYCZNE PODSUMOWANIE {provider_tag}:\n"
+                    f"{summary_text.strip()}\n"
+                    "----------------------------------------------------------------------\n"
+                )
+                with self.notepad._lock:
+                    self.notepad._all_text += llm_block
+                    if self.notepad.filepath:
+                        with open(self.notepad.filepath, "a", encoding="utf-8") as f:
+                            f.write(llm_block)
+                            f.flush()
+                    self.notepad._update_notepad_display()
         except Exception as e:
-            logger.warning(f"Błąd generowania podsumowania LLM dla spotkania: {e}")
+            logger.warning(f"Błąd generowania podsumowania LLM dla spotkania ({provider}): {e}")
 
     def get_audio_levels(self) -> tuple[float, float]:
         """Zwraca poziomy głośności (mic_vol, loopback_vol) w skali 0.0 - 1.0."""

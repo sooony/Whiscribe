@@ -344,20 +344,26 @@ class Transcriber:
         if not raw_text:
             return ""
 
-        # Opcjonalny post-processing przez LLM
-        if self.config.get("use_llm", False) and self.config.get("llm_api_key"):
+        # Opcjonalny post-processing przez LLM (chmurowy lub 100% lokalny)
+        use_llm = self.config.get("use_llm", False)
+        provider = self.config.get("llm_provider", "gemini").lower()
+        api_key = self.config.get("llm_api_key", "").strip()
+        is_local_llm = provider in ("ollama", "local", "lmstudio")
+
+        if use_llm and (api_key or is_local_llm):
             cleaned_text = self._post_process_with_llm(raw_text)
             return clean_hallucinations(cleaned_text) if cleaned_text else raw_text
 
         return raw_text
 
     def _post_process_with_llm(self, text: str) -> str:
-        """Opcjonalna korekta językowa przez LLM (Gemini, Groq lub inny)."""
+        """Opcjonalna korekta językowa przez LLM (Gemini, Groq, OpenAI lub lokalną Ollama/LM Studio)."""
         provider = self.config.get("llm_provider", "gemini").lower()
         api_key = self.config.get("llm_api_key", "").strip()
         system_prompt = self.config.get("llm_system_prompt", "")
+        is_local = provider in ("ollama", "local", "lmstudio")
 
-        if not api_key:
+        if not api_key and not is_local:
             return text
 
         try:
@@ -388,19 +394,36 @@ class Transcriber:
                             if parts:
                                 return parts[0].get("text", "").strip()
             
-            elif provider in ("groq", "openai"):
-                # OpenAI-compatible API (Groq, OpenAI, etc.)
-                base_url = "https://api.groq.com/openai/v1" if provider == "groq" else "https://api.openai.com/v1"
-                headers = {"Authorization": f"Bearer {api_key}"}
+            elif provider in ("groq", "openai", "ollama", "local", "lmstudio"):
+                # OpenAI-compatible API (Chmura lub 100% lokalna Ollama / LM Studio)
+                if provider == "groq":
+                    base_url = "https://api.groq.com/openai/v1"
+                    default_model = "llama-3.3-70b-versatile"
+                elif provider == "openai":
+                    base_url = "https://api.openai.com/v1"
+                    default_model = "gpt-4o-mini"
+                elif provider == "ollama":
+                    base_url = self.config.get("llm_endpoint", "http://localhost:11434/v1").rstrip("/")
+                    default_model = "llama3.2"
+                else:  # local / lmstudio
+                    base_url = self.config.get("llm_endpoint", "http://localhost:1234/v1").rstrip("/")
+                    default_model = "local-model"
+
+                headers = {}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                elif is_local:
+                    headers["Authorization"] = "Bearer ollama"
+
                 payload = {
-                    "model": self.config.get("llm_model", "llama-3.3-70b-versatile" if provider == "groq" else "gpt-4o-mini"),
+                    "model": self.config.get("llm_model", default_model),
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": text}
                     ],
                     "temperature": 0.1
                 }
-                with httpx.Client(timeout=4.0) as client:
+                with httpx.Client(timeout=6.0 if is_local else 4.0) as client:
                     resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -409,6 +432,6 @@ class Transcriber:
                             return choices[0].get("message", {}).get("content", "").strip()
 
         except Exception as e:
-            logger.warning(f"Błąd korekty LLM: {e}. Zwracam surowy tekst.")
+            logger.warning(f"Błąd korekty LLM ({provider}): {e}. Zwracam surowy tekst.")
 
         return text
