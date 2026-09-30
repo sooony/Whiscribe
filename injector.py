@@ -27,39 +27,74 @@ class ForwardStreamCommitter:
     Zarządza płynnym wpisywaniem tekstu w czasie rzeczywistym w stylu Windows 11 Voice Typing.
     ZASADA: Wyłącznie wpisywanie w przód (Forward-Only).
     Nigdy nie wysyła naciśnięć Backspace do aktywnego dokumentu użytkownika.
-    Zapobiega powielaniu słów, połykaniu tekstu i skakaniu wstecz dzięki dopasowywaniu sufiksowemu.
+    Zapobiega powielaniu słów, połykaniu tekstu i skakaniu wstecz dzięki dopasowywaniu kotwicowemu (anchor alignment).
     """
-    def __init__(self, type_callback=None):
+    def __init__(self, type_callback=None, safe_margin: int = 2):
         self.type_callback = type_callback or send_unicode_string
-        self.typed_raw_words = []        # Wszystkie słowa wpisane w tej sesji
-        self.typed_norm_words = []       # Znormalizowane słowa (lowercase, bez interpunkcji) do porównań
-        self.last_hypothesis_words = []  # Słowa z poprzedniego przebiegu Whisper
-        self.typed_text = ""             # Całkowity tekst wpisany w całej sesji
+        self.safe_margin = max(1, safe_margin)
+        self.typed_raw_words = []         # Wszystkie słowa wpisane w całej sesji
+        self.typed_norm_words = []        # Znormalizowane słowa z całej sesji
+        self.segment_typed_words = []     # Słowa wpisane w bieżącym, niezatwierdzonym segmencie audio
+        self.segment_typed_norm = []      # Znormalizowane słowa w bieżącym segmencie audio
+        self.last_hypothesis_words = []   # Ostatnia pełna hipoteza Whisper
+        self.typed_text = ""              # Całkowity tekst wpisany w całej sesji
 
     def reset_for_new_segment(self):
-        """Resetuje stan bieżącej hipotezy dla nowego segmentu audio (zachowując historię wpisanych słów)."""
+        """Resetuje stan dopasowania dla nowego segmentu audio (gdy poprzedni został zatwierdzony w offset)."""
+        self.segment_typed_words = []
+        self.segment_typed_norm = []
         self.last_hypothesis_words = []
 
+    def _find_continuation_index(self, hyp_norm: list) -> int:
+        """
+        Znajduje indeks w nowej hipotezie hyp_norm, od którego należy kontynuować wpisywanie.
+        Wykorzystuje sekwencyjne dopasowanie kotwic (anchor matching), dzięki czemu drobne korekty
+        fonetyczne Whispera na początku zdania (np. 'OK' -> 'Okej' -> 'Ok') nigdy nie powodują
+        powielenia i ponownego wpisania już wyemitowanych słów.
+        """
+        if not self.segment_typed_norm:
+            return 0
+        M = len(self.segment_typed_norm)
+        if not hyp_norm:
+            return 0
+
+        # 1. Kotwiczenie dopasowania (anchor matching): badamy sufiksy z offsetem 0, 1, 2
+        for offset in range(min(3, M)):
+            ref = self.segment_typed_norm[:M - offset] if offset > 0 else self.segment_typed_norm
+            for k in range(min(4, len(ref)), 0, -1):
+                anchor = ref[-k:]
+                matches = []
+                for i in range(len(hyp_norm) - k + 1):
+                    if hyp_norm[i:i + k] == anchor:
+                        matches.append(i + k)
+                if matches:
+                    best_match = min(matches, key=lambda m: abs(m - (M - offset)))
+                    if best_match >= M - offset - 1:
+                        return best_match
+
+        # 2. Monotoniczny fallback: nigdy nie cofamy się poniżej liczby już wpisanych słów
+        return min(M, len(hyp_norm))
+
+    def _emit_words(self, words_to_type: list):
+        if not words_to_type:
+            return
+        chunk = " ".join(words_to_type) + " "
+        self.typed_raw_words.extend(words_to_type)
+        norm = [normalize_word(w) for w in words_to_type]
+        self.typed_norm_words.extend(norm)
+        self.segment_typed_words.extend(words_to_type)
+        self.segment_typed_norm.extend(norm)
+        self.typed_text += chunk
+        self.type_callback(chunk)
+
     def _feed_words(self, words: list):
+        """Pomocnicze wywołanie dla zachowania kompatybilności."""
         if not words:
             return
-        norm = [normalize_word(w) for w in words]
-        
-        # Znajdź maksymalny overlap z końcem wpisanego dotąd tekstu (do 20 słów wstecz)
-        max_lookback = min(len(self.typed_norm_words), 20, len(norm))
-        overlap_len = 0
-        for k in range(max_lookback, 0, -1):
-            if self.typed_norm_words[-k:] == norm[:k]:
-                overlap_len = k
-                break
-
-        new_words = words[overlap_len:]
-        if new_words:
-            chunk = " ".join(new_words) + " "
-            self.typed_raw_words.extend(new_words)
-            self.typed_norm_words.extend(norm[overlap_len:])
-            self.typed_text += chunk
-            self.type_callback(chunk)
+        norm_words = [normalize_word(w) for w in words]
+        cont_idx = self._find_continuation_index(norm_words)
+        new_words = words[cont_idx:]
+        self._emit_words(new_words)
 
     def process_hypothesis(self, hyp_text: str):
         """
@@ -81,17 +116,21 @@ class ForwardStreamCommitter:
         if not current_words:
             return
 
-        # Słowa stabilne to słowa sprzed ogona (ostatnie 1 słowo może się jeszcze zmienić w mowie)
-        safe_margin = 1
+        self.last_hypothesis_words = current_words
+
+        # Słowa stabilne to słowa sprzed ogona (ostatnie 1-2 słowa w locie mogą być jeszcze niepewne fonetycznie)
+        safe_margin = getattr(self, "safe_margin", 2)
         if len(current_words) > safe_margin:
             stable_words = current_words[:-safe_margin]
-            self._feed_words(stable_words)
-
-        self.last_hypothesis_words = current_words
+            norm_stable = [normalize_word(w) for w in stable_words]
+            cont_idx = self._find_continuation_index(norm_stable)
+            new_words = stable_words[cont_idx:]
+            self._emit_words(new_words)
 
     def commit_segment(self, segment_text: str):
         """
         Definitywnie zatwierdza cały zakończony segment zdania.
+        Wypisuje pozostałe słowa (z zerowym marginesem) i resetuje wskaźnik segmentu.
         """
         if not segment_text or not segment_text.strip():
             return
@@ -106,7 +145,10 @@ class ForwardStreamCommitter:
             return
 
         words = segment_text.strip().split()
-        self._feed_words(words)
+        norm_words = [normalize_word(w) for w in words]
+        cont_idx = self._find_continuation_index(norm_words)
+        new_words = words[cont_idx:]
+        self._emit_words(new_words)
         self.reset_for_new_segment()
 
     def finalize(self, final_text: str = ""):
@@ -122,8 +164,12 @@ class ForwardStreamCommitter:
 
         words = final_text.strip().split() if final_text else self.last_hypothesis_words
         if words:
-            self._feed_words(words)
-        self.last_hypothesis_words = []
+            norm_words = [normalize_word(w) for w in words]
+            cont_idx = self._find_continuation_index(norm_words)
+            new_words = words[cont_idx:]
+            self._emit_words(new_words)
+        self.reset_for_new_segment()
+
 
 def sync_text(old_text: str, new_text: str) -> str:
     """

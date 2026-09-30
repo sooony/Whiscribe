@@ -64,6 +64,29 @@ class TestHallucinationsAndStreaming(unittest.TestCase):
         self.assertNotIn("uwagę", full_text)
         self.assertEqual(full_text.strip(), "No dobrze zobaczmy jak to działa i jak to będzie wyglądało dalej.")
 
+    def test_02b_streaming_anchor_alignment_no_word_duplication(self):
+        """
+        Weryfikacja eliminacji powielania słów przy korektach fonetycznych Whispera (np. 'OK' -> 'Okej' -> 'Ok').
+        Przypadek zgłoszony przez użytkownika w trybie streamingu na żywo.
+        """
+        typed_stream = []
+        committer = ForwardStreamCommitter(type_callback=lambda x: typed_stream.append(x))
+
+        # Krok 1
+        committer.process_hypothesis("OK, dodaję Ci jeszcze dane")
+        # Krok 2: Whisper rewiduje początek na "Okej"
+        committer.process_hypothesis("Okej, dodaję Ci jeszcze dane, które miałem w")
+        # Krok 3: Whisper rewiduje początek na "Ok"
+        committer.process_hypothesis("Ok, dodaję Ci jeszcze dane, które miałem z synu to odnośnie")
+        # Krok 4: Finalizacja
+        committer.finalize("OK, dodaję Ci jeszcze dane, które miałem z synu odnośnie tej strony.")
+
+        result = "".join(typed_stream).strip()
+        self.assertIn("OK, dodaję Ci jeszcze", result)
+        self.assertEqual(result.count("dodaję"), 1, f"Słowo 'dodaję' zostało powielone! Otrzymano: {result}")
+        self.assertEqual(result.count("miałem"), 1, f"Słowo 'miałem' zostało powielone! Otrzymano: {result}")
+        self.assertNotIn("Okej", result, "Poprawka fonetyczna 'Okej' nie powinna być powtórnie wklejana")
+
     def test_03_clause_buffer_flushing(self):
         """Weryfikacja czy buforowanie klauzul zachowuje wszystkie spacje i interpunkcję."""
         typed_chunks = []

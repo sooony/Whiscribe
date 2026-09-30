@@ -121,14 +121,16 @@ class Win32EditContext:
             time.sleep(0.02)
 
     def set_text(self, text: str):
-        user32.SendMessageW(self.wnd, WM_SETTEXT, 0, text)
+        lparam = ctypes.cast(ctypes.c_wchar_p(text), wintypes.LPARAM).value if text else 0
+        user32.SendMessageW(self.wnd, WM_SETTEXT, 0, lparam)
         self.pump(2)
 
     def get_text(self) -> str:
         self.pump(3)
         length = user32.SendMessageW(self.wnd, WM_GETTEXTLENGTH, 0, 0)
         buf = ctypes.create_unicode_buffer(length + 1)
-        user32.SendMessageW(self.wnd, WM_GETTEXT, length + 1, buf)
+        lparam = ctypes.addressof(buf)
+        user32.SendMessageW(self.wnd, WM_GETTEXT, length + 1, lparam)
         return buf.value
 
 

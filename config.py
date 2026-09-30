@@ -9,7 +9,7 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.1.3"
+APP_VERSION = "2.1.4"
 __version__ = APP_VERSION
 
 CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
