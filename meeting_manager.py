@@ -112,7 +112,7 @@ class MeetingManager:
 
         try:
             with self.transcriber._lock:
-                prompt = getattr(self.transcriber, "initial_prompt", "Transkrypcja spotkania biznesowego.")
+                prompt = getattr(self.transcriber, "initial_prompt", None)
                 segments, _ = self.transcriber.model.transcribe(
                     audio,
                     language=language,

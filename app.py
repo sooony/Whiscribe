@@ -865,9 +865,9 @@ class DictationApp:
                 remaining_audio = audio_data[self.committed_sample_offset:] if len(audio_data) > self.committed_sample_offset else None
                 final_tail = ""
                 if remaining_audio is not None and len(remaining_audio) >= 16000 * 0.35:
-                    rem_max = float(np.max(np.abs(remaining_audio))) if len(remaining_audio) > 0 else 0.0
-                    if rem_max >= 0.022:
-                        final_tail = self.transcriber.transcribe(remaining_audio)
+                    trimmed_rem = AudioRecorder.trim_silence(remaining_audio, sample_rate=16000, keep_lead_s=0.20, keep_tail_s=0.35)
+                    if len(trimmed_rem) >= 16000 * 0.25:
+                        final_tail = self.transcriber.transcribe(trimmed_rem)
 
                 # 1. Przywróć definitywnie fokus do okna docelowego PRZED wpisaniem końcówki i opróżnieniem bufora
                 if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):

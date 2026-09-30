@@ -73,12 +73,12 @@ class AudioRecorder:
         self._stream.start()
 
     @staticmethod
-    def trim_trailing_silence(audio: np.ndarray, sample_rate: int = 16000, keep_tail_s: float = 0.35) -> np.ndarray:
+    def trim_silence(audio: np.ndarray, sample_rate: int = 16000, keep_lead_s: float = 0.20, keep_tail_s: float = 0.35) -> np.ndarray:
         """
-        Odcina zbędną ciszę i szum tła z ogona nagrania (pozostawiając 0.35s marginesu),
-        co zapobiega halucynacjom modelu Whisper (np. 'Dzięki za oglądanie', 'Koniec').
+        Odcina zbędną ciszę i szum tła z początku i z końca nagrania (pozostawiając margines na oddech/początek mowy),
+        co zapobiega wstępnym i końcowym halucynacjom modelu Whisper.
         """
-        if audio is None or len(audio) < sample_rate * 0.6:
+        if audio is None or len(audio) < sample_rate * 0.5:
             return audio
 
         frame_len = int(sample_rate * 0.05)  # okna 50ms
@@ -94,13 +94,20 @@ class AudioRecorder:
 
         active_indices = np.where(rms > speech_thresh)[0]
         if len(active_indices) == 0:
-            return audio
+            return np.array([], dtype=np.float32)
 
+        first_active_frame = active_indices[0]
         last_active_frame = active_indices[-1]
-        keep_samples = int(keep_tail_s * sample_rate)
-        cut_point = min(len(audio), (last_active_frame + 1) * frame_len + keep_samples)
 
-        return audio[:cut_point]
+        lead_samples = int(keep_lead_s * sample_rate)
+        start_point = max(0, first_active_frame * frame_len - lead_samples)
+
+        tail_samples = int(keep_tail_s * sample_rate)
+        end_point = min(len(audio), (last_active_frame + 1) * frame_len + tail_samples)
+
+        return audio[start_point:end_point]
+
+    trim_trailing_silence = trim_silence
 
     def stop(self) -> np.ndarray:
         self.is_recording = False
@@ -118,8 +125,8 @@ class AudioRecorder:
             audio_data = np.concatenate(self._audio_chunks)
             self._audio_chunks = []
 
-        # 1. Obcięcie ogona ciszy przed wzmocnieniem, aby nie amplifikować szumu na końcu
-        audio_data = self.trim_trailing_silence(audio_data, sample_rate=self.sample_rate, keep_tail_s=0.35)
+        # 1. Obcięcie wstępnej i końcowej ciszy przed wzmocnieniem
+        audio_data = self.trim_silence(audio_data, sample_rate=self.sample_rate, keep_lead_s=0.20, keep_tail_s=0.35)
 
         # 2. Inteligentna normalizacja głośności
         max_val = np.max(np.abs(audio_data)) if len(audio_data) > 0 else 0.0

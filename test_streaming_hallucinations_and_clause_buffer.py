@@ -87,5 +87,34 @@ class TestHallucinationsAndStreaming(unittest.TestCase):
         reconstructed = "".join(typed_chunks)
         self.assertEqual(reconstructed, "To jest pierwsza część zdania, a to jest druga.")
 
+    def test_04_polish_conjunction_casing(self):
+        """Weryfikacja czy sztuczne wielkie litery w spójnikach wewnątrz zdania są redukowane."""
+        inp = "No dobrze, to zróbmy teraz mały test I zobaczmy jak to działa."
+        res = clean_hallucinations(inp)
+        self.assertEqual(res, "No dobrze, to zróbmy teraz mały test i zobaczmy jak to działa.")
+
+        inp2 = "Widzę to A tamto zostawiam."
+        res2 = clean_hallucinations(inp2)
+        self.assertEqual(res2, "Widzę to a tamto zostawiam.")
+
+    def test_05_silence_trimming(self):
+        """Weryfikacja czy trim_silence ucina zarówno wstępną jak i końcową ciszę."""
+        import numpy as np
+        from recorder import AudioRecorder
+
+        sr = 16000
+        # 1s ciszy na starcie, 1s sygnału mowy, 1s ciszy na końcu
+        sil_pre = np.zeros(sr, dtype=np.float32)
+        speech = np.ones(sr, dtype=np.float32) * 0.1
+        sil_post = np.zeros(sr, dtype=np.float32)
+
+        full = np.concatenate([sil_pre, speech, sil_post])
+        trimmed = AudioRecorder.trim_silence(full, sample_rate=sr, keep_lead_s=0.20, keep_tail_s=0.35)
+
+        # Powinno uciąć ok. 0.8s z przodu i ok. 0.65s z tyłu
+        expected_min_len = int(1.0 * sr)
+        expected_max_len = int(1.7 * sr)
+        self.assertTrue(expected_min_len <= len(trimmed) <= expected_max_len, f"Długość przyciętego audio nieprawidłowa: {len(trimmed)/sr:.2f}s")
+
 if __name__ == '__main__':
     unittest.main()

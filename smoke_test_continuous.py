@@ -53,8 +53,10 @@ for end_idx in range(step_samples, len(audio) + step_samples, step_samples):
     if tail:
         committer.process_hypothesis(tail)
 
+from recorder import AudioRecorder
 rem = audio[committed_offset:]
-final_tail = t.transcribe(rem) if len(rem) >= int(0.3 * sample_rate) else ""
+trimmed_rem = AudioRecorder.trim_silence(rem, sample_rate=sample_rate, keep_lead_s=0.20, keep_tail_s=0.35)
+final_tail = t.transcribe(trimmed_rem) if len(trimmed_rem) >= int(0.25 * sample_rate) else ""
 committer.finalize(final_tail)
 
 res_stream = "".join(typed_chunks).strip()

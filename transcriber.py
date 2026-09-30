@@ -35,11 +35,12 @@ HALLUCINATION_PATTERNS = [
     r'\b[Mm]iłego\s+oglądania[.!,]?\s*',
     r'\b[Tt]hank\s+you\s+(very\s+much\s+)?for\s+watching[.!,]?\s*',
     r'\b[Tt]hanks\s+for\s+watching[.!,]?\s*',
-    r'\b[Ss]ubscribe\s+(to\s+my\s+channel)?[.!,]?\s*',
-    r'\b[Ss]ee\s+you\s+next\s+time[.!,]?\s*',
+    # 4. Prawa autorskie / zastrzeżone
+    r'\b((wszystkie|wielkie)\s+)?prawa\s+zastrzeżone[.!,]?\s*',
+    r'\ball\s+rights\s+reserved[.!,]?\s*',
 ]
 
-def is_valid_segment(s, text: str) -> bool:
+def is_valid_segment(s, text: str, audio: np.ndarray = None) -> bool:
     """Sprawdza, czy segment nie jest czystym szumem/halucynacją."""
     if not text:
         return False
@@ -47,8 +48,7 @@ def is_valid_segment(s, text: str) -> bool:
     if not t:
         return False
 
-    # Zaufane słowa i zwroty konwersacyjne (np. powitania, pożegnania, krótkie odpowiedzi)
-    # Whisper może przypisać im wyższe no_speech_prob z powodu krótkiego czasu trwania w oknie analizy
+    # 1. Sprawdzenie pewności modelu akustycznego
     COMMON_WORDS = (
         "cześć", "czesc", "hej", "hejka", "siema", "siemanko", "halo",
         "słuchaj", "sluchaj", "słuchajcie", "sluchajcie", "jak się macie", "jak sie macie", "jak się masz", "jak sie masz",
@@ -60,10 +60,31 @@ def is_valid_segment(s, text: str) -> bool:
         "pozdrawiam", "miłego dnia", "milego dnia", "miłego wieczoru", "milego wieczoru",
         "tak", "nie", "jasne", "dobrze", "super", "dokładnie", "oczywiście"
     )
-    if any(cw in t for cw in COMMON_WORDS):
-        return s.no_speech_prob < 0.85 and s.avg_logprob > -1.8
+    max_no_speech = 0.65 if any(cw in t for cw in COMMON_WORDS) else 0.60
+    min_logprob = -1.5 if any(cw in t for cw in COMMON_WORDS) else -1.4
 
-    return s.no_speech_prob <= 0.65 and s.avg_logprob >= -1.4
+    if s.no_speech_prob > max_no_speech or s.avg_logprob < min_logprob:
+        return False
+
+    # 2. Fizyczna weryfikacja energii mowy w przedziale czasowym segmentu [s.start : s.end]
+    if audio is not None and len(audio) > 0 and hasattr(s, 'start') and hasattr(s, 'end') and s.end > s.start:
+        sample_rate = 16000
+        start_idx = max(0, int(s.start * sample_rate))
+        end_idx = min(len(audio), int(s.end * sample_rate))
+        seg_audio = audio[start_idx:end_idx]
+        if len(seg_audio) >= int(sample_rate * 0.10):
+            frame_len = int(sample_rate * 0.05)
+            n_frames = len(seg_audio) // frame_len
+            if n_frames > 0:
+                frames = seg_audio[:n_frames * frame_len].reshape(n_frames, frame_len)
+                rms = np.sqrt(np.mean(frames**2, axis=1))
+                active_speech_frames = np.sum(rms > 0.008)
+                # Jeśli segment ma tekst (dłuższy niż 2 znaki), ale mniej niż 3 klatki mowy (150ms),
+                # to jest to fizycznie niemożliwa halucynacja na kliknięciu/oddechu
+                if len(t) > 2 and active_speech_frames < 3:
+                    return False
+
+    return True
 
 def clean_hallucinations(text: str) -> str:
     """
@@ -98,7 +119,10 @@ def clean_hallucinations(text: str) -> str:
     # 6. Napraw sztuczne wielkie litery po przecinku (np. 'Cześć, Jak się masz' -> 'Cześć, jak się masz')
     cleaned = re.sub(r',\s+([A-ZĄĆĘŁŃÓŚŹŻ][a-ząćęłńóśźż]+)', lambda m: ', ' + m.group(1).lower() if m.group(1).lower() in ("jak", "co", "gdzie", "kiedy", "dlaczego", "który", "która", "które", "że", "ponieważ", "bo", "ale", "lecz", "czyli", "mam", "masz", "trzymaj", "witam") else m.group(0), cleaned)
 
-    # 7. Upewnij się, że pierwszy znak tekstu zaczyna się wielką literą
+    # 7. Napraw sztuczne wielkie litery w spójnikach wewnątrz zdania (np. 'test I zobaczmy' -> 'test i zobaczmy')
+    cleaned = re.sub(r'([^\.\!\?\n])\s+([IAWZOU])\s+', lambda m: m.group(1) + ' ' + m.group(2).lower() + ' ', cleaned)
+
+    # 8. Upewnij się, że pierwszy znak tekstu zaczyna się wielką literą
     cleaned = cleaned.strip()
     if cleaned and cleaned[0].islower():
         cleaned = cleaned[0].upper() + cleaned[1:]
@@ -110,14 +134,7 @@ class Transcriber:
         self.config = config
         self.model = None
         self._lock = threading.Lock()
-        self.initial_prompt = (
-            "Ciągłe profesjonalne dyktowanie tekstu w języku polskim. "
-            "Pisz poprawną polszczyzną, z pełną interpunkcją (kropki, przecinki, pytajniki) oraz wielkimi literami na początku zdań. "
-            "Zapisuj dokładnie każde wypowiedziane słowo mówcy, w tym powitania (np. Cześć, Dzień dobry, Hej), "
-            "pożegnania (np. Na razie, Do widzenia, Pozdrawiam), krótkie wtrącenia (np. Słuchaj, Tak, Nie) "
-            "oraz zwroty grzecznościowe (np. Dziękuję bardzo, Proszę). "
-            "Bezwzględnie unikaj jedynie zwrotów z filmów i mediów społecznościowych, takich jak zaobserwuj profil, subskrybuj kanał czy dziękuję za uwagę."
-        )
+        self.initial_prompt = None
         self._init_model()
 
     def _init_model(self):
@@ -179,7 +196,8 @@ class Transcriber:
                     beam_size=2,
                     without_timestamps=False,
                     condition_on_previous_text=False,
-                    vad_filter=False,  # W streamingu sub-segmentów VAD nie może ucinać próbek, bo rozjeżdża timestampy!
+                    vad_filter=True,
+                    vad_parameters=dict(min_silence_duration_ms=300, speech_pad_ms=200, threshold=0.35),
                     no_speech_threshold=0.6,
                     log_prob_threshold=-1.0,
                     compression_ratio_threshold=2.4,
@@ -189,7 +207,7 @@ class Transcriber:
                     suppress_blank=True,
                     initial_prompt=self.initial_prompt
                 )
-                segments = [s for s in segments_gen if is_valid_segment(s, s.text)]
+                segments = [s for s in segments_gen if is_valid_segment(s, s.text, audio)]
         except Exception as e:
             logger.warning(f"Błąd transkrypcji strumieniowej: {e}")
             return [], ""
@@ -213,7 +231,7 @@ class Transcriber:
             is_ended_by_silence = (chunk_duration - last_seg.end >= 0.50)
             if is_ended_by_punct or is_ended_by_silence:
                 if tail_text:
-                    completed.append((tail_text, last_seg.end))
+                    completed.append((tail_text, chunk_duration))
                 tail_text = ""
         else:
             s = segments[0]
@@ -222,7 +240,7 @@ class Transcriber:
             is_ended_by_silence = (chunk_duration - s.end >= 0.50)
             if is_ended_by_punct or is_ended_by_silence:
                 if text:
-                    completed.append((text, s.end))
+                    completed.append((text, chunk_duration))
                 tail_text = ""
             else:
                 tail_text = text
@@ -271,9 +289,9 @@ class Transcriber:
         if audio is None or len(audio) < 16000 * 0.2:  # poniżej 0.2s ignorujemy
             return ""
 
-        # Odetnij zbędny ogon ciszy przed transkrypcją (eliminuje halucynacje Whisper na wygasaniu głosu)
+        # Odetnij zbędną ciszę przed i po mowie (eliminuje wstępne i końcowe halucynacje Whisper)
         from recorder import AudioRecorder
-        audio = AudioRecorder.trim_trailing_silence(audio, sample_rate=16000, keep_tail_s=0.35)
+        audio = AudioRecorder.trim_silence(audio, sample_rate=16000, keep_lead_s=0.20, keep_tail_s=0.35)
 
         # Jeśli nagranie zawiera wyłącznie ciszę poniżej progu słyszalności mowy
         max_val = np.max(np.abs(audio)) if len(audio) > 0 else 0.0
@@ -308,7 +326,7 @@ class Transcriber:
                     t = s.text.strip()
                     if not t:
                         continue
-                    if not is_valid_segment(s, t):
+                    if not is_valid_segment(s, t, audio):
                         logger.debug(f"Odrzucono podejrzany segment (no_speech={s.no_speech_prob:.2f}): '{t}'")
                         continue
                     valid_texts.append(t)
