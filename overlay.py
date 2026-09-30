@@ -650,6 +650,7 @@ class FloatingOverlay:
         self.on_restore_callback = None
         self.on_hotkey_callback = None
         self.settings_handler = None
+        self.is_menu_open = False
 
         # Pozycja wyjściowa: wycentrowana na dole ekranu
         screen_w = user32.GetSystemMetrics(0)
@@ -1001,8 +1002,13 @@ class FloatingOverlay:
                     self.hide_balloon()
 
                 elif target == 'btn_bar_menu' or (self._pressed_btn == 'btn_bar_menu' and abs(x - self.bar_menu_cx) <= 15 and (self.by - 2 <= y <= self.by + self.bh + 2)):
+                    screen_h = user32.GetSystemMetrics(1)
                     menu_screen_x = self.pos_x + int(self.bar_menu_cx)
-                    menu_screen_y = self.pos_y + int(self.by + self.bh)
+                    # Jeśli widżet jest w dolnej połowie ekranu, zakotwicz na górnej krawędzi pastylki
+                    if self.pos_y > screen_h // 2:
+                        menu_screen_y = self.pos_y + int(self.by)
+                    else:
+                        menu_screen_y = self.pos_y + int(self.by + self.bh)
                     if self.settings_handler:
                         threading.Thread(target=self.settings_handler, args=(menu_screen_x, menu_screen_y), daemon=True).start()
 
@@ -1134,7 +1140,7 @@ class FloatingOverlay:
                 now = time.time()
 
                 # Topmost Keep-Alive: gwarantuje, że widżet nigdy nie zostaje przykryty ani zminimalizowany
-                if self.always_on_top and self._visible and self.hwnd:
+                if self.always_on_top and self._visible and self.hwnd and not getattr(self, 'is_menu_open', False):
                     cur_fg = user32.GetForegroundWindow()
                     if cur_fg != last_fg or (now - last_topmost_check > 0.8):
                         last_topmost_check = now

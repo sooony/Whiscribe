@@ -1211,247 +1211,224 @@ class DictationApp:
             except Exception:
                 pass
         if self.overlay:
-            self.overlay.close()
+            try:
+                self.overlay.close()
+            except Exception:
+                pass
         if self.tray_icon:
-            self.tray_icon.stop()
-        sys.exit(0)
+            try:
+                self.tray_icon.stop()
+            except Exception:
+                pass
+        time.sleep(0.05)
+        os._exit(0)
 
     def _show_settings_menu(self, screen_x, screen_y):
-        """Wyświetla pełne menu kontekstowe Whiscribe (identyczne z menu zasobnika systemowego)."""
+        """Wyświetla pełne menu kontekstowe Whiscribe w warstwie Zawsze na wierzchu."""
         logger.info(f"Otwieranie menu kontekstowego na pozycji ({screen_x}, {screen_y})")
         if getattr(self, '_menu_open', False):
             logger.info("Menu jest już otwarte, pomijanie podwójnego kliknięcia.")
             return
         self._menu_open = True
+        if self.overlay:
+            self.overlay.is_menu_open = True
         try:
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
 
-            # Sprawdź i uzupełnij współrzędne ekranowe
+            screen_w = user32.GetSystemMetrics(0)
+            screen_h = user32.GetSystemMetrics(1)
             if not screen_x or not screen_y or screen_x <= 0 or screen_y <= 0:
                 pt = wintypes.POINT()
                 user32.GetCursorPos(ctypes.byref(pt))
                 screen_x, screen_y = pt.x, pt.y
 
-            # Wyrównanie: jeśli kliknięto po prawej stronie okna (przycisk •••), menu rozwija się do wewnątrz
-            flags = 0x0008 | 0x0000 | 0x0100  # TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_RETURNCMD
-            if self.overlay and screen_x < self.overlay.pos_x + (self.overlay.bw // 2):
-                flags = 0x0000 | 0x0000 | 0x0100  # TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD
+            # Wyrównanie: jeśli widżet jest w dolnej połowie ekranu, otwórz menu w górę (TPM_BOTTOMALIGN)
+            # Jeśli kliknięto z prawej strony (przycisk •••), rozwiń w lewo (TPM_RIGHTALIGN)
+            align_v = 0x0020 if screen_y > (screen_h // 2) else 0x0000  # TPM_BOTTOMALIGN vs TPM_TOPALIGN
+            align_h = 0x0008  # TPM_RIGHTALIGN
+            flags = align_h | align_v | 0x0100  # TPM_RETURNCMD
 
-            # 1. Preferowane: natywne menu pystray tray_icon (100% spójności ze stanem i zasobnikiem)
-            if self.tray_icon and hasattr(self.tray_icon, '_hwnd') and self.tray_icon._hwnd:
-                try:
-                    import pystray._util.win32 as w
-                    self.tray_icon.update_menu()
-                    if self.tray_icon._menu_handle:
-                        hmenu, descriptors = self.tray_icon._menu_handle
+            h_menu = user32.CreatePopupMenu()
+            h_theme_sub = user32.CreatePopupMenu()
+            h_sound_sub = user32.CreatePopupMenu()
+            h_sound_start_sub = user32.CreatePopupMenu()
+            h_sound_stop_sub = user32.CreatePopupMenu()
+            h_silence_sub = user32.CreatePopupMenu()
 
-                        # Tworzymy tymczasowe okno hosta powiązane z BIEŻĄCYM wątkiem (eliminuje błąd Win32 ERROR_INVALID_PARAMETER 87)
-                        hwnd_owner = user32.CreateWindowExW(
-                            0, "STATIC", "WhiscribeMenuHost",
-                            0x80000000,  # WS_POPUP
-                            int(screen_x), int(screen_y), 0, 0,
-                            0, None, kernel32.GetModuleHandleW(None), None
-                        )
-                        try:
-                            user32.SetForegroundWindow(hwnd_owner)
-                            idx = w.TrackPopupMenuEx(
-                                hmenu,
-                                flags,
-                                int(screen_x),
-                                int(screen_y),
-                                hwnd_owner,
-                                None
-                            )
-                            user32.PostMessageW(hwnd_owner, 0, 0, 0)
-                        finally:
-                            user32.DestroyWindow(hwnd_owner)
+            MF_STRING = 0x0000
+            MF_SEPARATOR = 0x0800
+            MF_POPUP = 0x0010
+            MF_CHECKED = 0x0008
+            MF_UNCHECKED = 0x0000
 
-                        if idx > 0 and idx <= len(descriptors):
-                            cb = descriptors[idx - 1]
-                            cb(self.tray_icon)
-                        return
-                except Exception as e:
-                    logger.error(f"Błąd wyświetlania menu przez tray_icon: {e}", exc_info=True)
+            # 1. Podmenu: Styl widżetu (Wszystkie 5 dopracowanych motywów)
+            cur_theme = self.config.get("theme", "light")
+            themes = [
+                ("light", "Jasny (Fluent Light)", 301),
+                ("dark", "Ciemny (Fluent Dark)", 302),
+                ("glass_light", "Glass Jasny (Mica Light)", 303),
+                ("glass_dark", "Glass Ciemny (Mica Dark)", 304),
+                ("glass_color", "Glass Kolorowy (Vibrant Glass)", 305),
+            ]
+            for t_key, t_label, t_id in themes:
+                chk = MF_CHECKED if cur_theme == t_key else MF_UNCHECKED
+                user32.AppendMenuW(h_theme_sub, MF_STRING | chk, t_id, t_label)
+            user32.AppendMenuW(h_menu, MF_POPUP, h_theme_sub, "Styl widżetu")
 
-            # 2. Fallback: bezpośrednie menu Win32 (np. w środowiskach testowych)
-            self._show_fallback_win32_menu(screen_x, screen_y)
+            # 2. Podmenu: Dźwięki i powiadomienia
+            sound_enabled = self.config.get("sound_feedback", True)
+            chk_sound = MF_CHECKED if sound_enabled else MF_UNCHECKED
+            user32.AppendMenuW(h_sound_sub, MF_STRING | chk_sound, 501, "Włącz dźwięki potwierdzenia")
+            user32.AppendMenuW(h_sound_sub, MF_SEPARATOR, 0, "")
+
+            cur_start = int(self.config.get("sound_start_preset", 1))
+            start_presets = [
+                (1, "1. Dzwonek Soft (Chime)", 511),
+                (2, "2. Bąbelek Win 11 (Bubble)", 512),
+                (3, "3. Arpeggio Wznoszące (Harmonia)", 513),
+                (4, "4. Cyber Minimal Klik", 514),
+                (0, "Brak dźwięku startu", 510),
+            ]
+            for p_id, p_label, cmd_id in start_presets:
+                chk = MF_CHECKED if cur_start == p_id else MF_UNCHECKED
+                user32.AppendMenuW(h_sound_start_sub, MF_STRING | chk, cmd_id, p_label)
+            user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_start_sub, "Dźwięk włączenia (Start)")
+
+            cur_stop = int(self.config.get("sound_stop_preset", 1))
+            stop_presets = [
+                (1, "1. Dzwonek Wyłączenia (Chime Low)", 521),
+                (2, "2. Bąbelek Opadający (Bubble Low)", 522),
+                (3, "3. Arpeggio Opadające (Harmonia)", 523),
+                (4, "4. Cyber Minimal Tik", 524),
+                (0, "Brak dźwięku wyłączenia", 520),
+            ]
+            for p_id, p_label, cmd_id in stop_presets:
+                chk = MF_CHECKED if cur_stop == p_id else MF_UNCHECKED
+                user32.AppendMenuW(h_sound_stop_sub, MF_STRING | chk, cmd_id, p_label)
+            user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_stop_sub, "Dźwięk wyłączenia (Stop)")
+            user32.AppendMenuW(h_menu, MF_POPUP, h_sound_sub, "Dźwięki i powiadomienia")
+
+            # 3. Podmenu: Automatyczne zatrzymanie ciszy
+            cur_silence = float(self.config.get("auto_stop_silence_seconds", 4.5))
+            silence_opts = [
+                (3.0, "3.0 sekundy (Krótka pauza)", 201),
+                (4.5, "4.5 sekundy (Zalecane)", 202),
+                (6.0, "6.0 sekund (Spokojne)", 203),
+                (10.0, "10 sekund (Długa pauza)", 204),
+                (0.0, "Wyłączone (Tylko ręcznie)", 205),
+            ]
+            for s_val, s_label, s_id in silence_opts:
+                chk = MF_CHECKED if cur_silence == s_val else MF_UNCHECKED
+                user32.AppendMenuW(h_silence_sub, MF_STRING | chk, s_id, s_label)
+            user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "Automatyczne zatrzymanie ciszy")
+
+            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
+            # 4. Główne opcje wpisywania i zachowania okna
+            chk_stream = MF_CHECKED if self.config.get("stream_realtime", False) else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_stream, 101, "Pisanie na żywo (Streaming)")
+
+            chk_topmost = MF_CHECKED if self.config.get("always_on_top", True) else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_topmost, 103, "Zawsze na wierzchu")
+
+            chk_field = MF_CHECKED if self.config.get("require_text_field", True) else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_field, 102, "Wymagaj aktywnego pola tekstowego")
+
+            chk_autostart = MF_CHECKED if is_autostart_enabled() else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_autostart, 106, "Uruchamiaj z systemem Windows (Autostart)")
+
+            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
+            # 5. Spotkania
+            chk_meeting = MF_CHECKED if self.state == "meeting_recording" else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_meeting, 104, "Transkrypcja spotkań")
+            user32.AppendMenuW(h_menu, MF_STRING, 105, "Otwórz folder transkrypcji spotkań")
+
+            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
+            # 6. Zarządzanie oknem / Aplikacją
+            user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj do paska zadań")
+            user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
+
+            # Host window z WS_EX_TOPMOST (0x0008) i WS_EX_TOOLWINDOW (0x0080)
+            WS_EX_TOPMOST = 0x00000008
+            WS_EX_TOOLWINDOW = 0x00000080
+            hwnd_owner = user32.CreateWindowExW(
+                WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
+                "STATIC", "WhiscribeMenuHost",
+                0x80000000,  # WS_POPUP
+                int(screen_x), int(screen_y), 0, 0,
+                0, None, kernel32.GetModuleHandleW(None), None
+            )
+            try:
+                user32.SetWindowPos(hwnd_owner, -1, 0, 0, 0, 0, 0x0001 | 0x0002)  # HWND_TOPMOST, SWP_NOSIZE | SWP_NOMOVE
+                user32.SetForegroundWindow(hwnd_owner)
+                user32.TrackPopupMenuEx.restype = wintypes.UINT
+                user32.TrackPopupMenuEx.argtypes = [
+                    wintypes.HMENU,
+                    wintypes.UINT,
+                    ctypes.c_int,
+                    ctypes.c_int,
+                    wintypes.HWND,
+                    ctypes.c_void_p
+                ]
+                cmd = user32.TrackPopupMenuEx(h_menu, flags, int(screen_x), int(screen_y), hwnd_owner, None)
+                user32.PostMessageW(hwnd_owner, 0, 0, 0)
+            finally:
+                user32.DestroyWindow(hwnd_owner)
+                user32.DestroyMenu(h_menu)
+
+            if cmd == 101:
+                self.toggle_streaming_mode()
+            elif cmd == 102:
+                self.toggle_require_text_field()
+            elif cmd == 103:
+                self.toggle_always_on_top()
+            elif cmd == 104:
+                self.toggle_meeting()
+            elif cmd == 105:
+                self.open_transcripts_folder()
+            elif cmd == 106:
+                self.toggle_autostart()
+            elif cmd == 201:
+                self.config["auto_stop_silence_seconds"] = 3.0
+                save_config(self.config)
+            elif cmd == 202:
+                self.config["auto_stop_silence_seconds"] = 4.5
+                save_config(self.config)
+            elif cmd == 203:
+                self.config["auto_stop_silence_seconds"] = 6.0
+                save_config(self.config)
+            elif cmd == 204:
+                self.config["auto_stop_silence_seconds"] = 10.0
+                save_config(self.config)
+            elif cmd == 205:
+                self.config["auto_stop_silence_seconds"] = 0.0
+                save_config(self.config)
+            elif cmd in (301, 302, 303, 304, 305):
+                t_map = {301: "light", 302: "dark", 303: "glass_light", 304: "glass_dark", 305: "glass_color"}
+                t_choice = t_map.get(cmd, "light")
+                self.config["theme"] = t_choice
+                save_config(self.config)
+                if self.overlay:
+                    self.overlay.set_theme(t_choice)
+            elif cmd == 501:
+                self.toggle_sound_feedback()
+            elif cmd in (511, 512, 513, 514, 510):
+                p_map = {511: 1, 512: 2, 513: 3, 514: 4, 510: 0}
+                self.set_sound_start_preset(p_map[cmd])
+            elif cmd in (521, 522, 523, 524, 520):
+                p_map = {521: 1, 522: 2, 523: 3, 524: 4, 520: 0}
+                self.set_sound_stop_preset(p_map[cmd])
+            elif cmd == 601:
+                self.minimize_to_taskbar()
+            elif cmd == 402:
+                self.exit_app()
         finally:
             self._menu_open = False
-
-    def _show_fallback_win32_menu(self, screen_x, screen_y):
-        """Wyświetla zapasowe menu Win32 gdy pystray nie jest jeszcze zainicjalizowany."""
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-
-        h_menu = user32.CreatePopupMenu()
-        h_theme_sub = user32.CreatePopupMenu()
-        h_sound_sub = user32.CreatePopupMenu()
-        h_sound_start_sub = user32.CreatePopupMenu()
-        h_sound_stop_sub = user32.CreatePopupMenu()
-        h_silence_sub = user32.CreatePopupMenu()
-
-        MF_STRING = 0x0000
-        MF_SEPARATOR = 0x0800
-        MF_POPUP = 0x0010
-        MF_CHECKED = 0x0008
-        MF_UNCHECKED = 0x0000
-
-        # 1. Podmenu: Styl widżetu (Wszystkie 5 dopracowanych motywów)
-        cur_theme = self.config.get("theme", "light")
-        themes = [
-            ("light", "Jasny (Fluent Light)", 301),
-            ("dark", "Ciemny (Fluent Dark)", 302),
-            ("glass_light", "Glass Jasny (Mica Light)", 303),
-            ("glass_dark", "Glass Ciemny (Mica Dark)", 304),
-            ("glass_color", "Glass Kolorowy (Vibrant Glass)", 305),
-        ]
-        for t_key, t_label, t_id in themes:
-            chk = MF_CHECKED if cur_theme == t_key else MF_UNCHECKED
-            user32.AppendMenuW(h_theme_sub, MF_STRING | chk, t_id, t_label)
-        user32.AppendMenuW(h_menu, MF_POPUP, h_theme_sub, "Styl widżetu")
-
-        # 2. Podmenu: Dźwięki i powiadomienia (Konfiguracja 4 presetów potwierdzenia i wyłączenia)
-        sound_enabled = self.config.get("sound_feedback", True)
-        chk_sound = MF_CHECKED if sound_enabled else MF_UNCHECKED
-        user32.AppendMenuW(h_sound_sub, MF_STRING | chk_sound, 501, "Włącz dźwięki potwierdzenia")
-        user32.AppendMenuW(h_sound_sub, MF_SEPARATOR, 0, "")
-
-        cur_start = int(self.config.get("sound_start_preset", 1))
-        start_presets = [
-            (1, "1. Dzwonek Soft (Chime)", 511),
-            (2, "2. Bąbelek Win 11 (Bubble)", 512),
-            (3, "3. Arpeggio Wznoszące (Harmonia)", 513),
-            (4, "4. Cyber Minimal Klik", 514),
-            (0, "Brak dźwięku startu", 510),
-        ]
-        for p_id, p_label, cmd_id in start_presets:
-            chk = MF_CHECKED if cur_start == p_id else MF_UNCHECKED
-            user32.AppendMenuW(h_sound_start_sub, MF_STRING | chk, cmd_id, p_label)
-        user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_start_sub, "Dźwięk włączenia (Start)")
-
-        cur_stop = int(self.config.get("sound_stop_preset", 1))
-        stop_presets = [
-            (1, "1. Dzwonek Wyłączenia (Chime Low)", 521),
-            (2, "2. Bąbelek Opadający (Bubble Low)", 522),
-            (3, "3. Arpeggio Opadające (Harmonia)", 523),
-            (4, "4. Cyber Minimal Tik", 524),
-            (0, "Brak dźwięku wyłączenia", 520),
-        ]
-        for p_id, p_label, cmd_id in stop_presets:
-            chk = MF_CHECKED if cur_stop == p_id else MF_UNCHECKED
-            user32.AppendMenuW(h_sound_stop_sub, MF_STRING | chk, cmd_id, p_label)
-        user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_stop_sub, "Dźwięk wyłączenia (Stop)")
-
-        user32.AppendMenuW(h_menu, MF_POPUP, h_sound_sub, "Dźwięki i powiadomienia")
-
-        # 3. Podmenu: Automatyczne zatrzymanie ciszy
-        cur_silence = float(self.config.get("auto_stop_silence_seconds", 4.5))
-        silence_opts = [
-            (3.0, "3.0 sekundy (Krótka pauza)", 201),
-            (4.5, "4.5 sekundy (Zalecane)", 202),
-            (6.0, "6.0 sekund (Spokojne)", 203),
-            (10.0, "10 sekund (Długa pauza)", 204),
-            (0.0, "Wyłączone (Tylko ręcznie)", 205),
-        ]
-        for s_val, s_label, s_id in silence_opts:
-            chk = MF_CHECKED if cur_silence == s_val else MF_UNCHECKED
-            user32.AppendMenuW(h_silence_sub, MF_STRING | chk, s_id, s_label)
-        user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "Automatyczne zatrzymanie ciszy")
-
-        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-
-        # 4. Główne opcje wpisywania i zachowania okna
-        chk_stream = MF_CHECKED if self.config.get("stream_realtime", False) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_stream, 101, "Pisanie na żywo (Streaming)")
-
-        chk_topmost = MF_CHECKED if self.config.get("always_on_top", True) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_topmost, 103, "Zawsze na wierzchu")
-
-        chk_field = MF_CHECKED if self.config.get("require_text_field", True) else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_field, 102, "Wymagaj aktywnego pola tekstowego")
-
-        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-
-        # 5. Spotkania
-        chk_meeting = MF_CHECKED if self.state == "meeting_recording" else MF_UNCHECKED
-        user32.AppendMenuW(h_menu, MF_STRING | chk_meeting, 104, "Transkrypcja spotkań")
-        user32.AppendMenuW(h_menu, MF_STRING, 105, "Otwórz folder transkrypcji spotkań")
-
-        user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-
-        # 6. Zarządzanie oknem / Aplikacją
-        user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj do paska zadań")
-        user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
-
-        hwnd_owner = user32.CreateWindowExW(
-            0, "STATIC", "WhiscribeFallbackMenuHost",
-            0x80000000,  # WS_POPUP
-            int(screen_x), int(screen_y), 0, 0,
-            0, None, kernel32.GetModuleHandleW(None), None
-        )
-        try:
-            user32.SetForegroundWindow(hwnd_owner)
-            user32.TrackPopupMenuEx.restype = wintypes.UINT
-            user32.TrackPopupMenuEx.argtypes = [
-                wintypes.HMENU,
-                wintypes.UINT,
-                ctypes.c_int,
-                ctypes.c_int,
-                wintypes.HWND,
-                ctypes.c_void_p
-            ]
-            flags = 0x0100 | 0x0008  # TPM_RETURNCMD | TPM_RIGHTALIGN
-            cmd = user32.TrackPopupMenuEx(h_menu, flags, int(screen_x), int(screen_y), hwnd_owner, None)
-            user32.PostMessageW(hwnd_owner, 0, 0, 0)
-        finally:
-            user32.DestroyWindow(hwnd_owner)
-            user32.DestroyMenu(h_menu)
-
-        if cmd == 101:
-            self.toggle_streaming_mode()
-        elif cmd == 102:
-            self.toggle_require_text_field()
-        elif cmd == 103:
-            self.toggle_always_on_top()
-        elif cmd == 104:
-            self.toggle_meeting()
-        elif cmd == 105:
-            self.open_transcripts_folder()
-        elif cmd == 201:
-            self.config["auto_stop_silence_seconds"] = 3.0
-            save_config(self.config)
-        elif cmd == 202:
-            self.config["auto_stop_silence_seconds"] = 4.5
-            save_config(self.config)
-        elif cmd == 203:
-            self.config["auto_stop_silence_seconds"] = 6.0
-            save_config(self.config)
-        elif cmd == 204:
-            self.config["auto_stop_silence_seconds"] = 10.0
-            save_config(self.config)
-        elif cmd == 205:
-            self.config["auto_stop_silence_seconds"] = 0.0
-            save_config(self.config)
-        elif cmd in (301, 302, 303, 304, 305):
-            t_map = {301: "light", 302: "dark", 303: "glass_light", 304: "glass_dark", 305: "glass_color"}
-            t_choice = t_map.get(cmd, "light")
-            self.config["theme"] = t_choice
-            save_config(self.config)
             if self.overlay:
-                self.overlay.set_theme(t_choice)
-        elif cmd == 501:
-            self.toggle_sound_feedback()
-        elif cmd in (511, 512, 513, 514, 510):
-            p_map = {511: 1, 512: 2, 513: 3, 514: 4, 510: 0}
-            self.set_sound_start_preset(p_map[cmd])
-        elif cmd in (521, 522, 523, 524, 520):
-            p_map = {521: 1, 522: 2, 523: 3, 524: 4, 520: 0}
-            self.set_sound_stop_preset(p_map[cmd])
-        elif cmd == 601:
-            self.minimize_to_taskbar()
-        elif cmd == 402:
-            self.exit_app()
+                self.overlay.is_menu_open = False
 
     def _on_overlay_theme_changed(self, new_theme):
         self.config["theme"] = new_theme
@@ -1582,7 +1559,13 @@ class DictationApp:
         )
 
         logger.info(f"Aplikacja Whiscribe v{APP_VERSION} gotowa w zasobniku systemowym (obok zegara).")
-        self.tray_icon.run()
+        try:
+            self.tray_icon.run()
+        except OSError as e:
+            if getattr(e, 'winerror', None) == 1401 or "1401" in str(e):
+                logger.info("Pomyślnie zwolniono zasoby paska zadań podczas wyłączania.")
+            else:
+                raise
 
 if __name__ == "__main__":
     try:
@@ -1658,7 +1641,11 @@ if __name__ == "__main__":
         if is_toggle_req:
             threading.Thread(target=app.toggle_dictation, daemon=True).start()
         app.run_tray()
+    except (KeyboardInterrupt, SystemExit):
+        sys.exit(0)
     except Exception as e:
+        if 'app' in locals() and not getattr(app, '_running', True):
+            sys.exit(0)
         logger.critical("FATAL UNCAUGHT EXCEPTION in main: %s", e, exc_info=True)
         try:
             ctypes.windll.user32.MessageBoxW(
