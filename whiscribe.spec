@@ -112,5 +112,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='Whiscribe-Portable-Dist',
+    name='Whiscribe-Portable',
 )

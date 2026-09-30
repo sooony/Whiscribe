@@ -241,9 +241,7 @@ user32.IsWindow.argtypes = [wintypes.HWND]
 
 def safe_bring_to_foreground(hwnd: int) -> bool:
     """
-    Bezpieczne, błyskawiczne i bezblokujące przywrócenie okna docelowego w Windows.
-    Używa neutralnego klawisza VK_F24 (0x87) do odblokowania ForegroundLock:
-    ZERO ryzyka aktywacji menu (w przeciwieństwie do Alt 0x12) i ZERO uciętych spacji!
+    Bezpieczne przywrócenie okna docelowego w Windows bez animacji, migania czy zmian rozmiaru.
     """
     if not hwnd or not user32.IsWindow(hwnd):
         return False
@@ -251,30 +249,29 @@ def safe_bring_to_foreground(hwnd: int) -> bool:
     if cur == hwnd:
         return True
 
-    # 1. Próba standardowa przez AllowSetForegroundWindow + SwitchToThisWindow
     try:
         user32.AllowSetForegroundWindow(-1)
     except Exception:
         pass
 
-    user32.ShowWindow(hwnd, 5)  # SW_SHOW
-    user32.SwitchToThisWindow(hwnd, True)
-    res = user32.SetForegroundWindow(hwnd)
-    user32.BringWindowToTop(hwnd)
+    fg_thread = user32.GetWindowThreadProcessId(cur, None)
+    app_thread = kernel32.GetCurrentThreadId()
+    attached = False
+    if fg_thread and fg_thread != app_thread:
+        try:
+            attached = user32.AttachThreadInput(app_thread, fg_thread, True)
+        except Exception:
+            attached = False
 
-    if user32.GetForegroundWindow() == hwnd:
-        return True
-
-    # 2. Odblokowanie ForegroundLock w Windows przez neutralny klawisz VK_F24 (brak aktywacji menu)
-    user32.keybd_event(0x87, 0, 0, 0)
-    user32.keybd_event(0x87, 0, 2, 0)
-    res = user32.SetForegroundWindow(hwnd)
-    user32.BringWindowToTop(hwnd)
-
-    for _ in range(5):
-        if user32.GetForegroundWindow() == hwnd:
-            return True
-        time.sleep(0.015)
+    try:
+        user32.SetForegroundWindow(hwnd)
+        user32.BringWindowToTop(hwnd)
+    finally:
+        if attached:
+            try:
+                user32.AttachThreadInput(app_thread, fg_thread, False)
+            except Exception:
+                pass
 
     return user32.GetForegroundWindow() == hwnd
 
@@ -534,50 +531,12 @@ class DictationApp:
         self._is_minimized_to_tray = False
 
     def _type_stream_chunk(self, chunk: str):
-        """Wpisuje słowa w przód (Forward-only) z ciągłym streamingiem do zablokowanego okna docelowego (nawet przy pracy na 2 monitorach)."""
+        """Wpisuje słowa w przód (Forward-only) z ciągłym streamingiem bezpośrednio do aktywnego pola."""
         if not chunk:
             return
 
         with self._type_lock:
-            cur_fg = user32.GetForegroundWindow()
-
-            # 1. Okno docelowe jest aktywne na pierwszym planie (np. edytor tekstu, IDE) LUB trwa finalizacja (state == "processing")
-            if (hasattr(self, 'target_hwnd') and self.target_hwnd and cur_fg == self.target_hwnd) or self.state == "processing":
-                if self.buffered_untyped_text:
-                    full_chunk = self.buffered_untyped_text + chunk
-                    self.buffered_untyped_text = ""
-                else:
-                    full_chunk = chunk
-                send_unicode_string(full_chunk)
-                return
-
-            # 2. Użytkownik przegląda drugie okno (np. Chrome na drugim monitorze)
-            if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):
-                self.buffered_untyped_text += chunk
-
-                # Jeśli użytkownik trzyma wciśnięty przycisk myszy (klikanie/zaznaczanie w Chrome), nie przerywamy
-                if is_mouse_down():
-                    return
-
-                # Sprawdź czy bufor zawiera kompletną frazę / klauzulę (np. kropka, przecinek, pytajnik lub >= 4 słowa)
-                buf_words = self.buffered_untyped_text.strip().split()
-                has_punct = any(self.buffered_untyped_text.rstrip().endswith(p) for p in ('.', ',', '!', '?', ';', ':'))
-                should_flush = has_punct or (len(buf_words) >= 4)
-
-                if should_flush:
-                    other_fg = cur_fg
-                    to_type = self.buffered_untyped_text
-                    self.buffered_untyped_text = ""
-
-                    safe_bring_to_foreground(self.target_hwnd)
-                    time.sleep(0.025)
-                    send_unicode_string(to_type)
-                    time.sleep(0.035)
-                    if other_fg and user32.IsWindow(other_fg) and other_fg != self.target_hwnd:
-                        safe_bring_to_foreground(other_fg)
-                        time.sleep(0.010)
-            else:
-                send_unicode_string(chunk)
+            send_unicode_string(chunk)
 
     def _tray_anim_worker(self):
         """Animuje ikonę w pasku menu/zadań (obszarze powiadomień) podczas nagrywania lub spotkania."""
@@ -800,36 +759,12 @@ class DictationApp:
                             self.overlay.add_transcript_entry(seg_text)
                     self.committed_sample_offset += int(completed[-1][1] * 16000)
 
-                    # Jeśli użytkownik przegląda inne okno, a segment się zakończył – wstrzyknij gotową klauzulę
-                    cur_fg = user32.GetForegroundWindow()
-                    if hasattr(self, 'target_hwnd') and self.target_hwnd and cur_fg != self.target_hwnd:
-                        if self.buffered_untyped_text and not is_mouse_down():
-                            other_fg = cur_fg
-                            to_type = self.buffered_untyped_text
-                            self.buffered_untyped_text = ""
-
-                            safe_bring_to_foreground(self.target_hwnd)
-                            time.sleep(0.025)
-                            send_unicode_string(to_type)
-                            time.sleep(0.035)
-                            if other_fg and user32.IsWindow(other_fg) and other_fg != self.target_hwnd:
-                                safe_bring_to_foreground(other_fg)
-                                time.sleep(0.010)
-
             # 2. ZAKTUALIZUJ BIEŻĄCY OGON (STABILNE SŁOWA WPISYWANE W PRZÓD)
             if tail_text:
                 with self._type_lock:
                     self.committer.process_hypothesis(tail_text)
                 if self.overlay:
                     self.overlay.update_live_text(tail_text)
-
-            # 3. Jeśli użytkownik wrócił fokusem do okna docelowego, natychmiast opróżnij bufor
-            cur_fg = user32.GetForegroundWindow()
-            if hasattr(self, 'target_hwnd') and self.target_hwnd and cur_fg == self.target_hwnd:
-                with self._type_lock:
-                    if self.buffered_untyped_text:
-                        send_unicode_string(self.buffered_untyped_text)
-                        self.buffered_untyped_text = ""
 
     def stop_and_transcribe(self):
         with self._lock:

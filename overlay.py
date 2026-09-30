@@ -500,6 +500,41 @@ def _create_taskbar_icon():
     except Exception:
         return None
 
+def _add_hwnd_to_taskbar(hwnd: int):
+    """Rejestruje okno w powłoce Windows Shell (ITaskbarList), gwarantując obecność na dolnym pasku zadań Windows 11."""
+    if not hwnd or not user32.IsWindow(hwnd):
+        return None
+    try:
+        class GUID(ctypes.Structure):
+            _fields_ = [
+                ("Data1", wintypes.DWORD),
+                ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD),
+                ("Data4", ctypes.c_byte * 8)
+            ]
+        CLSID_TaskbarList = GUID(0x56FDF344, 0xFD6D, 0x11d0, (ctypes.c_byte * 8)(0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90))
+        IID_ITaskbarList = GUID(0x56FDF342, 0xFD6D, 0x11d0, (ctypes.c_byte * 8)(0x95, 0x8A, 0x00, 0x60, 0x97, 0xC9, 0xA0, 0x90))
+        ole32 = ctypes.windll.ole32
+        ole32.CoInitialize(None)
+        p_tb = ctypes.c_void_p()
+        hr = ole32.CoCreateInstance(
+            ctypes.byref(CLSID_TaskbarList),
+            None,
+            1,  # CLSCTX_INPROC_SERVER
+            ctypes.byref(IID_ITaskbarList),
+            ctypes.byref(p_tb)
+        )
+        if hr == 0 and p_tb.value:
+            vtable = ctypes.cast(p_tb, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+            HrInit = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p)(vtable[3])
+            AddTab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND)(vtable[4])
+            HrInit(p_tb)
+            AddTab(p_tb, hwnd)
+            return p_tb
+    except Exception:
+        pass
+    return None
+
 def _wrap_text_lines(text, max_w, draw, font):
     """Zawija tekst na wiersze mieszczące się w szerokości max_w."""
     words = text.split()
@@ -1116,6 +1151,8 @@ class FloatingOverlay:
                 user32.SendMessageW(self.hwnd, 0x0080, 1, h_icon)  # WM_SETICON ICON_BIG
                 user32.SendMessageW(self.hwnd, 0x0080, 0, h_icon)  # WM_SETICON ICON_SMALL
 
+            self._tb_interface = _add_hwnd_to_taskbar(self.hwnd)
+
             screen_dc = user32.GetDC(0)
             self.mem_dc = gdi32.CreateCompatibleDC(screen_dc)
             bih = BITMAPINFOHEADER()
@@ -1690,6 +1727,8 @@ class FloatingOverlay:
             user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
             hwnd_insert = -1 if self.always_on_top else -2
             user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+            _add_hwnd_to_taskbar(self.hwnd)
+            self._render_frame(time.time())
 
     def is_minimized(self) -> bool:
         if getattr(self, '_user_minimized', False):
