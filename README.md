@@ -1,67 +1,62 @@
-# 🎙️ Whiscribe — Natywne Wpisywanie Głosowe AI dla Windows (v2.1.9)
+# Whiscribe - natywne wpisywanie głosowe dla Windows
 
-[![Windows 11 Ready](https://img.shields.io/badge/Windows-11%20%7C%2010-0078D4?style=flat&logo=windows)](https://github.com/sooony/Whiscribe)
-[![Faster Whisper](https://img.shields.io/badge/Whisper-large--v3--turbo-FF6F00?style=flat)](https://github.com/SYSTRAN/faster-whisper)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python)](https://python.org)
-[![CUDA Accelerated](https://img.shields.io/badge/CUDA-NVIDIA%20RTX%20Ready-76B900?style=flat&logo=nvidia)](https://developer.nvidia.com/cuda-zone)
-[![Privacy 100% Local](https://img.shields.io/badge/Privacy-100%25%20Offline%20Local-success?style=flat)]()
+Whiscribe to zaawansowana aplikacja desktopowa do dyktowania i wpisywania głosowego w systemie Windows. Wykorzystuje lokalny model Faster-Whisper large-v3-turbo akcelerowany sprzętowo przez NVIDIA CUDA (oraz zoptymalizowany pod kątem procesorów CPU), zapewniając jakość rozpoznawania mowy na poziomie rozwiązań komercyjnych przy zerowym opóźnieniu i pełnej prywatności.
 
-**Whiscribe** to zaawansowana, ultraszybka aplikacja desktopowa do dyktowania i wpisywania głosowego w systemie Windows. Wykorzystuje lokalny model **Faster-Whisper large-v3-turbo** akcelerowany sprzętowo przez **NVIDIA CUDA** (oraz zoptymalizowany dla CPU), zapewniając jakość rozpoznawania mowy na poziomie komercyjnych rozwiązań chmurowych przy **zerowym opóźnieniu** i **100% prywatności** (działa całkowicie offline).
-
-Aplikacja integruje się bezpośrednio z dowolnym polem tekstowym w systemie Windows — przeglądarkami (Chrome, Edge, Firefox), pakietem biurowym (Word, Excel), Notatnikiem, komunikatorami (Slack, Discord, Messenger, Teams) oraz środowiskami programistycznymi (VS Code, Cursor, Visual Studio).
+Aplikacja integruje się bezpośrednio z aktywnym polem tekstowym w systemie Windows: edytorami tekstu (Word, Notatnik), arkuszami kalkulacyjnymi, przeglądarkami internetowymi (Chrome, Edge, Firefox), komunikatorami (Slack, Discord, Teams) oraz środowiskami programistycznymi (VS Code, Cursor, Visual Studio).
 
 ---
 
-## ✨ Kluczowe Możliwości
+## Kluczowe możliwości
 
-### 1. 🪟 Nowoczesny Pływający Widżet (Windows 11 Fluent Design)
-- **Zawsze na wierzchu (Always on Top):** Widżet unosi się nad wszystkimi oknami systemu dzięki semantyce narzędziowej (`WS_EX_TOOLWINDOW`) oraz pętli *Topmost Keep-Alive*. Jest odporny na skrót `Win + D` (Pokaż pulpit) i nie chowa się pod inne aplikacje (np. przeglądarkę czy edytor).
-- **Zero kradzieży fokusu (`WS_EX_NOACTIVATE`, `MA_NOACTIVATE`):** Kliknięcie w dowolny element widżetu nie zabiera kursora z edytora tekstu, w którym pracujesz.
-- **Płynne przeciąganie i praca wielomonitorowa:** Przeciągaj widżet za belkę lub moduł dolny pomiędzy monitorami.
+### 1. Nowoczesny widżet interfejsu (Windows 11)
+- **Minimalizacja do paska zadań Windows 11:** Widżet posiada dedykowany przycisk minimalizacji oraz natywny przycisk na dolnym pasku zadań (`WS_EX_APPWINDOW`, `WS_MINIMIZEBOX`). Kliknięcie przycisku minimalizuje aplikację do paska zadań, a ponowne kliknięcie na pasku lub w zasobniku systemowym natychmiast przywraca widżet na ekran.
+- **Zawsze na wierzchu (Always on Top):** W trybie domyślnym widżet unosi się ponad oknami systemu dzięki mechanizmowi pętli kontroli kolejności okien. Nie znika pod aktywnymi aplikacjami roboczymi.
+- **Brak kradzieży fokusu:** Kliknięcie w dowolny element interfejsu (przycisk mikrofonu, ustawienia) nie odbiera fokusu z edytora tekstu, w którym aktualnie znajduje się kursor.
+- **Swobodne przemieszczanie:** Możliwość płynnego przeciągania widżetu w dowolne miejsce ekranu oraz między wieloma monitorami.
 
-### 2. ⚡ Dwa Tryby Wpisywania (Streaming ON / OFF)
-Na belce widżetu znajduje się dedykowany przełącznik:
-- **Streaming ON (Pisanie na żywo):** Tekst pojawia się w polu tekstowym w czasie rzeczywistym, słowo po słowie, w trakcie gdy mówisz. Zaawansowany algorytm *Anchor-based Sequence Alignment* eliminuje powtórzenia i gubienie wyrazów.
-- **Streaming OFF (Zatwierdzanie blokowe):** Wypowiadasz pełne zdanie lub akapit. Po zwolnieniu klawisza / kliknięciu przycisku lub po automatycznym wykryciu pauzy ciszy, zoptymalizowany tekst z pełną interpunkcją i wielkimi literami pojawia się błyskawicznie w miejscu kursora.
+### 2. Dwa tryby wpisywania (streaming włączony lub wyłączony)
+Na belce widżetu znajduje się dedykowany przełącznik trybu wprowadzania tekstu:
+- **Streaming włączony (pisanie na żywo):** Tekst pojawia się w polu edycyjnym w czasie rzeczywistym, słowo po słowie, bezpośrednio w trakcie wypowiedzi. Algorytm dopasowywania sekwencji eliminuje powtórzenia wyrazów.
+- **Streaming wyłączony (zatwierdzanie blokowe):** Wypowiadane jest pełne zdanie lub akapit. Po zwolnieniu skrótu, kliknięciu mikrofonu lub automatycznym wykryciu pauzy ciszy, zoptymalizowany tekst z pełną interpunkcją i wielkimi literami pojawia się w miejscu kursora.
 
-### 3. 🛡️ 5-Warstwowy Filtr Antyhalucynacyjny
-Whiscribe posiada filtr eliminujący zniekształcenia typowe dla modeli Whisper (wtrącenia ze zwiastunów, podziękowania, slogany z YouTube), jednocześnie **chroniąc i bezbłędnie transkrybując naturalne polskie powitania i pożegnania** (np. *„cześć”*, *„dzień dobry”*, *„do widzenia”*, *„słuchajcie”*, *„na razie”*, *„dzięki za informację”*).
+### 3. Wielowarstwowy filtr eliminacji zniekształceń i halucynacji
+Whiscribe zawiera moduł filtrujący zniekształcenia charakterystyczne dla modeli Whisper (wtrącenia ze zwiastunów wideo, napisy końcowe z nagrań internetowych), jednocześnie precyzyjnie przepuszczając naturalne polskie powitania, pożegnania i zwroty grzecznościowe (np. "dzień dobry", "cześć", "do widzenia", "dzięki za informację").
 
-### 4. 🎯 Inteligentny Detektor Pola Tekstowego (Focus Detector)
-Zaawansowany inspektor oparty na Windows UI Automation:
-- Weryfikuje, czy kursor faktycznie znajduje się w aktywnym elemencie edycyjnym (`<input>`, `<textarea>`, Notatnik, edytor kodu, dokument tekstowy).
+### 4. Detektor aktywnego pola tekstowego
+Moduł inspekcji interfejsu weryfikuje obecność kursora w edytowalnym elemencie systemu Windows:
 - Zapobiega przypadkowemu wklejaniu tekstu na pulpit, do menu kontekstowego lub na paski narzędziowe.
-- Wyświetla elegancki dymek informacyjny z przyciskiem *„Rozumiem”* w razie braku aktywnego pola tekstowego.
+- Wyświetla czytelny komunikat w przypadku próby dyktowania bez aktywnego pola tekstowego.
 
-### 5. 🖱️ Integracja z Myszką Logitech MX Master & Skróty Klawiszowe
-- Rejestracja skrótów na poziomie jądra Windows (`RegisterHotKey`) połączona z uniwersalnym listenerem przechwytującym zdarzenia wstrzykiwane przez oprogramowanie myszy (np. **Logi Options+**).
-- Wystarczy przypisać skrót `Ctrl + Alt + D` do przycisku pod kciukiem (Gesture Button) w Logi Options+, aby sterować dyktowaniem jednym kliknięciem myszy.
+### 5. Globalne skróty klawiszowe w systemie Windows
+Rejestracja skrótów na poziomie systemu operacyjnego pozwala na natychmiastowe rozpoczęcie dyktowania z dowolnego miejsca w systemie:
+- Domyślny skrót dyktowania: `Ctrl + Alt + D`.
+- Domyślny skrót trybu spotkania: `Ctrl + Alt + M`.
+- Pełna możliwość modyfikacji kombinacji klawiszy w pliku konfiguracyjnym.
 
-### 6. 🧠 Architektura AI: Czysty Offline Whisper vs Korekta LLM
+### 6. Architektura systemu: praca offline oraz moduł korekty językowej
 
-Whiscribe został zaprojektowany z myślą o **bezwzględnej prywatności i zerowej zależności od chmury**.
+Whiscribe został zbudowany z naciskiem na prywatność danych użytkownika. Model rozpoznawania mowy działa całkowicie lokalnie.
 
-#### 🔒 Tryb 1: Domyślny — 100% Offline (Tylko Lokalny Whisper)
-Domyślnie w pliku `config.json` opcja `use_llm` ma wartość `false`, a `llm_api_key` jest puste.
-Aplikacja **nie wysyła ani jednego bajta do internetu**. Całe rozpoznawanie mowy odbywa się na Twojej karcie graficznej NVIDIA (lub CPU):
-
-```mermaid
-flowchart LR
-    A["🎤 Twój głos"] --> B["⚡ Lokalny Whisper GPU<br/>(model turbo / large)"]
-    B -->|"Natychmiastowy tekst (0.2s)"| C["💻 Aktywne pole tekstowe<br/>(Word / Notatnik / Przeglądarka)"]
-```
-
-#### 🏠 Tryb 2: 100% Offline z Własnym Lokalnym LLM (Ollama / LM Studio)
-Jeśli masz na komputerze uruchomiony lokalny model językowy (np. **Ollama** z modelem `llama3.2` / `bielik` na porcie 11434 lub **LM Studio** na porcie 1234), możesz włączyć inteligentną korektę tekstu **w 100% lokalnie i bez dostępu do sieci**:
+#### Tryb 1: Domyślny - praca całkowicie offline (tylko lokalny model Whisper)
+Domyślnie w pliku konfiguracyjnym parametr `use_llm` ma wartość `false`. Aplikacja nie łączy się z internetem i nie przesyła żadnych danych audio ani tekstu poza komputer użytkownika. Całość obliczeń realizowana jest lokalnie przez kartę graficzną lub procesor.
 
 ```mermaid
 flowchart LR
-    A["🎤 Twój głos"] --> B["⚡ Lokalny Whisper GPU<br/>(modele offline)"]
-    B -->|"Surowy tekst"| C["🏠 Lokalny LLM (localhost)<br/>Ollama / LM Studio"]
-    C -->|"Oczyszczony tekst bez 'yyy'"| D["💻 Aktywne pole tekstowe"]
+    A["Głos użytkownika"] --> B["Lokalny model Whisper GPU<br/>(wersja turbo lub large)"]
+    B -->|"Rozpoznany tekst w czasie rzeczywistym"| C["Aktywne pole tekstowe<br/>(Word, Notatnik, przeglądarka)"]
 ```
 
-**Konfiguracja w `config.json` dla Ollama:**
+#### Tryb 2: Praca offline z lokalnym modelem językowym (Ollama lub LM Studio)
+W przypadku posiadania lokalnie uruchomionego serwera modeli językowych (np. Ollama na porcie 11434 lub LM Studio na porcie 1234), możliwa jest automatyczna korekta tekstu bez łączenia się z internetem.
+
+```mermaid
+flowchart LR
+    A["Głos użytkownika"] --> B["Lokalny model Whisper GPU"]
+    B -->|"Surowy tekst"| C["Lokalny model językowy<br/>(Ollama / LM Studio na localhost)"]
+    C -->|"Korekta interpunkcji i usunięcie zająknięć"| D["Aktywne pole tekstowe"]
+```
+
+Przykład konfiguracji w `config.json` dla narzędzia Ollama:
 ```json
 "use_llm": true,
 "llm_provider": "ollama",
@@ -70,76 +65,75 @@ flowchart LR
 "llm_api_key": ""
 ```
 
-#### ☁️ Tryb 3: Opcjonalny Chmurowy (Google Gemini 2.0 Flash / Groq / OpenAI)
-Dla użytkowników, którzy nie mają zasobów na uruchomienie drugiego modelu na komputerze, istnieje opcja podpięcia ultraszybkiego chmurowego API:
+#### Tryb 3: Opcjonalna korekta chmurowa (Google Gemini, Groq, OpenAI)
+Dla użytkowników preferujących zewnętrzną korektę stylistyczną istnieje możliwość podpięcia zewnętrznego interfejsu programistycznego:
 
 ```mermaid
 flowchart LR
-    A["🎤 Twój głos"] --> B["⚡ Lokalny Whisper GPU"]
-    B -->|"Tekst po transkrypcji"| C["☁️ Gemini 2.0 Flash / Groq<br/>(Korekta w 150ms)"]
-    C -->|"Sformatowany tekst"| D["💻 Aktywne pole tekstowe"]
+    A["Głos użytkownika"] --> B["Lokalny model Whisper GPU"]
+    B -->|"Surowy tekst transkrypcji"| C["Zewnętrzny model językowy<br/>(Gemini, Groq lub OpenAI)"]
+    C -->|"Poprawiony tekst docelowy"| D["Aktywne pole tekstowe"]
 ```
 
-#### 📝 Dlaczego prompt systemowy (`llm_system_prompt`) ma taką formę?
+#### Rola i budowa promptu systemowego (llm_system_prompt)
+Domyślna treść instrukcji dla modułu korekty:
 ```text
-"Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów."
+Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów.
 ```
-1. **„Popraw zająknięcia (np. yyy, eee)”** – usuwa naturalne zawahania głosu i powtórzenia słów.
-2. **„Nie zmieniaj sensu wypowiedzi”** – zabrania modelowi dopowiadania własnych myśli i przeinaczania Twoich słów.
-3. **„Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów”** – kluczowa instrukcja techniczna. Gwarantuje, że model nie doda wstępu typu *„Oto poprawiony tekst:”* ani cudzysłowów, dzięki czemu do dokumentu trafia idealnie czysta treść.
-4. **Pełna personalizacja:** Możesz zmienić ten prompt w `config.json`, np. nakazując modelowi formatowanie wypowiedzi w stylu oficjalnego maila biznesowego lub tworzenie punktowanej listy zadań!
+- Usunięcie zająknięć: eliminuje dźwięki namysłu i mimowolne powtórzenia wyrazów.
+- Zachowanie sensu wypowiedzi: zapobiega dodawaniu własnych wniosków przez model.
+- Format odpowiedzi: nakaz zwrotu wyłącznie czystego tekstu zapobiega dołączaniu komentarzy wstępnych. Treść można dostosować w pliku konfiguracyjnym pod kątem specyfiki redagowanych pism.
 
 ---
 
-## 🔮 Roadmap: Transkrypcja Spotkań i Separacja Mówców (Diarization)
+## Plany rozwoju: transkrypcja spotkań zespołowych i rozpoznawanie osób
 
-Aplikacja jest aktywnie rozwijana w kierunku **inteligentnego asystenta spotkań zespołowych** (Teams, Google Meet, Zoom):
+Aplikacja jest rozwijana w kierunku rejestracji i protokołowania spotkań zespołowych (Microsoft Teams, Google Meet, Zoom):
 
-1. **Równoległy nasłuch dwukanałowy (Mikrofon + Audio Systemowe WASAPI Loopback):**
-   - Rejestrowanie głosu użytkownika bezpośrednio z mikrofonu fizycznego.
-   - Rejestrowanie głosu pozostałych rozmówców z wyjścia audio (głośniki / słuchawki).
-2. **Rozpoznawanie uczestników na podstawie tonu głosu (Audio Tone & Pitch Diarization):**
-   - Wdrożenie algorytmów analizy częstotliwości podstawowej ($F_0$), harmonicznych oraz centroidu widmowego.
-   - Automatyczne przypisywanie wypowiedzi do poszczególnych osób w zespole na podstawie unikalnej barwy głosu rozmówcy.
-3. **Automatyczne notatki i protokoły spotkań:**
-   - Eksport uporządkowanej transkrypcji z podziałem na role do Notatnika Windows i plików Markdown.
-   - Generowanie podsumowań, wniosków i listy zadań (*Action Items*) po zakończeniu spotkania.
+1. **Równoległy nasłuch dwukanałowy:**
+   - Rejestracja głosu użytkownika bezpośrednio z mikrofonu fizycznego.
+   - Równoległa rejestracja głosu pozostałych rozmówców z wyjścia karty dźwiękowej za pośrednictwem pętli zwrotnej systemu Windows.
+2. **Rozpoznawanie uczestników na podstawie cech głosu:**
+   - Wykorzystanie analizy barwy głosu, częstotliwości podstawowej oraz parametrów widmowych dźwięku.
+   - Automatyczne przypisywanie poszczególnych wypowiedzi do właściwych osób w zespole.
+3. **Automatyczne protokoły i podsumowania:**
+   - Zapis transkrypcji z podziałem na role do formatu tekstowego oraz Markdown.
+   - Generowanie podsumowań ustaleń i listy zadań po zakończeniu spotkania.
 
 ---
 
-## 🚀 Szybki Start
+## Uruchomienie aplikacji
 
-### Wariant A: Wersja Przenośna (Portable .EXE — Bez instalacji Pythona)
-1. Pobierz najnowsze wydanie `Whiscribe-Portable.zip` z zakładki [Releases](https://github.com/sooony/Whiscribe/releases).
-2. Rozpakuj archiwum w dowolnym miejscu (np. na Pulpicie lub dysku `C:\`).
-3. Uruchom `Whiscribe.exe`.
-4. Gotowe! Przy pierwszym uruchomieniu kreator sprzętowy zweryfikuje Twoją kartę graficzną i przygotuje model AI.
+### Wariant A: Wersja przenośna (wersja bez instalacji środowiska Python)
+1. Pobierz archiwum `Whiscribe-Portable.zip` z sekcji wydań na GitHubie.
+2. Rozpakuj archiwum do wybranego katalogu na dysku.
+3. Uruchom plik `Whiscribe.exe`.
+4. Przy pierwszym uruchomieniu nastąpi automatyczna weryfikacja konfiguracji sprzętowej i pobranie wybranego modelu mowy.
 
-### Wariant B: Uruchomienie ze Źródeł (Dla Deweloperów)
-
-Wymagania: Python 3.10 lub nowszy, opcjonalnie karta NVIDIA z obsługą CUDA.
+### Wariant B: Uruchomienie z kodu źródłowego
+Wymagania: Python 3.10 lub nowszy, opcjonalnie karta graficzna NVIDIA z obsługą biblioteki CUDA.
 
 ```bash
-# 1. Sklonuj repozytorium
+# 1. Klonowanie repozytorium
 git clone https://github.com/sooony/Whiscribe.git
 cd Whiscribe
 
-# 2. Utwórz i aktywuj środowisko wirtualne
+# 2. Utworzenie i aktywacja środowiska wirtualnego
 python -m venv venv
 venv\Scripts\activate
 
-# 3. Zainstaluj wymagane biblioteki
+# 3. Instalacja zależności
 pip install -r requirements.txt
 
-# 4. Uruchom aplikację
+# 4. Uruchomienie aplikacji
 python app.py
 ```
 
 ---
 
-## ⚙️ Konfiguracja (`config.json`)
+## Konfiguracja (config.json)
 
-Plik `config.json` tworzony jest automatycznie w katalogu aplikacji:
+Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uruchomieniu:
 
 ```json
 {
@@ -165,22 +159,22 @@ Plik `config.json` tworzony jest automatycznie w katalogu aplikacji:
 ```
 
 ### Wybrane parametry:
-- `always_on_top`: Utrzymuje widżet stale na wierzchu ekranu ponad wszystkimi oknami.
-- `stream_realtime`: Włącza lub wyłącza pisanie na żywo w trakcie mówienia (można przełączać przyciskiem na widżecie).
-- `require_text_field`: Blokuje start nagrywania, jeśli kursor nie stoi w polu tekstowym.
-- `auto_stop_silence_seconds`: Czas ciszy (w sekundach), po którym nagranie zostanie automatycznie zatwierdzone (np. `4.5` lub `0` dla trybu ręcznego).
-- `use_llm`: Włącza opcjonalną korektę tekstu przez model językowy.
+- `always_on_top`: utrzymuje widżet na wierzchu ekranu.
+- `stream_realtime`: przełącza pisanie w czasie rzeczywistym w trakcie mówienia.
+- `require_text_field`: weryfikuje obecność aktywnego pola tekstowego przed rozpoczęciem wpisywania.
+- `auto_stop_silence_seconds`: czas ciszy w sekundach, po którym nagranie zostaje automatycznie zakończone i przetworzone.
+- `use_llm`: aktywuje opcjonalną korektę stylistyczną i interpunkcyjną.
 
 ---
 
-## 🔒 Bezpieczeństwo i Prywatność
+## Bezpieczeństwo i prywatność danych
 
-- **Brak telemetrii:** Aplikacja nie zbiera żadnych danych telemetrycznych ani statystyk użytkowania.
-- **Poufność audio:** Dźwięk z mikrofonu jest przetwarzany w pamięci RAM i na lokalnym GPU przez bibliotekę Faster-Whisper. Żadne nagrania ani próbki audio nie są wysyłane do chmury.
-- **Izolacja poświadczeń:** Klucze API (o ile korzystasz z opcjonalnego post-processingu LLM) są przechowywane wyłącznie w lokalnym pliku `config.json` zabezpieczonym regułami `.gitignore`.
+- **Brak telemetrii:** Aplikacja nie gromadzi i nie wysyła żadnych danych telemetrycznych ani informacji diagnostycznych.
+- **Lokalne przetwarzanie głosu:** Sygnał audio z mikrofonu jest przetwarzany bezpośrednio w pamięci RAM i na lokalnej karcie graficznej. Dźwięk nie opuszcza komputera użytkownika.
+- **Bezpieczeństwo kluczy:** Klucze dostępu do opcjonalnych usług zewnętrznych są zapisywane wyłącznie w lokalnym pliku konfiguracyjnym.
 
 ---
 
-## 📄 Licencja
+## Licencja
 
-Projekt udostępniony na licencji [MIT](LICENSE). Możesz go swobodnie używać, modyfikować i wdrażać do własnych zastosowań.
+Projekt udostępniony na licencji [MIT](LICENSE).

@@ -480,6 +480,13 @@ def draw_people_icon(target, cx, cy, sz, color=(255, 255, 255, 255)):
 def _create_taskbar_icon():
     """Generuje elegancką ikonę HICON dla paska zadań Windows 11 (granatowa bez obwiedni, biały mikrofon)."""
     try:
+        import sys
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+        app_ico = os.path.join(base_dir, "icon.ico")
+        if os.path.exists(app_ico):
+            h = user32.LoadImageW(None, app_ico, 1, 32, 32, 0x0010)
+            if h:
+                return h
         temp_dir = tempfile.gettempdir()
         ico_path = os.path.join(temp_dir, "voice_ui_taskbar.ico")
         img_hi = Image.new('RGBA', (256, 256), color=(0, 0, 0, 0))
@@ -829,23 +836,28 @@ class FloatingOverlay:
         if msg == WM_SYSCOMMAND:
             cmd = wparam & 0xFFF0
             if cmd == SC_MINIMIZE:
-                user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+                self.minimize()
                 if self.on_minimize_callback:
                     threading.Thread(target=self.on_minimize_callback, daemon=True).start()
                 return 0
             elif cmd == SC_RESTORE:
-                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                self._dirty = True
+                self.restore()
                 if self.on_restore_callback:
                     threading.Thread(target=self.on_restore_callback, daemon=True).start()
                 return 0
 
         if msg == WM_SIZE:
             if wparam == 0:  # SIZE_RESTORED
+                self._user_minimized = False
+                self._visible = True
                 self._dirty = True
+                if self.hwnd and self.always_on_top:
+                    user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
                 if self.on_restore_callback:
                     threading.Thread(target=self.on_restore_callback, daemon=True).start()
             elif wparam == 1:  # SIZE_MINIMIZED
+                self._user_minimized = True
+                self._visible = False
                 if self.on_minimize_callback:
                     threading.Thread(target=self.on_minimize_callback, daemon=True).start()
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -1014,10 +1026,9 @@ class FloatingOverlay:
                         threading.Thread(target=self.settings_handler, args=(menu_screen_x, menu_screen_y), daemon=True).start()
 
                 elif target in ('btn_bar_minimize', 'btn_minimize'):
+                    self.minimize()
                     if self.on_minimize_callback:
                         threading.Thread(target=self.on_minimize_callback, daemon=True).start()
-                    else:
-                        self.minimize()
 
                 elif target in ('btn_bar_close', 'btn_close'):
                     if self.mode == "recording":
@@ -1081,13 +1092,14 @@ class FloatingOverlay:
 
             WS_EX_LAYERED = 0x00080000
             WS_EX_TOPMOST = 0x00000008
-            WS_EX_TOOLWINDOW = 0x00000080
             WS_EX_NOACTIVATE = 0x08000000
+            WS_EX_APPWINDOW = 0x00040000
 
             WS_POPUP = 0x80000000
             WS_SYSMENU = 0x00080000
+            WS_MINIMIZEBOX = 0x00020000
 
-            ex_flags = WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+            ex_flags = WS_EX_LAYERED | WS_EX_APPWINDOW
             if self.always_on_top:
                 ex_flags |= WS_EX_TOPMOST
 
@@ -1095,7 +1107,7 @@ class FloatingOverlay:
                 ex_flags,
                 self._class_name,
                 "Whiscribe",
-                WS_POPUP | WS_SYSMENU,
+                WS_POPUP | WS_SYSMENU | WS_MINIMIZEBOX,
                 self.pos_x, self.pos_y, self.w, self.h,
                 None, None, wc.hInstance, None
             )
@@ -1141,13 +1153,11 @@ class FloatingOverlay:
                 now = time.time()
 
                 # Topmost Keep-Alive: gwarantuje, że widżet nigdy nie zostaje przykryty ani zminimalizowany (poza celową minimalizacją użytkownika)
-                if self.always_on_top and self._visible and self.hwnd and not getattr(self, '_user_minimized', False) and not getattr(self, 'is_menu_open', False):
+                if self.always_on_top and self._visible and self.hwnd and not getattr(self, '_user_minimized', False) and not user32.IsIconic(self.hwnd) and not getattr(self, 'is_menu_open', False):
                     cur_fg = user32.GetForegroundWindow()
                     if cur_fg != last_fg or (now - last_topmost_check > 0.8):
                         last_topmost_check = now
                         last_fg = cur_fg
-                        if user32.IsIconic(self.hwnd) and not getattr(self, '_user_minimized', False):
-                            user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
                         user32.SetWindowPos(
                             self.hwnd, -1, 0, 0, 0, 0,
                             0x0001 | 0x0002 | 0x0010  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
@@ -1664,20 +1674,20 @@ class FloatingOverlay:
             user32.ShowWindow(self.hwnd, 0)
 
     def minimize(self):
-        """Minimalizuje i chowa widżet z ekranu do zasobnika systemowego."""
+        """Minimalizuje widżet do dolnego paska zadań Windows 11."""
         self._user_minimized = True
         self._visible = False
         self._dirty = True
         if self.hwnd:
-            user32.ShowWindow(self.hwnd, 0)  # SW_HIDE
+            user32.ShowWindow(self.hwnd, 6)  # SW_MINIMIZE
 
     def restore(self):
-        """Przywraca okno widżetu z zasobnika na ekran."""
+        """Przywraca okno widżetu z dolnego paska zadań na ekran."""
         self._user_minimized = False
         self._visible = True
         self._dirty = True
         if self.hwnd:
-            user32.ShowWindow(self.hwnd, 8)  # SW_SHOWNA (nie kradnie fokusu z aktywnego okna)
+            user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
             hwnd_insert = -1 if self.always_on_top else -2
             user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
 
