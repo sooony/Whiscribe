@@ -13,10 +13,12 @@ import threading
 import queue
 import time
 import datetime
+import os
 import logging
 from meeting_recorder import MeetingRecorder, MeetingAudioSegment
 from diarizer import AudioToneDiarizer
 from notepad_manager import NotepadManager
+from config import get_app_dir
 
 logger = logging.getLogger("MeetingManager")
 
@@ -26,7 +28,8 @@ class MeetingManager:
         self.config = config
         self.recorder = MeetingRecorder(target_sample_rate=16000)
         self.diarizer = AudioToneDiarizer(sample_rate=16000)
-        output_folder = self.config.get("meetings_folder", "transkrypcje")
+        raw_folder = self.config.get("meetings_folder", "transkrypcje")
+        output_folder = raw_folder if os.path.isabs(raw_folder) else os.path.join(get_app_dir(), raw_folder)
         self.notepad = NotepadManager(output_dir=output_folder)
 
         self.is_active = False

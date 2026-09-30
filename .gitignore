@@ -23,3 +23,8 @@ test pola wpisu.txt
 *.tmp
 test_tray_*.png
 test_navy_icon.png
+
+# PyInstaller & Portable Build
+build/
+dist/
+models/

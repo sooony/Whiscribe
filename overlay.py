@@ -132,6 +132,44 @@ user32.DispatchMessageW.restype = LRESULT
 user32.PostQuitMessage.argtypes = [ctypes.c_int]
 user32.PostQuitMessage.restype = None
 
+user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
+user32.RegisterHotKey.restype = wintypes.BOOL
+user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.UnregisterHotKey.restype = wintypes.BOOL
+user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+user32.SendMessageW.restype = LRESULT
+
+def parse_hotkey_to_win32(hk: str) -> tuple[int, int]:
+    """Konwertuje string skrótu (np. <ctrl>+<alt>+d) na flagi modyfikatorów i Virtual Key Code dla RegisterHotKey."""
+    clean = hk.lower().replace("<", "").replace(">", "").replace(" ", "")
+    parts = clean.split("+")
+    mods = 0x4000  # MOD_NOREPEAT
+    vk = 0
+    for p in parts:
+        if p in ("ctrl", "control"):
+            mods |= 0x0002
+        elif p in ("alt", "menu"):
+            mods |= 0x0001
+        elif p == "shift":
+            mods |= 0x0004
+        elif p in ("win", "windows", "super"):
+            mods |= 0x0008
+        elif len(p) == 1:
+            vk = ord(p.upper())
+        elif p.startswith("f") and p[1:].isdigit():
+            vk = 0x70 + (int(p[1:]) - 1)
+        elif p == "space":
+            vk = 0x20
+        elif p in ("return", "enter"):
+            vk = 0x0D
+        elif p == "tab":
+            vk = 0x09
+        elif p in ("escape", "esc"):
+            vk = 0x1B
+        elif p == "backspace":
+            vk = 0x08
+    return mods, vk
+
 # DPI Awareness
 try:
     user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -577,6 +615,7 @@ class FloatingOverlay:
         self.on_meeting_toggle_callback = None
         self.on_minimize_callback = None
         self.on_restore_callback = None
+        self.on_hotkey_callback = None
         self.settings_handler = None
 
         # Pozycja wyjściowa: wycentrowana na dole ekranu
@@ -620,13 +659,15 @@ class FloatingOverlay:
                     self._start_time = time.time()
             self._dirty = True
 
-    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None):
+    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None):
         self.on_stop_callback = on_stop
         self.on_close_callback = on_close
         self.on_toggle_callback = on_toggle
         self.on_meeting_toggle_callback = on_meeting_toggle
         self.on_minimize_callback = on_minimize
         self.on_restore_callback = on_restore
+        if on_hotkey is not None:
+            self.on_hotkey_callback = on_hotkey
 
     def set_meeting_volume_getter(self, getter):
         self.loopback_volume_getter = getter
@@ -734,6 +775,29 @@ class FloatingOverlay:
         if msg == WM_MOUSEACTIVATE:
             # Kluczowe: kliknięcie w widżet NIE kradnie fokusu z edytora docelowego!
             return MA_NOACTIVATE
+
+        WM_HOTKEY = 0x0312
+        if msg == WM_HOTKEY:
+            hotkey_id = int(wparam)
+            if self.on_hotkey_callback:
+                threading.Thread(target=self.on_hotkey_callback, args=(hotkey_id,), daemon=True).start()
+            return 0
+
+        WM_APP_REGISTER_HOTKEY = 0x8001
+        WM_APP_UNREGISTER_HOTKEY = 0x8002
+
+        if msg == WM_APP_REGISTER_HOTKEY:
+            hotkey_id = int(wparam)
+            mods = (int(lparam) >> 16) & 0xFFFF
+            vk = int(lparam) & 0xFFFF
+            user32.UnregisterHotKey(hwnd, hotkey_id)
+            res = user32.RegisterHotKey(hwnd, hotkey_id, mods, vk)
+            return 1 if res else 0
+
+        if msg == WM_APP_UNREGISTER_HOTKEY:
+            hotkey_id = int(wparam)
+            user32.UnregisterHotKey(hwnd, hotkey_id)
+            return 0
 
         WM_SIZE = 0x0005
         WM_SYSCOMMAND = 0x0112
@@ -1683,6 +1747,21 @@ class FloatingOverlay:
                 try: self.on_theme_changed(self.theme)
                 except Exception: pass
 
+    def register_system_hotkey(self, hotkey_id: int, hk_str: str) -> bool:
+        """Rejestruje globalny skrót w systemie Windows za pomocą Win32 RegisterHotKey w wątku okna."""
+        if not self.hwnd or not user32.IsWindow(self.hwnd):
+            return False
+        mods, vk = parse_hotkey_to_win32(hk_str)
+        if not vk:
+            return False
+        lparam = ((mods & 0xFFFF) << 16) | (vk & 0xFFFF)
+        res = user32.SendMessageW(self.hwnd, 0x8001, hotkey_id, lparam)
+        return bool(res)
+
+    def unregister_system_hotkey(self, hotkey_id: int):
+        if self.hwnd and user32.IsWindow(self.hwnd):
+            user32.SendMessageW(self.hwnd, 0x8002, hotkey_id, 0)
+
     def is_alive(self):
         return self._thread is not None and self._thread.is_alive()
 
@@ -1691,6 +1770,8 @@ class FloatingOverlay:
 
     def close(self):
         self._running = False
+        self.unregister_system_hotkey(101)
+        self.unregister_system_hotkey(102)
         if self.hwnd and user32.IsWindow(self.hwnd):
             user32.PostMessageW(self.hwnd, 0x0010, 0, 0)
         if self._thread and self._thread.is_alive() and threading.current_thread() != self._thread:

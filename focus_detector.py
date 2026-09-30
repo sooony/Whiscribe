@@ -214,10 +214,14 @@ def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
                 return False, f"Pasek tytułowy aplikacji ({c_type})"
             return True, f"Środowisko programistyczne / Czat ({proc_name})"
 
-        # 5g. W zwykłej przeglądarce internetowej (Chrome, Edge, Firefox):
-        # kliknięcie w puste tło, link lub przycisk nie jest polem tekstowym
+        # 5g. W przeglądarkach internetowych (Chrome, Edge, Firefox, Brave):
+        # Większość webowych edytorów tekstu (Google Docs, Notion, ChatGPT, Claude, WordPress, formularze, komentarze)
+        # jest renderowana wewnątrz kontrolek typu PaneControl, GroupControl, CustomControl, DocumentControl lub EditControl.
+        # Blokujemy TYLKO elementy nawigacyjne i systemowe samej przeglądarki (karty, pasek adresu, pasek tytułowy, suwak).
         if proc_name in BROWSER_PROCESSES:
-            return False, f"Przeglądarka internetowa – brak aktywnego pola tekstowego ({c_type})"
+            if c_type in ('ScrollBarControl', 'TitleBarControl', 'HeaderControl', 'MenuControl', 'MenuItemControl', 'TabItemControl', 'ToolBarControl'):
+                return False, f"Element nawigacyjny przeglądarki ({c_type})"
+            return True, f"Przeglądarka internetowa – obszar roboczy strony ({c_type})"
 
         # 5h. Zezwalamy dla normalnych kontrolek aplikacji roboczych (PaneControl, CustomControl itp.)
         return True, f"Aktywne okno robocze ({c_type} / {fg_class})"

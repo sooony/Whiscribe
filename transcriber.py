@@ -1,9 +1,11 @@
+import os
 import re
 import threading
 import numpy as np
 from faster_whisper import WhisperModel
 import httpx
 import logging
+from config import get_app_dir
 
 logger = logging.getLogger("Transcriber")
 
@@ -98,13 +100,31 @@ class Transcriber:
         device = self.config.get("device", "cuda")
         compute_type = self.config.get("compute_type", "float16")
 
-        logger.info(f"Ładowanie modelu Whisper: {model_size} na {device} ({compute_type})...")
+        models_dir = os.path.join(get_app_dir(), "models")
+        os.makedirs(models_dir, exist_ok=True)
+        local_path = os.path.join(models_dir, model_size)
+
+        if os.path.exists(local_path) and os.path.isdir(local_path):
+            target = local_path
+            dl_root = None
+        else:
+            target = model_size
+            # Sprawdź czy model jest już w models/ czy w ~/.cache/huggingface/hub
+            spec_repo = "mobiuslabsgmbh/faster-whisper-large-v3-turbo" if model_size == "turbo" else f"Systran/faster-whisper-{model_size}"
+            hf_hub = os.path.expanduser("~/.cache/huggingface/hub")
+            repo_dir = "models--" + spec_repo.replace("/", "--")
+            if os.path.exists(os.path.join(hf_hub, repo_dir)):
+                dl_root = None
+            else:
+                dl_root = models_dir
+
+        logger.info(f"Ładowanie modelu Whisper: {target} (root: {dl_root}) na {device} ({compute_type})...")
         try:
-            self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+            self.model = WhisperModel(target, device=device, compute_type=compute_type, download_root=dl_root)
             logger.info("Model Whisper załadowany pomyślnie!")
         except Exception as e:
             logger.error(f"Nie udało się załadować na {device}: {e}. Próbuję fallback na CPU...")
-            self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+            self.model = WhisperModel(target, device="cpu", compute_type="int8", download_root=dl_root)
             logger.info("Model Whisper załadowany na CPU.")
 
     def transcribe_stream_chunk(self, audio: np.ndarray) -> tuple[list[tuple[str, float]], str]:

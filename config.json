@@ -26,5 +26,6 @@
   "llm_api_key": "",
   "llm_model": "gemini-2.0-flash",
   "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów.",
-  "show_live_preview": true
+  "show_live_preview": true,
+  "first_run_done": true
 }

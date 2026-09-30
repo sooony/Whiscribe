@@ -221,7 +221,7 @@ from PIL import Image, ImageDraw
 import pystray
 from pynput import keyboard
 
-from config import load_config, save_config, CONFIG_FILE
+from config import load_config, save_config, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION
 from recorder import AudioRecorder
 from transcriber import Transcriber
 from injector import inject_text, sync_text, send_unicode_string, ForwardStreamCommitter
@@ -295,7 +295,7 @@ def is_mouse_down() -> bool:
             return True
     return False
 
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.log")
+LOG_FILE = os.path.join(get_app_dir(), "app.log")
 handlers = [logging.FileHandler(LOG_FILE, encoding='utf-8')]
 if sys.stdout is not None:
     handlers.append(logging.StreamHandler(sys.stdout))
@@ -349,10 +349,103 @@ def format_hotkey(hk: str) -> str:
             formatted.append(p)
     return "+".join(formatted)
 
+class UniversalGlobalHotKeys(keyboard.Listener):
+    """
+    Globalny listener skrótów klawiszowych pynput, który:
+    1. Akceptuje zdarzenia wstrzykiwane (injected=True) – kluczowe dla myszek Logitech MX Master (Logi Options+),
+       oprogramowania myszy gamingowych, stream decków i makr.
+    2. Normalizuje klawisze modyfikatorów (alt_gr, alt_l, alt_r -> alt; ctrl_l, ctrl_r -> ctrl; shift_l, shift_r -> shift).
+    """
+    def __init__(self, hotkeys, *args, **kwargs):
+        self._hotkeys = [
+            keyboard.HotKey(keyboard.HotKey.parse(key), value) for key, value in hotkeys.items()
+        ]
+        super(UniversalGlobalHotKeys, self).__init__(
+            on_press=self._on_press,
+            on_release=self._on_release,
+            *args,
+            **kwargs,
+        )
+
+    def _normalize_key(self, key):
+        if key in (keyboard.Key.alt_l, keyboard.Key.alt_r, keyboard.Key.alt_gr):
+            return keyboard.Key.alt
+        if key in (keyboard.Key.ctrl_l, keyboard.Key.ctrl_r):
+            return keyboard.Key.ctrl
+        if key in (keyboard.Key.shift_l, keyboard.Key.shift_r):
+            return keyboard.Key.shift
+        return self.canonical(key)
+
+    def _on_press(self, key, injected=False):
+        c = self._normalize_key(key)
+        for hotkey in self._hotkeys:
+            hotkey.press(c)
+
+    def _on_release(self, key, injected=False):
+        c = self._normalize_key(key)
+        for hotkey in self._hotkeys:
+            hotkey.release(c)
+
+
+def is_autostart_enabled() -> bool:
+    startup_dir = os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")
+    lnk = os.path.join(startup_dir, "Whiscribe.lnk")
+    return os.path.exists(lnk)
+
+
+def set_autostart(enable: bool) -> bool:
+    startup_dir = os.path.join(os.environ.get("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs\Startup")
+    lnk = os.path.join(startup_dir, "Whiscribe.lnk")
+    if enable:
+        if getattr(sys, 'frozen', False):
+            exe_path = sys.executable
+            work_dir = os.path.dirname(exe_path)
+            ps_cmd = (
+                f'$sh=New-Object -ComObject WScript.Shell; '
+                f'$s=$sh.CreateShortcut(\"{lnk}\"); '
+                f'$s.TargetPath=\"{exe_path}\"; '
+                f'$s.Arguments=\"\"; '
+                f'$s.WorkingDirectory=\"{work_dir}\"; '
+                f'$s.IconLocation=\"{exe_path},0\"; '
+                f'$s.Description=\"Whiscribe v{APP_VERSION} - AI Voice Typing\"; '
+                f'$s.Save()'
+            )
+        else:
+            app_dir = get_app_dir()
+            vbs_path = os.path.join(app_dir, "run_silent.vbs")
+            ico_path = os.path.join(app_dir, "icon.ico")
+            ps_cmd = (
+                f'$sh=New-Object -ComObject WScript.Shell; '
+                f'$s=$sh.CreateShortcut(\"{lnk}\"); '
+                f'$s.TargetPath=\"wscript.exe\"; '
+                f'$s.Arguments=\"`\"{vbs_path}`\"\"; '
+                f'$s.WorkingDirectory=\"{app_dir}\"; '
+                f'$s.IconLocation=\"{ico_path},0\"; '
+                f'$s.Description=\"Whiscribe v{APP_VERSION} - AI Voice Typing\"; '
+                f'$s.Save()'
+            )
+        try:
+            subprocess.run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd], check=True, creationflags=0x08000000)
+            return True
+        except Exception as e:
+            logger.error(f"Błąd włączania autostartu: {e}")
+            return False
+    else:
+        try:
+            if os.path.exists(lnk):
+                os.remove(lnk)
+            return True
+        except Exception as e:
+            logger.error(f"Błąd wyłączania autostartu: {e}")
+            return False
+
+
 class DictationApp:
     def __init__(self):
         self.config = load_config()
         self.recorder = AudioRecorder(sample_rate=16000)
+        self._last_toggle_time = 0.0
+        self._last_meeting_toggle_time = 0.0
         theme = self.config.get("theme", "light")
         self.overlay = FloatingOverlay(theme=theme) if self.config.get("show_overlay", True) else None
         if self.overlay:
@@ -373,7 +466,8 @@ class DictationApp:
                 on_toggle=self.toggle_dictation,
                 on_meeting_toggle=self.toggle_meeting,
                 on_minimize=self.minimize_to_tray,
-                on_restore=self._on_overlay_restored
+                on_restore=self._on_overlay_restored,
+                on_hotkey=self._on_system_hotkey
             )
             self.overlay.set_settings_handler(self._show_settings_menu)
             self.overlay.show()
@@ -538,17 +632,25 @@ class DictationApp:
     restore_from_tray = restore_from_taskbar
 
     def _listen_for_show_event(self):
-        """Nasłuchuje sygnału IPC z kolejnej próby uruchomienia aplikacji i natychmiast przywraca widżet PIL."""
-        EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
-        h_event = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_NAME)
+        """Nasłuchuje sygnałów IPC z kolejnych wywołań aplikacji (np. skrót na pulpicie, przycisk myszy)."""
+        EVENT_SHOW = r"Local\Whiscribe_ShowOverlay_Event"
+        EVENT_TOGGLE = r"Local\Whiscribe_Toggle_Event"
+        h_show = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_SHOW)
+        h_toggle = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_TOGGLE)
         while self._running:
-            res = ctypes.windll.kernel32.WaitForSingleObject(h_event, 500)
-            if res == 0:  # WAIT_OBJECT_0
+            res_t = ctypes.windll.kernel32.WaitForSingleObject(h_toggle, 200)
+            if res_t == 0:
+                logger.info("Odebrano sygnał IPC przełączenia dyktowania (--toggle).")
+                self.toggle_dictation()
+            res_s = ctypes.windll.kernel32.WaitForSingleObject(h_show, 200)
+            if res_s == 0:
                 logger.info("Odebrano sygnał wybudzenia/pokazania widżetu PIL.")
                 self.restore_from_tray()
                 self._play_ready_chime()
-        if h_event:
-            ctypes.windll.kernel32.CloseHandle(h_event)
+        if h_show:
+            ctypes.windll.kernel32.CloseHandle(h_show)
+        if h_toggle:
+            ctypes.windll.kernel32.CloseHandle(h_toggle)
 
     def _play_start_chime(self):
         """Dźwięk rozpoczęcia wpisywania głosowego wg wybranego presetu."""
@@ -836,6 +938,11 @@ class DictationApp:
 
     def toggle_dictation(self):
         """Obsługa naciśnięcia klawisza/przycisku myszy w trybie Toggle."""
+        now = time.time()
+        if now - self._last_toggle_time < 0.35:
+            return
+        self._last_toggle_time = now
+
         if self.state == "idle":
             self.start_recording()
         elif self.state == "recording":
@@ -963,6 +1070,11 @@ class DictationApp:
 
     def toggle_meeting(self):
         """Przełącznik trybu spotkania (z poziomu skrótu Ctrl+Alt+M lub przycisku na widżecie)."""
+        now = time.time()
+        if now - self._last_meeting_toggle_time < 0.35:
+            return
+        self._last_meeting_toggle_time = now
+
         if self.state == "idle":
             self.start_meeting()
         elif self.state == "meeting_recording":
@@ -980,11 +1092,20 @@ class DictationApp:
 
     def open_transcripts_folder(self):
         try:
-            folder = os.path.abspath(self.config.get("meetings_folder", "transkrypcje"))
+            raw_folder = self.config.get("meetings_folder", "transkrypcje")
+            folder = raw_folder if os.path.isabs(raw_folder) else os.path.join(get_app_dir(), raw_folder)
             os.makedirs(folder, exist_ok=True)
             os.startfile(folder)
         except Exception as e:
             logger.error(f"Błąd otwierania folderu transkrypcji: {e}")
+
+    def _on_system_hotkey(self, hotkey_id: int):
+        """Obsługa zdarzenia WM_HOTKEY z natywnego Win32 RegisterHotKey (np. z myszki MX Master / klawiatury)."""
+        logger.info(f"Odebrano natywne zdarzenie Win32 WM_HOTKEY: id={hotkey_id}")
+        if hotkey_id == 101:
+            self.toggle_dictation()
+        elif hotkey_id == 102:
+            self.toggle_meeting()
 
     def setup_hotkey(self):
         try:
@@ -1007,6 +1128,13 @@ class DictationApp:
         formatted_meeting = format_hotkey(raw_meeting)
         logger.info(f"Rejestracja globalnych skrótów: Dyktowanie={formatted}, Spotkanie={formatted_meeting}")
 
+        # 1. Rejestracja w natywnym Win32 RegisterHotKey
+        # Działa na poziomie jądra Windows – przechwytuje zdarzenia fizyczne oraz wysyłane przez Logi Options+ (MX Master)
+        if self.overlay and self.overlay.hwnd:
+            res_d = self.overlay.register_system_hotkey(101, raw_hotkey)
+            res_m = self.overlay.register_system_hotkey(102, raw_meeting)
+            logger.info(f"Win32 RegisterHotKey: Dyktowanie({raw_hotkey})={'Aktywny' if res_d else 'Pominięty/Zajęty'}, Spotkanie({raw_meeting})={'Aktywny' if res_m else 'Pominięty/Zajęty'}")
+
         def _async_toggle_dictation():
             threading.Thread(target=self.toggle_dictation, daemon=True).start()
 
@@ -1018,12 +1146,13 @@ class DictationApp:
             formatted_meeting: _async_toggle_meeting
         }
 
+        # 2. Rejestracja w UniversalGlobalHotKeys (fallback + wsparcie zdarzeń wstrzykiwanych injected=True z myszy)
         try:
-            self.hotkey_listener = keyboard.GlobalHotKeys(hotkey_map)
+            self.hotkey_listener = UniversalGlobalHotKeys(hotkey_map)
             self.hotkey_listener.start()
-            logger.info("Globalne nasłuchiwacze skrótów uruchomione pomyślnie!")
+            logger.info("UniversalGlobalHotKeys uruchomiony pomyślnie (obsługa klawiatury fizycznej oraz myszy MX Master / Logi Options+)!")
         except Exception as e:
-            logger.error(f"Nie udało się zarejestrować skrótów: {e}")
+            logger.error(f"Nie udało się zarejestrować UniversalGlobalHotKeys: {e}")
 
     def toggle_sound_feedback(self):
         self.config["sound_feedback"] = not self.config.get("sound_feedback", True)
@@ -1297,6 +1426,11 @@ class DictationApp:
         save_config(self.config)
         logger.info(f"Zmieniono motyw graficzny na: {new_theme}")
 
+    def toggle_autostart(self):
+        curr = is_autostart_enabled()
+        set_autostart(not curr)
+        logger.info(f"Autostart Windows: {'Wyłączony' if curr else 'Włączony'}")
+
     def run_tray(self):
         self.setup_hotkey()
 
@@ -1362,7 +1496,7 @@ class DictationApp:
             self.toggle_overlay_visibility()
 
         menu = pystray.Menu(
-            pystray.MenuItem("Whiscribe (Whisper AI Voice)", None, enabled=False),
+            pystray.MenuItem(f"Whiscribe v{APP_VERSION} (Whisper AI Voice)", None, enabled=False),
             pystray.MenuItem(f"Dyktowanie: {self.config.get('hotkey', 'Ctrl+Alt+D')}", None, enabled=False),
             pystray.MenuItem(f"Spotkanie: {self.config.get('hotkey_meeting', 'Ctrl+Alt+M')}", None, enabled=False),
             pystray.Menu.SEPARATOR,
@@ -1394,6 +1528,11 @@ class DictationApp:
                 self.toggle_require_text_field,
                 checked=lambda item: self.config.get("require_text_field", True)
             ),
+            pystray.MenuItem(
+                "Uruchamiaj z systemem Windows (Autostart)",
+                lambda icon=None, item=None: self.toggle_autostart(),
+                checked=lambda item: is_autostart_enabled()
+            ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Zakończ Whiscribe", self.exit_app)
         )
@@ -1401,11 +1540,11 @@ class DictationApp:
         self.tray_icon = pystray.Icon(
             "Whiscribe",
             create_tray_icon_image("idle"),
-            "Whiscribe (AI Voice Typing)",
+            f"Whiscribe v{APP_VERSION} (AI Voice Typing)",
             menu
         )
 
-        logger.info("Aplikacja gotowa w zasobniku systemowym (obok zegara).")
+        logger.info(f"Aplikacja Whiscribe v{APP_VERSION} gotowa w zasobniku systemowym (obok zegara).")
         self.tray_icon.run()
 
 if __name__ == "__main__":
@@ -1418,21 +1557,36 @@ if __name__ == "__main__":
         except Exception:
             pass
         try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Whiscribe.VoiceTyping.1.0")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"Whiscribe.VoiceTyping.{APP_VERSION}")
         except Exception:
             pass
+
+        is_toggle_req = "--toggle" in sys.argv
         ERROR_ALREADY_EXISTS = 183
         mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Local\Whiscribe_SingleInstance_Mutex")
         if ctypes.windll.kernel32.GetLastError() == ERROR_ALREADY_EXISTS:
-            # Aplikacja już działa w tle! Wybudzamy i pokazujemy widżet PIL bez blokującego okna modalnego
-            EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
+            if is_toggle_req:
+                EVENT_NAME = r"Local\Whiscribe_Toggle_Event"
+            else:
+                EVENT_NAME = r"Local\Whiscribe_ShowOverlay_Event"
             h_send = ctypes.windll.kernel32.OpenEventW(0x0002, False, EVENT_NAME)  # EVENT_MODIFY_STATE = 0x0002
             if h_send:
                 ctypes.windll.kernel32.SetEvent(h_send)
                 ctypes.windll.kernel32.CloseHandle(h_send)
             sys.exit(0)
 
+        # Kreator pierwszego uruchomienia i automatyczny dobór silnika AI do sprzętu
+        try:
+            from hardware_profiler import show_first_run_wizard_if_needed
+            initial_cfg = load_config()
+            if not show_first_run_wizard_if_needed(initial_cfg):
+                sys.exit(0)
+        except Exception as e:
+            logger.warning(f"Błąd kreatora pierwszego uruchomienia: {e}")
+
         app = DictationApp()
+        if is_toggle_req:
+            threading.Thread(target=app.toggle_dictation, daemon=True).start()
         app.run_tray()
     except Exception as e:
         logger.critical("FATAL UNCAUGHT EXCEPTION in main: %s", e, exc_info=True)

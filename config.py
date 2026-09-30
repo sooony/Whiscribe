@@ -1,7 +1,18 @@
 import json
 import os
+import sys
 
-CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+def get_app_dir() -> str:
+    """Zwraca katalog główny aplikacji (dla środowiska deweloperskiego oraz spakowanej wersji Portable .EXE)."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+APP_NAME = "Whiscribe"
+APP_VERSION = "2.1.0"
+__version__ = APP_VERSION
+
+CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
 
 DEFAULT_CONFIG = {
     "hotkey": "<ctrl>+<alt>+d",
