@@ -33,7 +33,7 @@ NON_EDITABLE_CONTROL_TYPES = {
 
 # Środowiska programistyczne, edytory kodu i czaty (zawsze edytowalne okna robocze)
 IDE_AND_EDITOR_PROCESSES = {
-    'antigravity.exe', 'code.exe', 'cursor.exe', 'devenv.exe',
+    'code.exe', 'cursor.exe', 'devenv.exe',
     'notepad.exe', 'wordpad.exe', 'winword.exe', 'excel.exe',
     'powerpnt.exe', 'slack.exe', 'discord.exe', 'teams.exe',
     'sublime_text.exe', 'pycharm64.exe', 'idea64.exe', 'clion64.exe',
@@ -73,7 +73,7 @@ class GUITHREADINFO(ctypes.Structure):
     ]
 
 def get_proc_name_from_hwnd(hwnd: int) -> str:
-    """Zwraca nazwę procesu (np. antigravity.exe, chrome.exe) dla danego HWND."""
+    """Zwraca nazwę procesu (np. chrome.exe, code.exe) dla danego HWND."""
     if not hwnd:
         return ""
     pid = wintypes.DWORD()
@@ -145,7 +145,7 @@ def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
     # 4. Identyfikacja procesu okna na pierwszym planie
     proc_name = get_proc_name_from_hwnd(hwnd_fg)
 
-    # 5. Sprawdzenie przez Windows UI Automation (dla Chrome, Edge, Notatnika Win11, Antigravity, VS Code, Word itp.)
+    # 5. Sprawdzenie przez Windows UI Automation (dla Chrome, Edge, Notatnika Win11, VS Code, Word itp.)
     try:
         import uiautomation as auto
         el = auto.GetFocusedControl()
@@ -159,7 +159,7 @@ def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
         c_name = el.Name or ""
 
         # 5a. Jawnie zakazane kontrolki interfejsu (drzewa plików, listy, przyciski, paski przewijania itp.)
-        # Odrzucamy je natychmiast, nawet w środowiskach programistycznych (np. kliknięcie w drzewo plików w VS Code/Antigravity)
+        # Odrzucamy je natychmiast, nawet w środowiskach programistycznych (np. kliknięcie w drzewo plików w IDE)
         if c_type in NON_EDITABLE_CONTROL_TYPES:
             return False, f"Kontrolka nieedytowalna ({c_type})"
 
@@ -175,7 +175,7 @@ def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
                 pass
             return True, f"Pole edycyjne ({c_type})"
 
-        # 5c. ComboBoxControl (np. pole Message input w Antigravity / Monaco prompt)
+        # 5c. ComboBoxControl (np. pole wyboru / prompt)
         if c_type == 'ComboBoxControl':
             return True, f"Pole wyboru/wprowadzania ({c_name or c_type})"
 
@@ -206,9 +206,9 @@ def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
         except Exception:
             pass
 
-        # 5f. Środowiska programistyczne i narzędzia robocze (Antigravity, VS Code, Cursor, itp.)
+        # 5f. Środowiska programistyczne i narzędzia robocze (VS Code, Cursor, edytory itp.)
         if proc_name in IDE_AND_EDITOR_PROCESSES:
-            # W Antigravity/VS Code kontrolki to często PaneControl/GroupControl reprezentujące czat lub edytor
+            # W edytorach kontrolki to często PaneControl/GroupControl reprezentujące czat lub edytor
             # Blokujemy tylko jawne przyciski paska tytułowego (zamknij, minimalizuj)
             if c_type in ('ButtonControl', 'TitleBarControl') and ('caption' in c_class.lower() or 'close' in c_name.lower()):
                 return False, f"Pasek tytułowy aplikacji ({c_type})"

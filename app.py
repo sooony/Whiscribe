@@ -541,7 +541,7 @@ class DictationApp:
         with self._type_lock:
             cur_fg = user32.GetForegroundWindow()
 
-            # 1. Okno docelowe jest aktywne na pierwszym planie (np. Antigravity) LUB trwa finalizacja (state == "processing")
+            # 1. Okno docelowe jest aktywne na pierwszym planie (np. edytor tekstu, IDE) LUB trwa finalizacja (state == "processing")
             if (hasattr(self, 'target_hwnd') and self.target_hwnd and cur_fg == self.target_hwnd) or self.state == "processing":
                 if self.buffered_untyped_text:
                     full_chunk = self.buffered_untyped_text + chunk

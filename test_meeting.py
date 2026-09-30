@@ -1,6 +1,6 @@
 """
 test_meeting.py - Kompleksowy zestaw testów jednostkowych i integracyjnych
-dla modułu transkrypcji spotkań (Agent 3: QA & Audyt Bezpieczeństwa).
+dla modułu transkrypcji spotkań.
 
 Weryfikuje:
 1. Test analizy tonu głosu i separacji mówców (AudioToneDiarizer).
