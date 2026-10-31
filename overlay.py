@@ -674,9 +674,9 @@ class FloatingOverlay:
 
         # Przyciski "Stream" i "Korekta" (sam napis; włączony = podświetlone tło)
         self.chip_font_px = 11
-        self.chip_h = 16
-        self.chip_pad = 8
-        self.chip_min_ai_w = 58
+        self.chip_h = 18
+        self.chip_pad = 9
+        self.chip_min_ai_w = 62
         self.chip_gap = 6
         self.stream_realtime = False
         self.on_stream_toggle_callback = None
@@ -686,7 +686,7 @@ class FloatingOverlay:
 
         # Karta widżetu
         self.cw = max(140, int(math.ceil(sum(chip_ws) + self.chip_gap + 16)))
-        self.ch = 134
+        self.ch = 140
         self.card_r = 14
 
         # Dymek powiadomień (błąd / info) nad kartą, tej samej szerokości
@@ -727,19 +727,21 @@ class FloatingOverlay:
         self.min_cx = self.bar_min_cx
         self.min_cy = self.bar_min_cy
 
-        self.chips_cy = self.my + 17
+        self.chips_cy = self.my + 18
         self._layout_chips(chip_ws)
 
         # Główny przycisk: mikrofon (dyktowanie) albo ludziki (transkrypcja rozmowy) – wg trybu z menu
         self.mic_cx = self.cx0 + self.cw / 2
-        self.mic_cy = self.my + 55
+        self.mic_cy = self.my + 58
         self.mic_rad = 20
         self.widget_mode = "dictation"
         self._session_kind = "dictation"
 
-        # Matryca amplitudy leży pod głównym przyciskiem (wspólny środek); niżej linia statusu
+        # Fala amplitudy leży pod głównym przyciskiem (wspólny środek) i wystaje po bokach
         self.wave_cy = self.mic_cy
-        self.status_cy = self.my + 94
+        self.wave_span = 22
+        self.wave_max_h = 20
+        self.status_cy = self.my + 100
         self._chrome_cache = None
 
         # Dymek powiadomień / ostrzeżeń
@@ -1434,7 +1436,7 @@ class FloatingOverlay:
         d = ImageDraw.Draw(img)
 
         # --- Nagłówek: nazwa oraz ··· — × ---
-        text(self.cx0 + 30, self.bar_close_cy, "Whiscribe", cfg['text'], FONT_SEMI_PATH, 10)
+        text(self.cx0 + 30, self.bar_close_cy, "Whiscribe", cfg['text'], FONT_SEMI_PATH, 11)
 
         bar_cy = self.bar_close_cy * S
         bar_icon_col = cfg.get('bar_btn_col', (65, 85, 120, 255) if not is_dark else (180, 195, 220, 255))
@@ -1484,7 +1486,7 @@ class FloatingOverlay:
                 fill = cfg.get('toggle_hover_bg') if hover else None
                 txt_col = cfg['text'] if hover else chip_off_col
             if fill is not None:
-                d.rounded_rectangle([x1, y1, x2, y2], radius=int(6 * S), fill=fill)
+                d.rounded_rectangle([x1, y1, x2, y2], radius=int(7 * S), fill=fill)
             text(x + w / 2, y + h / 2, label, txt_col, FONT_REG_PATH, self.chip_font_px, anchor="mm")
 
         draw_chip(self.stream_btn_x, self.stream_btn_y, self.stream_btn_w, self.stream_btn_h, "Stream",
@@ -1507,49 +1509,53 @@ class FloatingOverlay:
         # (to ono sprawiało, że fala zawsze była pełna). Tryb spotkania bez zmian.
         vol_boost = self._smooth_vol if self.mode == "recording" else min(1.0, self._smooth_vol * 1.84)
 
-        # --- Amplituda: matryca 31 x 7 kropek 2x2 px pod głównym przyciskiem (widać ją po bokach).
-        # Widać ją tylko przy mowie: w spoczynku i w ciszy nie ma żadnych kropek.
-        # Kropki zapalają się od środka rzędu, najwyżej przy przycisku ---
+        # --- Amplituda: płynna fala z gradientem po obu stronach głównego przycisku (pod nim).
+        # Widać ją tylko przy mowie: w spoczynku i w ciszy nie ma nic. Najmocniejsza przy przycisku,
+        # w pionie najjaśniejsza na środku; głośniejsza mowa = wyższa i intensywniejsza ---
         if self.mode == "recording":
-            bar_color = cfg['danger']
+            wave_base = cfg['danger']
         elif self.mode == "transcribing":
-            bar_color = blue
+            wave_base = blue
         else:
-            bar_color = cfg['wave']
-        live = self.mode in ("recording", "transcribing")
-        speaking = live and vol_boost >= 0.03
+            wave_base = cfg['wave']
+        # Na ciemnych motywach jaśniejszy odcień koloru stanu; na jasnych pełny kolor, żeby nie zginął na bieli
+        wave_col = wave_base if is_light else _mix(wave_base, (255, 255, 255), 0.32)
+        speaking = self.mode in ("recording", "transcribing") and vol_boost >= 0.03
 
-        cols, rows, mid = 31, 7, 3
-        dot, col_gap, row_gap = 2, 2, 1
-        mtx_w = cols * dot + (cols - 1) * col_gap
-        mtx_h = rows * dot + (rows - 1) * row_gap
-        mtx_x = int(round(self.cx0 + (self.cw - mtx_w) / 2.0))
-        mtx_y = int(round(self.wave_cy - mtx_h / 2.0))
-        layer = Image.new('RGBA', (mtx_w * S, mtx_h * S), (0, 0, 0, 0))
-        ld = ImageDraw.Draw(layer)
-        base_a = bar_color[3] / 255.0
-        half_w = mtx_w / 2.0
-        for i in range(cols if speaking else 0):
-            off = abs(i * (dot + col_gap) + dot / 2.0 - half_w)
-            if off < self.mic_rad + 2:
-                continue  # zasłonięte przyciskiem
-            lo, hi = MATRIX_PROFILE[i % len(MATRIX_PROFILE)]
-            env = 1.0 - 0.6 * (off - self.mic_rad) / (half_w - self.mic_rad)
-            mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + i * 0.72) + 0.15 * math.sin(t_now * 12.0 - i * 0.38)
-            lit = max(0, min(mid, int(round(mid * vol_boost * env * ((hi - lo) / 22.0) * mod * 1.7))))
-            for k in range(rows):
-                dd = abs(k - mid)
-                if dd > lit:
-                    continue  # zgaszona kropka = nic
-                a = 1.0 - 0.17 * dd
-                if dd == lit and dd > 0:
-                    a *= 0.55 + 0.45 * (0.5 + 0.5 * math.sin(t_now * 2.0 * math.pi / (1.8 + (i % 5) * 0.3) + i * 0.9))
-                xx = i * (dot + col_gap) * S
-                yy = k * (dot + row_gap) * S
-                ld.rounded_rectangle([xx, yy, xx + dot * S - 1, yy + dot * S - 1], radius=S,
-                                     fill=bar_color[:3] + (int(255 * base_a * a),))
         if speaking:
-            img.alpha_composite(layer, (mtx_x * S, mtx_y * S))
+            inner = self.mic_rad + 1.0           # od krawędzi przycisku
+            span = self.wave_span                # tyle px na zewnątrz po każdej stronie
+            max_hh = self.wave_max_h / 2.0       # połowa wysokości przy pełnej głośności
+            lw = int(2 * (inner + span) * S)
+            lh = int((self.wave_max_h + 4) * S)
+            xs = (np.arange(lw) + 0.5) / S - lw / (2.0 * S)
+            ax = np.abs(xs)
+            tx = np.clip((ax - inner) / span, 0.0, 1.0)
+
+            n_ctrl = 9
+            ctrl = np.zeros((2, n_ctrl))
+            for sd in range(2):
+                for c in range(n_ctrl):
+                    lo, hi = MATRIX_PROFILE[(c * 2 + sd * 7) % len(MATRIX_PROFILE)]
+                    mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + c * 0.72 + sd * 1.3) + 0.15 * math.sin(t_now * 12.0 - c * 0.38)
+                    ctrl[sd, c] = (hi - lo) / 22.0 * mod
+            pos = tx * (n_ctrl - 1)
+            amp = np.where(xs < 0, np.interp(pos, np.arange(n_ctrl), ctrl[0]), np.interp(pos, np.arange(n_ctrl), ctrl[1]))
+            env = 1.0 - 0.6 * tx
+            hh = np.clip(vol_boost * 2.2 * amp * env, 0.0, 1.0) * max_hh       # połowa wysokości w kolumnie
+            hh = np.where(ax >= inner, np.maximum(hh, 0.6), 0.0)
+
+            ys = (np.arange(lh) + 0.5) / S - lh / (2.0 * S)
+            vert = np.clip(1.0 - np.abs(ys)[:, None] / np.maximum(hh, 0.01)[None, :], 0.0, 1.0) ** 0.75
+            fade = (1.0 - tx) ** 0.7                                            # mocniej przy przycisku
+            strength = 0.55 + 0.45 * min(1.0, vol_boost * 1.4)                  # mocniej przy głośnej mowie
+            alpha = vert * (0.45 + 0.55 * fade)[None, :] * strength * (wave_col[3] / 255.0)
+
+            arr = np.zeros((lh, lw, 4), dtype=np.uint8)
+            arr[:, :, 0], arr[:, :, 1], arr[:, :, 2] = wave_col[0], wave_col[1], wave_col[2]
+            arr[:, :, 3] = (alpha * 255.0).astype(np.uint8)
+            wave_img = Image.fromarray(arr, 'RGBA').filter(ImageFilter.GaussianBlur(radius=0.7 * S))
+            img.alpha_composite(wave_img, (int(self.mic_cx * S) - lw // 2, int(self.wave_cy * S) - lh // 2))
             d = ImageDraw.Draw(img)
 
         # --- Główny przycisk ---
@@ -1634,17 +1640,17 @@ class FloatingOverlay:
             status_col = cfg['muted']
 
         timer_str = f"{timer_s//60:02d}:{timer_s%60:02d}"
-        f_lbl = font(FONT_SEMI_PATH, 9)
-        f_tim = font(FONT_SEMI_PATH, 9)
+        f_lbl = font(FONT_SEMI_PATH, 10)
+        f_tim = font(FONT_SEMI_PATH, 10)
         lbl_w = f_lbl.getlength(status_lbl) if f_lbl else len(status_lbl) * 5
         tim_w = f_tim.getlength(timer_str) if f_tim else len(timer_str) * 5
-        dot_d = 4
+        dot_d = 5
         total_line_w = dot_d + 4 + lbl_w + 6 + tim_w
         line_x = self.cx0 + self.cw / 2 - total_line_w / 2.0
 
         d.ellipse([line_x * S, (self.status_cy - dot_d / 2) * S, (line_x + dot_d) * S, (self.status_cy + dot_d / 2) * S], fill=dot_col)
-        text(line_x + dot_d + 4, self.status_cy, status_lbl, status_col, FONT_SEMI_PATH, 9)
-        text(line_x + dot_d + 4 + lbl_w + 6, self.status_cy, timer_str, _mix(cfg['text'], panel, 0.85), FONT_SEMI_PATH, 9)
+        text(line_x + dot_d + 4, self.status_cy, status_lbl, status_col, FONT_SEMI_PATH, 10)
+        text(line_x + dot_d + 4 + lbl_w + 6, self.status_cy, timer_str, _mix(cfg['text'], panel, 0.85), FONT_SEMI_PATH, 10)
 
         # ========================================================
         # 3. ZMNIEJSZENIE, OSTRY TEKST I AKTUALIZACJA OKNA WARSTWOWEGO
