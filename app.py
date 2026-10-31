@@ -497,6 +497,7 @@ class DictationApp:
             self.overlay.show_live_preview = self.config.get("show_live_preview", False)
             self.overlay.stream_realtime = self.config.get("stream_realtime", False)
             self.overlay.ai_enabled = self.config.get("use_llm", False)
+            self.overlay.set_widget_mode(self.config.get("widget_mode", "dictation"))
         
         logger.info("Inicjalizacja modułu rozpoznawania mowy Whisper...")
         self.transcriber = Transcriber(self.config)
@@ -1421,6 +1422,15 @@ class DictationApp:
         save_config(self.config)
         logger.info(f"Wymóg pola tekstowego: {'Włączony' if self.config['require_text_field'] else 'Wyłączony'}")
 
+    def set_widget_mode(self, mode: str):
+        """Co robi główny przycisk widżetu: dyktowanie do tekstu albo transkrypcja rozmowy."""
+        mode = "meeting" if mode == "meeting" else "dictation"
+        self.config["widget_mode"] = mode
+        save_config(self.config)
+        if self.overlay:
+            self.overlay.set_widget_mode(mode)
+        logger.info(f"Tryb przycisku widżetu: {'transkrypcja rozmowy' if mode == 'meeting' else 'dyktowanie do tekstu'}")
+
     def toggle_streaming_mode(self):
         new_val = not self.config.get("stream_realtime", False)
         self.config["stream_realtime"] = new_val
@@ -1524,6 +1534,15 @@ class DictationApp:
             MF_POPUP = 0x0010
             MF_CHECKED = 0x0008
             MF_UNCHECKED = 0x0000
+
+            # 0. Tryb głównego przycisku widżetu
+            MF_RADIOCHECK = 0x0200
+            cur_mode = self.config.get("widget_mode", "dictation")
+            for m_key, m_label, m_id in (("dictation", "Dyktowanie do tekstu (mikrofon)", 111),
+                                         ("meeting", "Transkrypcja rozmowy (spotkanie)", 112)):
+                chk = (MF_CHECKED | MF_RADIOCHECK) if cur_mode == m_key else MF_UNCHECKED
+                user32.AppendMenuW(h_menu, MF_STRING | chk, m_id, m_label)
+            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
             # 1. Podmenu: Styl widżetu
             cur_theme = self.config.get("theme", "light")
@@ -1648,9 +1667,7 @@ class DictationApp:
 
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
-            # 5. Spotkania
-            chk_meeting = MF_CHECKED if self.state == "meeting_recording" else MF_UNCHECKED
-            user32.AppendMenuW(h_menu, MF_STRING | chk_meeting, 104, "Transkrypcja spotkań")
+            # 5. Spotkania (start/stop głównym przyciskiem w trybie "Transkrypcja rozmowy" albo skrótem)
             user32.AppendMenuW(h_menu, MF_STRING, 105, "Otwórz folder transkrypcji spotkań")
 
             # 6. Zarządzanie oknem / Aplikacją
@@ -1699,6 +1716,10 @@ class DictationApp:
                 self.toggle_always_on_top()
             elif cmd == 104:
                 self.toggle_meeting()
+            elif cmd == 111:
+                self.set_widget_mode("dictation")
+            elif cmd == 112:
+                self.set_widget_mode("meeting")
             elif cmd == 105:
                 self.open_transcripts_folder()
             elif cmd == 106:

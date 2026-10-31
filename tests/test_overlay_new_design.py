@@ -7,8 +7,11 @@ class TestOverlayNewDesign(unittest.TestCase):
         ov = FloatingOverlay(theme='dark')
         self.assertTrue(ov.is_alive())
         self.assertIsNotNone(ov.hwnd)
-        self.assertEqual(ov.mw, 250)
-        self.assertEqual(ov.mh, 90)
+        # Pionowa karta: nagłówek + pastylki + jeden główny przycisk (bez osobnego przycisku spotkania)
+        self.assertEqual(ov.cw, 250)
+        self.assertEqual(ov.mh, ov.ch - ov.bh)
+        self.assertLessEqual(ov.cy0 + ov.ch, ov.h)
+        self.assertEqual(ov._get_target(ov.mic_cx, ov.mic_cy), 'btn_mic')
 
         # Domyślnie streaming jest wyłączony
         self.assertFalse(ov.stream_realtime)
@@ -84,6 +87,39 @@ class TestOverlayNewDesign(unittest.TestCase):
         self.assertEqual(len(toggle_called), 2)
 
         # Renderuj klatkę z wyłączonym streamingiem
+        ov._render_frame(time.time())
+
+        ov.close()
+        time.sleep(0.1)
+
+    def test_main_button_follows_widget_mode(self):
+        """Główny przycisk startuje dyktowanie albo transkrypcję rozmowy zależnie od trybu z menu."""
+        ov = FloatingOverlay(theme='dark')
+        calls = []
+        ov.set_callbacks(on_toggle=lambda: calls.append("dictation"),
+                         on_meeting_toggle=lambda: calls.append("meeting"),
+                         on_stop=lambda: calls.append("stop"))
+        lparam = (int(ov.mic_cy) << 16) | int(ov.mic_cx)
+
+        def click():
+            ov._wnd_proc(ov.hwnd, 0x0201, 0, lparam)
+            ov._wnd_proc(ov.hwnd, 0x0202, 0, lparam)
+            time.sleep(0.15)
+
+        ov.show_idle()
+        click()
+        ov.set_widget_mode("meeting")
+        click()
+        ov.show_meeting_recording()
+        click()
+        ov.show_recording()
+        click()
+        self.assertEqual(calls, ["dictation", "meeting", "meeting", "stop"])
+
+        # Tryb wpływa też na ikonę w spoczynku (kontrola, że klatka się renderuje w obu trybach)
+        ov.show_idle()
+        ov._render_frame(time.time())
+        ov.set_widget_mode("dictation")
         ov._render_frame(time.time())
 
         ov.close()

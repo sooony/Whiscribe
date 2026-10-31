@@ -517,6 +517,13 @@ def get_people_image(sz, color=(255, 255, 255, 255)):
     _ICON_CACHE[key] = out
     return out
 
+def _glow_sprite(rad, color, blur):
+    """Rozmyta elipsa o promieniu rad (px) na przezroczystym kwadracie; zwraca (obraz, połowa boku)."""
+    half = int(rad + blur * 3 + 2)
+    sp = Image.new('RGBA', (half * 2, half * 2), (0, 0, 0, 0))
+    ImageDraw.Draw(sp).ellipse([half - rad, half - rad, half + rad, half + rad], fill=color)
+    return sp.filter(ImageFilter.GaussianBlur(radius=blur)), half
+
 def draw_svg_mic(target, cx, cy, sz, color=(255, 255, 255, 255)):
     """Rysuje ikone mikrofonu."""
     img_dest = target if isinstance(target, Image.Image) else getattr(target, '_image', None)
@@ -637,79 +644,14 @@ class FloatingOverlay:
         self.volume_getter = lambda: 0.0
         self.loopback_volume_getter = lambda: 0.0
 
-        # Wymiary całego okna warstwowego z bezpiecznym buforem dla miękkich cieni (brak uciętych krawędzi)
+        # Szerokość okna warstwowego z zapasem na miękki cień (brak uciętych krawędzi)
         self.w = 320
-        self.h = 280
 
-        # Moduł dolny (Voice Module): 250x90 px
-        self.mw = 250
-        self.mh = 90
-        self.mx = (self.w - self.mw) // 2       # 35 px margines z lewej i prawej
-        self.my = self.h - self.mh - 20          # 20 px margines od dołu (y=170)
-        self.mod_r = 20
-
-        # Belka górna (Window Bar): 250x27 px
-        self.bw = 250
-        self.bh = 27
-        self.bx = self.mx                       # 35 px (y=143 do 170)
-        self.by = self.my - self.bh             # 143 px
-        self.bar_r = 15
-
-        # Przyciski belki górnej (.window-bar):
-        # 1. Przełącznik trybu streamingu: Etykieta "Stream" + pastylka [ ON ] / [ OFF ]
-        self.stream_lbl_x = self.bx + 7
-        self.stream_lbl_y = self.by + 13.5
-        self.stream_pill_w = 28
-        self.stream_pill_h = 17
-        self.stream_total_w = 65
-
-        self.stream_btn_x = self.stream_lbl_x
-        self.stream_btn_y = self.by + 4
-        self.stream_btn_w = self.stream_total_w
-        self.stream_btn_h = 19
-        self.stream_realtime = False
-        self.on_stream_toggle_callback = None
-
-        # 2. Przełącznik korekty AI: Etykieta "Korekta AI" + pastylka [ ON ] / [ OFF ]
-        self.ai_lbl_x = self.stream_btn_x + self.stream_btn_w + 7
-        self.ai_lbl_y = self.by + 13.5
-        self.ai_pill_w = 28
-        self.ai_pill_h = 17
-        self.ai_total_w = 82
-
-        self.ai_btn_x = self.ai_lbl_x
-        self.ai_btn_y = self.by + 4
-        self.ai_btn_w = self.ai_total_w
-        self.ai_btn_h = 19
-        self.ai_enabled = False
-        self.on_ai_toggle_callback = None
-
-        # Zachowanie kompatybilności dla dawnych odwołań
-        self.bar_stream_cx = self.stream_btn_x + self.stream_btn_w // 2
-        self.bar_stream_cy = self.by + 13.5
-        self.tgl_btn_x = self.stream_btn_x
-        self.tgl_btn_y = self.stream_btn_y
-        self.tgl_btn_w = self.stream_btn_w
-        self.tgl_btn_h = self.stream_btn_h
-
-        self.bar_close_cx = self.bx + self.bw - 16   # 269
-        self.bar_close_cy = self.by + 13.5           # 156.5
-        self.bar_min_cx = self.bar_close_cx - 22     # 247
-        self.bar_min_cy = self.by + 13.5             # 156.5
-        self.bar_menu_cx = self.bar_min_cx - 22      # 225
-        self.bar_menu_cy = self.by + 13.5            # 156.5
-
-        # Zachowanie kompatybilności dla dawnych odwołań
-        self.close_cx = self.bar_close_cx
-        self.close_cy = self.bar_close_cy
-        self.min_cx = self.bar_min_cx
-        self.min_cy = self.bar_min_cy
-
-        # Panel górny (Transkrypcja z przewijaniem): 250x110 px
+        # Dymek powiadomień (błąd / info): 250x110 px nad kartą
         self.pw = 250
         self.ph = 110
         self.px = (self.w - self.pw) // 2            # 35 px margines z lewej i prawej
-        self.py = self.by - self.ph - 8              # 8 px odstęp nad belką okna (y=25)
+        self.py = 14
         self.panel_r = 16
         self.panel_open = False                      # Domyślnie wyłączona transkrypcja!
         self.show_live_preview = False
@@ -722,21 +664,66 @@ class FloatingOverlay:
         self._total_lines_count = 0
         self._max_visible_lines = 4
 
+        # Karta widżetu: 250x276 px pod dymkiem
+        self.cw = 250
+        self.ch = 276
+        self.cx0 = (self.w - self.cw) // 2
+        self.cy0 = self.py + self.ph + 10
+        self.card_r = 18
+        self.h = self.cy0 + self.ch + 22
+
+        # Nagłówek (logo, nazwa, ··· — ×); menu kotwiczy się do jego krawędzi
+        self.bw = self.cw
+        self.bh = 42
+        self.bx = self.cx0
+        self.by = self.cy0
+
+        # Reszta karty: przełączniki, przycisk, fala i status
+        self.mw = self.cw
+        self.mh = self.ch - self.bh
+        self.mx = self.cx0
+        self.my = self.cy0 + self.bh
+
+        self.bar_close_cx = self.bx + self.bw - 20
+        self.bar_close_cy = self.by + self.bh / 2
+        self.bar_min_cx = self.bar_close_cx - 24
+        self.bar_min_cy = self.bar_close_cy
+        self.bar_menu_cx = self.bar_min_cx - 24
+        self.bar_menu_cy = self.bar_close_cy
+
+        # Zachowanie kompatybilności dla dawnych odwołań
+        self.close_cx = self.bar_close_cx
+        self.close_cy = self.bar_close_cy
+        self.min_cx = self.bar_min_cx
+        self.min_cy = self.bar_min_cy
+
+        # Pastylki "Stream" i "Korekta AI" pod nagłówkiem
+        self.chips_cy = self.my + 22
+        self.chip_h = 26
+        self.chip_pill_h = 18
+        self.chips_divider_y = self.my + 44
+        self.stream_realtime = False
+        self.on_stream_toggle_callback = None
+        self.ai_enabled = False
+        self.on_ai_toggle_callback = None
+        self._layout_chips()
+
         # Uchwyt do przeciągania
-        self.handle_w = 29
-        self.handle_h = 3
+        self.handle_w = 34
+        self.handle_h = 4
         self.handle_x = self.mx + (self.mw - self.handle_w) / 2
-        self.handle_y = self.my + 6.0
+        self.handle_y = self.my + 54
 
-        # Lewy przycisk mikrofonu (Dyktowanie)
-        self.mic_cx = self.mx + 42
-        self.mic_cy = self.my + 47
-        self.mic_rad = 24
+        # Główny przycisk: mikrofon (dyktowanie) albo ludziki (transkrypcja rozmowy) – wg trybu z menu
+        self.mic_cx = self.cx0 + self.cw / 2
+        self.mic_cy = self.my + 106
+        self.mic_rad = 40
+        self.widget_mode = "dictation"
+        self._session_kind = "dictation"
 
-        # Prawy przycisk transkrypcji (Spotkanie)
-        self.meet_cx = self.mx + self.mw - 42
-        self.meet_cy = self.my + 47
-        self.meet_rad = 24
+        self.wave_cy = self.my + 178
+        self.status_cy = self.my + 212
+        self._chrome_cache = None
 
         # Dymek powiadomień / ostrzeżeń
         self._balloon_type = None  # None, "error", "info"
@@ -830,6 +817,38 @@ class FloatingOverlay:
         self._thread.start()
         self._ready_event.wait(timeout=3.0)
 
+    def _layout_chips(self):
+        """Wylicza położenie pastylek "Stream" i "Korekta AI" w jednostkach okna."""
+        fnt = get_cached_font(FONT_SEMI_PATH, 18) or get_cached_font(FONT_BOLD_PATH, 18)
+        probe = ImageDraw.Draw(Image.new('RGBA', (4, 4)))
+
+        def text_w(txt):
+            if fnt is None:
+                return len(txt) * 5.5
+            b = probe.textbbox((0, 0), txt, font=fnt)
+            return (b[2] - b[0]) / 2.0
+
+        self.chip_pad_l = 11
+        self.chip_pad_r = 4
+        self.chip_lbl_gap = 7
+        self.chip_pill_w = max(text_w("OFF"), text_w("ON")) + 13
+        sw = self.chip_pad_l + text_w("Stream") + self.chip_lbl_gap + self.chip_pill_w + self.chip_pad_r
+        aw = self.chip_pad_l + text_w("Korekta AI") + self.chip_lbl_gap + self.chip_pill_w + self.chip_pad_r
+        gap = 8
+        x0 = self.cx0 + (self.cw - (sw + gap + aw)) / 2.0
+        y0 = self.chips_cy - self.chip_h / 2.0
+
+        self.stream_btn_x, self.stream_btn_y, self.stream_btn_w, self.stream_btn_h = x0, y0, sw, self.chip_h
+        self.ai_btn_x, self.ai_btn_y, self.ai_btn_w, self.ai_btn_h = x0 + sw + gap, y0, aw, self.chip_h
+
+        # Zachowanie kompatybilności dla dawnych odwołań
+        self.bar_stream_cx = self.stream_btn_x + self.stream_btn_w / 2
+        self.bar_stream_cy = self.chips_cy
+        self.tgl_btn_x = self.stream_btn_x
+        self.tgl_btn_y = self.stream_btn_y
+        self.tgl_btn_w = self.stream_btn_w
+        self.tgl_btn_h = self.stream_btn_h
+
     def _is_inside_module(self, x, y):
         return (self.mx <= x <= self.mx + self.mw) and (self.my <= y <= self.my + self.mh)
 
@@ -853,46 +872,31 @@ class FloatingOverlay:
             if self._is_inside_panel(x, y):
                 return 'balloon_body'
 
-        # 2. Sprawdź kontrolki na belce okna (.window-bar)
+        # 2. Nagłówek: ··· — ×
         if self._is_inside_bar(x, y):
-            # Przycisk Przełączania Streamingu ("Stream ON" / "Stream OFF")
-            if (self.stream_btn_x <= x <= self.stream_btn_x + self.stream_btn_w) and (self.by <= y <= self.by + self.bh):
-                return 'btn_toggle_stream'
-
-            # Przycisk Przełączania Korekty AI ("Korekta ON" / "Korekta OFF")
-            if (self.ai_btn_x <= x <= self.ai_btn_x + self.ai_btn_w) and (self.by <= y <= self.by + self.bh):
-                return 'btn_toggle_ai'
-
-            # Przycisk Zamknij
-            if abs(x - self.bar_close_cx) <= 12 and (self.by <= y <= self.by + self.bh):
+            if abs(x - self.bar_close_cx) <= 12:
                 return 'btn_bar_close'
-
-            # Przycisk Minimalizuj
-            if abs(x - self.bar_min_cx) <= 12 and (self.by <= y <= self.by + self.bh):
+            if abs(x - self.bar_min_cx) <= 12:
                 return 'btn_bar_minimize'
-
-            # Przycisk Menu
-            if abs(x - self.bar_menu_cx) <= 12 and (self.by <= y <= self.by + self.bh):
+            if abs(x - self.bar_menu_cx) <= 12:
                 return 'btn_bar_menu'
-
-            # Przeciąganie za belkę okna
             return 'widget_drag'
 
-        # 3. Sprawdź kontrolki w module dolnym (.voice-module)
         if not self._is_inside_module(x, y):
             return None
 
-        # Mikrofon (lewy)
+        # 3. Pastylki "Stream" i "Korekta AI"
+        if (self.stream_btn_x <= x <= self.stream_btn_x + self.stream_btn_w) and (self.stream_btn_y <= y <= self.stream_btn_y + self.stream_btn_h):
+            return 'btn_toggle_stream'
+        if (self.ai_btn_x <= x <= self.ai_btn_x + self.ai_btn_w) and (self.ai_btn_y <= y <= self.ai_btn_y + self.ai_btn_h):
+            return 'btn_toggle_ai'
+
+        # 4. Główny przycisk
         d_mic = (x - self.mic_cx)**2 + (y - self.mic_cy)**2
         if d_mic <= (self.mic_rad + 3)**2:
             return 'btn_mic'
 
-        # Transkrypcja / Spotkanie (prawy)
-        d_meet = (x - self.meet_cx)**2 + (y - self.meet_cy)**2
-        if d_meet <= (self.meet_rad + 3)**2:
-            return 'btn_meeting'
-
-        # Przeciąganie modułu
+        # Przeciąganie za resztę karty
         return 'widget_drag'
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
@@ -1040,7 +1044,7 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_toggle_ai', 'btn_close', 'btn_minimize', 'btn_rozumiem'):
+            if self._hover_target in ('btn_mic', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_toggle_ai', 'btn_close', 'btn_minimize', 'btn_rozumiem'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
             elif self._hover_target in ('widget_drag', 'panel_content', 'balloon_body'):
@@ -1095,16 +1099,10 @@ class FloatingOverlay:
                         _safe_dispatch(self.on_stop_callback)
                     elif self.mode == "transcribing":
                         _safe_dispatch(self.on_meeting_toggle_callback)
+                    elif self.mode == "idle" and self.widget_mode == "meeting":
+                        _safe_dispatch(self.on_meeting_toggle_callback)
                     else:
                         _safe_dispatch(self.on_toggle_callback)
-
-                elif target == 'btn_meeting':
-                    if self.mode == "transcribing":
-                        _safe_dispatch(self.on_meeting_toggle_callback)
-                    elif self.mode == "recording":
-                        _safe_dispatch(self.on_stop_callback)
-                    else:
-                        _safe_dispatch(self.on_meeting_toggle_callback)
 
                 elif target == 'btn_toggle_stream':
                     self.stream_realtime = not self.stream_realtime
@@ -1306,20 +1304,78 @@ class FloatingOverlay:
                 try: user32.UnregisterClassW(self._class_name, kernel32.GetModuleHandleW(None))
                 except Exception: pass
 
+    def _render_chrome(self, cfg, scale):
+        """Rysuje niezmienną część karty (liczona raz na motyw, bo rozmycie cienia jest kosztowne)."""
+        W, H = self.w * scale, self.h * scale
+        img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+
+        x1 = int(self.cx0 * scale)
+        y1 = int(self.cy0 * scale)
+        x2 = int((self.cx0 + self.cw) * scale)
+        y2 = int((self.cy0 + self.ch) * scale)
+        r = int(self.card_r * scale)
+
+        # Cień karty
+        sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        off = int(3 * scale)
+        ImageDraw.Draw(sh).rounded_rectangle([x1, y1 + off, x2, y2 + off], radius=r, fill=(0, 0, 0, int(cfg.get('shadow_alpha', 30) * 1.4)))
+        img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(radius=int(7 * scale))))
+
+        d = ImageDraw.Draw(img)
+        d.rounded_rectangle([x1, y1, x2, y2], radius=r, fill=cfg['panel_bg'])
+
+        # Delikatna poświata w rogach karty
+        glow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        gd = ImageDraw.Draw(glow)
+        gd.ellipse([x1 - int(30*scale), y1 - int(30*scale), x1 + int(120*scale), y1 + int(120*scale)], fill=cfg.get('glow1', (105, 157, 255, 14)))
+        gd.ellipse([x2 - int(120*scale), y2 - int(120*scale), x2 + int(30*scale), y2 + int(30*scale)], fill=cfg.get('glow2', (178, 112, 255, 12)))
+        glow = glow.filter(ImageFilter.GaussianBlur(radius=int(16*scale)))
+        mask = Image.new('L', (W, H), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([x1, y1, x2, y2], radius=r, fill=255)
+        masked = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        masked.paste(glow, (0, 0), mask=mask)
+        img.alpha_composite(masked)
+
+        d = ImageDraw.Draw(img)
+        border_w = max(1, int(1.1 * scale))
+        d.rounded_rectangle([x1, y1, x2, y2], radius=r, outline=cfg['panel_border'], width=border_w)
+
+        # Logo: pięć zaokrąglonych słupków fali + nazwa
+        hcy = int(self.bar_close_cy * scale)
+        lx = x1 + int(16 * scale)
+        lbw = 2.8 * scale
+        lgap = 2.2 * scale
+        for i, lh in enumerate((6, 11, 16, 11, 6)):
+            bx_ = lx + i * (lbw + lgap)
+            d.rounded_rectangle([bx_, hcy - lh * scale / 2, bx_ + lbw, hcy + lh * scale / 2], radius=max(1, int(lbw / 2)), fill=cfg['accent'])
+        fnt_title = get_cached_font(FONT_BOLD_PATH, int(13 * scale))
+        d.text((lx + 5 * (lbw + lgap) + int(6 * scale), hcy - int(0.5 * scale)), "Whiscribe", fill=cfg['text'], font=fnt_title, anchor="lm")
+
+        # Separatory: pod nagłówkiem (pełny) i pod pastylkami (wcięty)
+        sep_y = int(self.my * scale)
+        d.line([(x1 + border_w, sep_y), (x2 - border_w, sep_y)], fill=cfg['panel_border'], width=border_w)
+        sep2_y = int(self.chips_divider_y * scale)
+        d.line([(x1 + int(22 * scale), sep2_y), (x2 - int(22 * scale), sep2_y)], fill=cfg['panel_border'], width=border_w)
+        return img
+
     def _render_frame(self, t_now):
         cfg = THEMES.get(self.theme, THEMES['dark'])
         scale = 2
         W, H = self.w * scale, self.h * scale
 
-        img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        chrome_key = (self.theme, W, H)
+        if not self._chrome_cache or self._chrome_cache[0] != chrome_key:
+            self._chrome_cache = (chrome_key, self._render_chrome(cfg, scale))
+        img = self._chrome_cache[1].copy()
         d = ImageDraw.Draw(img)
 
         # Czcionki z pamięci podręcznej (zero narzutu We/Wy per klatka)
         fnt_tab = get_cached_font(FONT_SEMI_PATH, int(8.2 * scale)) or get_cached_font(FONT_BOLD_PATH, int(8.5 * scale))
         fnt_text = get_cached_font(FONT_REG_PATH, int(8.8 * scale))
         fnt_time = get_cached_font(FONT_REG_PATH, int(8.2 * scale))
-        fnt_status = get_cached_font(FONT_REG_PATH, int(8.5 * scale))
-        fnt_timer = get_cached_font(FONT_BOLD_PATH, int(8.5 * scale))
+        fnt_status = get_cached_font(FONT_REG_PATH, int(10.5 * scale))
+        fnt_timer = get_cached_font(FONT_BOLD_PATH, int(10.5 * scale))
+        fnt_chip = get_cached_font(FONT_SEMI_PATH, int(9 * scale)) or get_cached_font(FONT_BOLD_PATH, int(9 * scale))
         fnt_close = get_cached_font(FONT_REG_PATH, int(15 * scale))
 
         # Pobierz poziomy głośności
@@ -1408,240 +1464,72 @@ class FloatingOverlay:
             d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), btn_caption, fill=cfg['text'], font=fnt_tab, anchor="mm")
 
         # ========================================================
-        # 2. OKNO GLOWNE: BELKA I MODUL GLOSU
+        # 2. KARTA WIDŻETU (tło, logo i nazwa są w _render_chrome)
         # ========================================================
-        bx = int(self.bx * scale)
-        by = int(self.by * scale)
-        bw = int(self.bw * scale)
-        bh = int(self.bh * scale)
-
-        mx = int(self.mx * scale)
-        my = int(self.my * scale)
-        mw = int(self.mw * scale)
-        mh = int(self.mh * scale)
-
-        # Cien karty okna
-        sh_m = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        smd = ImageDraw.Draw(sh_m)
-        sh_offset_y = int(2.5 * scale)
-        sh_blur = int(5.0 * scale)
-        smd.rounded_rectangle([bx, by + sh_offset_y, bx + bw, my + sh_offset_y], radius=int(self.bar_r * scale), corners=(True, True, False, False), fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
-        smd.rounded_rectangle([mx, my + sh_offset_y, mx + mw, my + mh + sh_offset_y], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=(0, 0, 0, cfg.get('shadow_alpha', 30)))
-        sh_m = sh_m.filter(ImageFilter.GaussianBlur(radius=sh_blur))
-        img.alpha_composite(sh_m)
-
-        # Tla i obramowania
         d = ImageDraw.Draw(img)
-        d.rounded_rectangle([bx, by, bx + bw, my], radius=int(self.bar_r * scale), corners=(True, True, False, False), fill=cfg.get('bar_bg', cfg['panel_bg']))
-        d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=cfg['panel_bg'])
-
-        border_w = max(1, int(1.1 * scale))
-        d.rounded_rectangle([bx, by, bx + bw, my], radius=int(self.bar_r * scale), corners=(True, True, False, False), outline=cfg['panel_border'], width=border_w)
-        d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), outline=cfg['panel_border'], width=border_w)
-        d.line([(bx, my), (bx + bw, my)], fill=cfg['panel_border'], width=border_w)
-
-        # Podswietlenie modulu
-        glow_mod = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        gmd = ImageDraw.Draw(glow_mod)
-        g_col1 = cfg.get('glow1', (105, 157, 255, 14))
-        g_col2 = cfg.get('glow2', (178, 112, 255, 12))
-        gmd.ellipse([mx - int(10*scale), my - int(10*scale), mx + int(90*scale), my + mh + int(10*scale)], fill=g_col1)
-        gmd.ellipse([mx + mw - int(90*scale), my - int(10*scale), mx + mw + int(10*scale), my + mh + int(10*scale)], fill=g_col2)
-        glow_mod = glow_mod.filter(ImageFilter.GaussianBlur(radius=int(12*scale)))
-
-        card_mask = Image.new('L', (W, H), 0)
-        cmd = ImageDraw.Draw(card_mask)
-        cmd.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=255)
-        glow_mod_masked = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-        glow_mod_masked.paste(glow_mod, (0, 0), mask=card_mask)
-        img.alpha_composite(glow_mod_masked)
-        d = ImageDraw.Draw(img)
-
-        # Kontrolki belki
         is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
+        is_light = self.theme in ('light', 'glass_light')
+        # Na niebieskim tle motywu kolorowego niebieskie elementy znikały, więc tam są białe
+        blue = (255, 255, 255, 255) if self.theme == 'glass_color' else (77, 115, 255, 255)
+        amber = (245, 158, 11, 255)
 
-        # 1. Przelacznik Stream
-        s_lbl_x = int(self.stream_lbl_x * scale)
-        bar_cy = int(self.stream_lbl_y * scale)
-
-        is_stream_hover = (self._hover_target == 'btn_toggle_stream')
-        is_stream_active = (is_stream_hover or self.stream_realtime)
-
-        if is_stream_active:
-            s_fallback = (20, 35, 65, 255) if self.theme in ('light', 'glass_light') else (255, 255, 255, 255)
-            s_col = cfg.get('stream_lbl_active', s_fallback)
-        else:
-            s_fallback = (70, 90, 125, 255) if self.theme in ('light', 'glass_light') else (180, 195, 220, 255)
-            s_col = cfg.get('stream_lbl', s_fallback)
-        d.text((s_lbl_x, bar_cy), "Stream", fill=s_col, font=fnt_tab, anchor="lm")
-        bbox_s = d.textbbox((s_lbl_x, bar_cy), "Stream", font=fnt_tab, anchor="lm")
-
-        s_pill_x = bbox_s[2] + int(4 * scale)
-        s_pill_w = int(self.stream_pill_w * scale)
-        s_pill_h = int(self.stream_pill_h * scale)
-        s_pill_y = bar_cy - s_pill_h // 2
-        s_pill_r = int(5 * scale)
-
-        if self.stream_realtime:
-            s_pill_bg = cfg.get('toggle_active_hover_bg' if is_stream_hover else 'toggle_active_bg', (36, 50, 78, 255))
-            d.rounded_rectangle([s_pill_x, s_pill_y, s_pill_x + s_pill_w, s_pill_y + s_pill_h], radius=s_pill_r, fill=s_pill_bg)
-        elif is_stream_hover:
-            s_pill_bg = cfg.get('btn_hover_bg', (200, 212, 230, 255))
-            d.rounded_rectangle([s_pill_x, s_pill_y, s_pill_x + s_pill_w, s_pill_y + s_pill_h], radius=s_pill_r, fill=s_pill_bg)
-
-        s_state_text = "ON" if self.stream_realtime else "OFF"
-        if self.stream_realtime:
-            s_on_fallback = (24, 55, 160, 255) if self.theme in ('light', 'glass_light') else ((255, 255, 255, 255) if self.theme == 'glass_color' else (56, 189, 248, 255))
-            s_state_col = cfg.get('stream_on_text', s_on_fallback)
-        else:
-            s_off_fallback = (190, 22, 38, 255) if self.theme in ('light', 'glass_light') else ((255, 120, 135, 255) if self.theme == 'glass_color' else (255, 85, 95, 255))
-            s_state_col = cfg.get('stream_off_text', s_off_fallback)
-        d.text((s_pill_x + s_pill_w / 2, bar_cy - int(0.5 * scale)), s_state_text, fill=s_state_col, font=fnt_tab, anchor="mm")
-
-        # 2. Przelacznik Korekta
-        k_lbl_x = s_pill_x + s_pill_w + int(8 * scale)
-        is_ai_hover = (self._hover_target == 'btn_toggle_ai')
-        is_ai_active = (is_ai_hover or self.ai_enabled)
-
-        if is_ai_active:
-            k_fallback = (20, 35, 65, 255) if self.theme in ('light', 'glass_light') else (255, 255, 255, 255)
-            k_col = cfg.get('stream_lbl_active', k_fallback)
-        else:
-            k_fallback = (70, 90, 125, 255) if self.theme in ('light', 'glass_light') else (180, 195, 220, 255)
-            k_col = cfg.get('stream_lbl', k_fallback)
-        d.text((k_lbl_x, bar_cy), "Korekta AI", fill=k_col, font=fnt_tab, anchor="lm")
-        bbox_k = d.textbbox((k_lbl_x, bar_cy), "Korekta AI", font=fnt_tab, anchor="lm")
-
-        k_pill_x = bbox_k[2] + int(4 * scale)
-        k_pill_w = int(self.ai_pill_w * scale)
-        k_pill_h = int(self.ai_pill_h * scale)
-        k_pill_y = bar_cy - k_pill_h // 2
-        k_pill_r = int(5 * scale)
-
-        if self.ai_enabled:
-            k_pill_bg = cfg.get('toggle_active_hover_bg' if is_ai_hover else 'toggle_active_bg', (36, 50, 78, 255))
-            d.rounded_rectangle([k_pill_x, k_pill_y, k_pill_x + k_pill_w, k_pill_y + k_pill_h], radius=k_pill_r, fill=k_pill_bg)
-        elif is_ai_hover:
-            k_pill_bg = cfg.get('btn_hover_bg', (200, 212, 230, 255))
-            d.rounded_rectangle([k_pill_x, k_pill_y, k_pill_x + k_pill_w, k_pill_y + k_pill_h], radius=k_pill_r, fill=k_pill_bg)
-
-        k_state_text = "ON" if self.ai_enabled else "OFF"
-        if self.ai_enabled:
-            k_on_fallback = (24, 55, 160, 255) if self.theme in ('light', 'glass_light') else ((255, 255, 255, 255) if self.theme == 'glass_color' else (56, 189, 248, 255))
-            k_state_col = cfg.get('stream_on_text', k_on_fallback)
-        else:
-            k_off_fallback = (190, 22, 38, 255) if self.theme in ('light', 'glass_light') else ((255, 120, 135, 255) if self.theme == 'glass_color' else (255, 85, 95, 255))
-            k_state_col = cfg.get('stream_off_text', k_off_fallback)
-        d.text((k_pill_x + k_pill_w / 2, bar_cy - int(0.5 * scale)), k_state_text, fill=k_state_col, font=fnt_tab, anchor="mm")
-
-        # 3. Przyciski po prawej stronie
+        # --- Nagłówek: ··· — × ---
         bar_cy = int(self.bar_close_cy * scale)
         bar_icon_col = cfg.get('bar_btn_col', (65, 85, 120, 255) if not is_dark else (180, 195, 220, 255))
+        hov_col = (255, 255, 255, 255) if is_dark else (20, 40, 75, 255)
+        hb = int(10 * scale)
 
-        # Menu
         mcx = int(self.bar_menu_cx * scale)
         is_menu_hover = (self._hover_target == 'btn_bar_menu')
         if is_menu_hover:
-            d.rounded_rectangle([mcx - int(9*scale), bar_cy - int(9*scale), mcx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
-        dot_r = int(1.1 * scale)
-        sp = int(3.8 * scale)
-        dot_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if is_menu_hover else bar_icon_col
+            d.rounded_rectangle([mcx - hb, bar_cy - hb, mcx + hb, bar_cy + hb], radius=int(6*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
+        dot_r = int(1.3 * scale)
+        sp = int(4.4 * scale)
+        dot_col = hov_col if is_menu_hover else bar_icon_col
         for ox in (-sp, 0, sp):
             d.ellipse([mcx + ox - dot_r, bar_cy - dot_r, mcx + ox + dot_r, bar_cy + dot_r], fill=dot_col)
 
-        # Minimalizacja
         mncx = int(self.bar_min_cx * scale)
         is_min_hover = (self._hover_target in ('btn_bar_minimize', 'btn_minimize'))
         if is_min_hover:
-            d.rounded_rectangle([mncx - int(9*scale), bar_cy - int(9*scale), mncx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
-        ln_w = int(4.5 * scale)
-        min_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if is_min_hover else bar_icon_col
-        d.line([(mncx - ln_w, bar_cy), (mncx + ln_w, bar_cy)], fill=min_col, width=max(1, int(1.3 * scale)))
+            d.rounded_rectangle([mncx - hb, bar_cy - hb, mncx + hb, bar_cy + hb], radius=int(6*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
+        ln_w = int(5 * scale)
+        d.line([(mncx - ln_w, bar_cy), (mncx + ln_w, bar_cy)], fill=hov_col if is_min_hover else bar_icon_col, width=max(1, int(1.5 * scale)))
 
-        # Zamkniecie
         ccx = int(self.bar_close_cx * scale)
         is_close_hover = (self._hover_target in ('btn_bar_close', 'btn_close'))
         if is_close_hover:
-            d.rounded_rectangle([ccx - int(9*scale), bar_cy - int(9*scale), ccx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_close_hover_bg', (250, 210, 215, 255)))
-        csz = int(3.5 * scale)
-        close_hover_fallback = (190, 20, 35, 255) if self.theme in ('light', 'glass_light') else ((255, 255, 255, 255) if self.theme == 'glass_color' else (255, 100, 110, 255))
+            d.rounded_rectangle([ccx - hb, bar_cy - hb, ccx + hb, bar_cy + hb], radius=int(6*scale), fill=cfg.get('btn_close_hover_bg', (250, 210, 215, 255)))
+        csz = int(4 * scale)
+        close_hover_fallback = (190, 20, 35, 255) if is_light else ((255, 255, 255, 255) if self.theme == 'glass_color' else (255, 100, 110, 255))
         close_col = cfg.get('bar_btn_close_hover', close_hover_fallback) if is_close_hover else bar_icon_col
-        d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=max(1, int(1.3 * scale)))
-        d.line([(ccx - csz, bar_cy + csz), (ccx + csz, bar_cy - csz)], fill=close_col, width=max(1, int(1.3 * scale)))
+        d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=max(1, int(1.5 * scale)))
+        d.line([(ccx - csz, bar_cy + csz), (ccx + csz, bar_cy - csz)], fill=close_col, width=max(1, int(1.5 * scale)))
 
-        # --- WNĘTRZE MODUŁU GŁOSU (.voice-module) ---
-        # Uchwyt (Drag Handle) na górze: 29x3 px
-        hx = int(self.handle_x * scale)
-        hy = int(self.handle_y * scale)
-        hw = int(self.handle_w * scale)
-        hh = int(self.handle_h * scale)
-        d.rounded_rectangle([hx, hy, hx + hw, hy + hh], radius=int(hh/2), fill=cfg['muted'])
+        # --- Pastylki: [Stream (OFF)] [Korekta AI (ON)] ---
+        def draw_chip(x, y, w, h, label, enabled, hover):
+            x1, y1 = int(x * scale), int(y * scale)
+            x2, y2 = int((x + w) * scale), int((y + h) * scale)
+            cy_c = (y1 + y2) // 2
+            fill = cfg.get('toggle_hover_bg' if hover else 'bar_bg', cfg['panel_bg'])
+            d.rounded_rectangle([x1, y1, x2, y2], radius=(y2 - y1) // 2, fill=fill, outline=cfg['panel_border'], width=max(1, int(1.0 * scale)))
+            lbl_col = cfg.get('stream_lbl_active' if (enabled or hover) else 'stream_lbl', cfg['text'])
+            d.text((x1 + int(self.chip_pad_l * scale), cy_c), label, fill=lbl_col, font=fnt_chip, anchor="lm")
+            pw_ = int(self.chip_pill_w * scale)
+            ph_ = int(self.chip_pill_h * scale)
+            px2 = x2 - int(self.chip_pad_r * scale)
+            px1 = px2 - pw_
+            pill_bg = cfg.get('toggle_active_hover_bg' if hover else 'toggle_active_bg', (36, 50, 78, 255))
+            d.rounded_rectangle([px1, cy_c - ph_ // 2, px2, cy_c + ph_ // 2], radius=ph_ // 2, fill=pill_bg)
+            st_col = cfg.get('stream_on_text', blue) if enabled else cfg.get('stream_off_text', cfg['danger'])
+            d.text(((px1 + px2) / 2, cy_c - int(0.5 * scale)), "ON" if enabled else "OFF", fill=st_col, font=fnt_chip, anchor="mm")
 
-        # Koordynaty przycisków
-        mic_x = int(self.mic_cx * scale)
-        mic_y = int(self.mic_cy * scale)
-        b_rad = int(self.mic_rad * scale)
+        draw_chip(self.stream_btn_x, self.stream_btn_y, self.stream_btn_w, self.stream_btn_h, "Stream",
+                  self.stream_realtime, self._hover_target == 'btn_toggle_stream')
+        draw_chip(self.ai_btn_x, self.ai_btn_y, self.ai_btn_w, self.ai_btn_h, "Korekta AI",
+                  self.ai_enabled, self._hover_target == 'btn_toggle_ai')
 
-        meet_x = int(self.meet_cx * scale)
-        meet_y = int(self.meet_cy * scale)
-
-        # --- PRZYCISK 1: MIKROFON (Lewy) ---
-        if self.mode == "recording":
-            # Czerwony aktywny przycisk z pulsującym pierścieniem (zamkniętym w karcie)
-            p_factor = 0.5 + 0.5 * math.sin(t_now * 5.0)
-            glow_rad = int(b_rad + (4 + p_factor * 3.0) * scale)
-            glow_m = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            gmd = ImageDraw.Draw(glow_m)
-            gmd.ellipse([mic_x - glow_rad, mic_y - glow_rad, mic_x + glow_rad, mic_y + glow_rad], fill=(255, 34, 52, int(35 + p_factor * 20)))
-            glow_m = glow_m.filter(ImageFilter.GaussianBlur(radius=int(4*scale)))
-            glow_m_masked = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            glow_m_masked.paste(glow_m, (0, 0), mask=card_mask)
-            img.alpha_composite(glow_m_masked)
-            d = ImageDraw.Draw(img)
-
-            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(255, 51, 73, 255))
-            draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=(255, 255, 255, 255))
-
-        elif self.mode == "processing":
-            # Stan przetwarzania
-            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(245, 158, 11, 255))
-            draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=(255, 255, 255, 255))
-
-        else:
-            # Stan bezczynnosci
-            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=cfg['mic_standby_bg'])
-            draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=cfg.get('mic_standby_color', (223, 232, 251, 255)))
-
-        # Przycisk Spotkanie (Prawy)
-        if self.mode == "transcribing":
-            p_factor = 0.5 + 0.5 * math.sin(t_now * 5.0)
-            glow_rad = int(b_rad + (4 + p_factor * 3.0) * scale)
-            glow_mt = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            gmd = ImageDraw.Draw(glow_mt)
-            gmd.ellipse([meet_x - glow_rad, meet_y - glow_rad, meet_x + glow_rad, meet_y + glow_rad], fill=(46, 94, 255, int(40 + p_factor * 20)))
-            glow_mt = glow_mt.filter(ImageFilter.GaussianBlur(radius=int(4*scale)))
-            glow_mt_masked = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-            glow_mt_masked.paste(glow_mt, (0, 0), mask=card_mask)
-            img.alpha_composite(glow_mt_masked)
-            d = ImageDraw.Draw(img)
-
-            d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=(64, 92, 242, 255))
-            draw_people_icon(d, meet_x, meet_y, sz=int(27 * scale), color=(255, 255, 255, 255))
-
-        else:
-            d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=cfg['meet_standby_bg'])
-            draw_people_icon(d, meet_x, meet_y, sz=int(27 * scale), color=cfg.get('meet_standby_color', (255, 255, 255, 230)))
-
-        # Wizualizacja audio
-        center_cx = mx + mw // 2
-        wave_cy = my + int(40.5 * scale)
-
-        num_bars = len(BAR_HEIGHTS)
-        bar_w = 1.6 * scale
-        bar_gap = 1.4 * scale
-        total_wave_w = num_bars * bar_w + (num_bars - 1) * bar_gap
-        start_bx = center_cx - total_wave_w / 2.0
-
+        # --- Wygładzona głośność (fala i poświata przycisku) ---
         if self.mode in ("recording", "transcribing"):
             active_vol = vol if self.mode == "recording" else max(vol, loop_vol)
             if active_vol > self._smooth_vol:
@@ -1652,46 +1540,130 @@ class FloatingOverlay:
                 self._smooth_vol = 0.0
         else:
             self._smooth_vol = 0.0
-
-        bar_color = cfg['danger'] if self.mode == "recording" else (cfg['text'] if self.mode == "transcribing" else cfg['wave'])
-
-        base_h = 4.0 * scale
-        max_h = 23.0 * scale
         # Dyktowanie: poziom z mikrofonu jest już w skali dB 0-1, bez dodatkowego wzmocnienia
         # (to ono sprawiało, że fala zawsze była pełna). Tryb spotkania bez zmian.
         vol_boost = self._smooth_vol if self.mode == "recording" else min(1.0, self._smooth_vol * 1.84)
 
+        # --- Uchwyt ---
+        if self.mode == "recording":
+            handle_col = cfg['danger']
+        elif self.mode == "transcribing":
+            handle_col = blue
+        elif self.mode == "processing":
+            handle_col = amber
+        else:
+            handle_col = cfg['muted'][:3] + (150,)
+        hx = int(self.handle_x * scale)
+        hy = int(self.handle_y * scale)
+        hw = int(self.handle_w * scale)
+        hh = int(self.handle_h * scale)
+        d.rounded_rectangle([hx, hy, hx + hw, hy + hh], radius=int(hh/2), fill=handle_col)
+
+        # --- Główny przycisk ---
+        mic_x = int(self.mic_cx * scale)
+        mic_y = int(self.mic_cy * scale)
+        b_rad = int(self.mic_rad * scale)
+        is_mic_hover = (self._hover_target == 'btn_mic')
+
+        if self.mode == "transcribing":
+            show_people = True
+        elif self.mode in ("recording", "processing"):
+            show_people = (self._session_kind == "meeting" and self.mode == "processing")
+        else:
+            show_people = (self.widget_mode == "meeting")
+
+        if self.mode in ("recording", "transcribing", "processing"):
+            if self.mode == "recording":
+                ring_col = cfg['danger']
+                btn_fill = (72, 14, 24, 255) if is_dark else (255, 226, 230, 255)
+            elif self.mode == "transcribing":
+                ring_col = blue
+                btn_fill = (20, 32, 82, 255) if is_dark else (222, 230, 255, 255)
+            else:
+                ring_col = amber
+                btn_fill = (66, 44, 10, 255) if is_dark else (255, 240, 214, 255)
+            icon_col = (255, 255, 255, 255) if is_dark else ring_col
+
+            if self.mode != "processing":
+                # Pulsująca poświata, mocniejsza przy głośniejszej mowie
+                p_factor = 0.5 + 0.5 * math.sin(t_now * 5.0)
+                g_rad = b_rad + int((5 + p_factor * 3.0 + vol_boost * 6.0) * scale)
+                g_alpha = int(min(255, 70 + p_factor * 35 + vol_boost * 70))
+                glow, half = _glow_sprite(g_rad, ring_col[:3] + (g_alpha,), int(7 * scale))
+                img.alpha_composite(glow, (mic_x - half, mic_y - half))
+                d = ImageDraw.Draw(img)
+
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill)
+            ring_w = max(2, int(2.6 * scale))
+            if self.mode == "processing":
+                d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], outline=ring_col[:3] + (90,), width=ring_w)
+                ang = (t_now * 300.0) % 360.0
+                d.arc([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], start=ang, end=ang + 100, fill=ring_col, width=ring_w)
+            else:
+                d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], outline=ring_col, width=ring_w)
+        else:
+            btn_fill = cfg['mic_standby_bg']
+            ring_col = cfg['accent'] if is_mic_hover else cfg['muted'][:3] + (120,)
+            icon_col = cfg.get('mic_standby_color', (223, 232, 251, 255))
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill, outline=ring_col, width=max(2, int(2.0 * scale)))
+
+        if show_people:
+            draw_people_icon(img, mic_x, mic_y, sz=int(40 * scale), color=icon_col)
+        else:
+            draw_svg_mic(img, mic_x, mic_y, sz=int(32 * scale), color=icon_col)
+        d = ImageDraw.Draw(img)
+
+        # --- Fala dźwięku ---
+        center_cx = int((self.cx0 + self.cw / 2) * scale)
+        wave_cy = int(self.wave_cy * scale)
+
+        num_bars = len(BAR_HEIGHTS)
+        bar_w = 3.4 * scale
+        bar_gap = 3.2 * scale
+        total_wave_w = num_bars * bar_w + (num_bars - 1) * bar_gap
+        start_bx = center_cx - total_wave_w / 2.0
+
+        if self.mode == "recording":
+            bar_color = cfg['danger']
+        elif self.mode == "transcribing":
+            bar_color = blue
+        else:
+            bar_color = cfg['wave']
+
+        max_h = 32.0 * scale
+
         for i, h_vals in enumerate(BAR_HEIGHTS):
             bx_cur = start_bx + i * (bar_w + bar_gap)
-            if self.mode in ("recording", "transcribing") and vol_boost >= 0.03:
-                # Skalowanie dynamiczne
+            if self.mode in ("recording", "transcribing"):
+                # Cisza = niska fala, dalej rośnie z głośnością (cicha mowa nie spada poniżej ciszy)
+                base_h = h_vals[0] * 0.55 * scale
                 prof_factor = (h_vals[1] - h_vals[0]) / 22.0
                 mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + i * 0.72) + 0.15 * math.sin(t_now * 12.0 - i * 0.38)
-                dynamic_span = (max_h - base_h) * vol_boost * prof_factor * mod * 1.15
+                dynamic_span = (max_h - base_h) * vol_boost * prof_factor * mod * 1.15 if vol_boost >= 0.03 else 0.0
                 eff_h = min(max_h, max(base_h, base_h + dynamic_span))
             else:
                 # Slupki spoczynkowe
-                eff_h = h_vals[0] * 0.75 * scale
+                eff_h = h_vals[0] * 0.95 * scale
 
             by1 = wave_cy - eff_h / 2.0
             by2 = wave_cy + eff_h / 2.0
             d.rounded_rectangle([bx_cur, by1, bx_cur + bar_w, by2], radius=max(1, int(bar_w/2)), fill=bar_color)
 
-        # Pasek statusu pod falą: [dot] [statusText] [timer]
-        status_y = my + int(64 * scale)
+        # --- Status: [kropka] [stan] [czas] ---
+        status_y = int(self.status_cy * scale)
 
         if self.mode == "recording":
             dot_col = cfg['danger']
             status_lbl = "Nagrywanie"
-            status_col = cfg['danger']
+            status_col = cfg['text'] if self.theme == 'glass_color' else cfg['danger']
         elif self.mode == "transcribing":
-            dot_col = (77, 115, 255, 255)
+            dot_col = blue
             status_lbl = "Transkrypcja"
-            status_col = (77, 115, 255, 255)
+            status_col = blue
         elif self.mode == "processing":
-            dot_col = (245, 158, 11, 255)
+            dot_col = amber
             status_lbl = "Przetwarzanie..."
-            status_col = (245, 158, 11, 255)
+            status_col = amber
         else:
             dot_col = cfg['muted']
             status_lbl = "Gotowe"
@@ -1699,25 +1671,19 @@ class FloatingOverlay:
 
         timer_str = f"{timer_s//60:02d}:{timer_s%60:02d}"
 
-        dot_d = int(4 * scale)
-        lbl_bbox = d.textbbox((0, 0), status_lbl, font=fnt_status)
-        lbl_w = lbl_bbox[2] - lbl_bbox[0]
-        tim_bbox = d.textbbox((0, 0), timer_str, font=fnt_timer)
-        tim_w = tim_bbox[2] - tim_bbox[0]
+        dot_d = int(6 * scale)
+        lbl_w = d.textlength(status_lbl, font=fnt_status) if fnt_status else len(status_lbl) * 6 * scale
+        tim_w = d.textlength(timer_str, font=fnt_timer) if fnt_timer else len(timer_str) * 6 * scale
 
-        spacing = int(5 * scale)
-        total_line_w = dot_d + spacing + lbl_w + spacing + tim_w
+        spacing = int(6 * scale)
+        total_line_w = dot_d + spacing + lbl_w + spacing * 1.5 + tim_w
         line_start_x = center_cx - total_line_w / 2.0
 
-        d_x = line_start_x
-        d_y = status_y + int(4 * scale)
-        d.ellipse([d_x, d_y, d_x + dot_d, d_y + dot_d], fill=dot_col)
-
-        tx_x = d_x + dot_d + spacing
-        d.text((tx_x, status_y), status_lbl, fill=status_col, font=fnt_status)
-
-        tm_x = tx_x + lbl_w + spacing
-        d.text((tm_x, status_y), timer_str, fill=cfg['text'], font=fnt_timer)
+        d.ellipse([line_start_x, status_y - dot_d / 2, line_start_x + dot_d, status_y + dot_d / 2], fill=dot_col)
+        tx_x = line_start_x + dot_d + spacing
+        d.text((tx_x, status_y), status_lbl, fill=status_col, font=fnt_status, anchor="lm")
+        tm_x = tx_x + lbl_w + spacing * 1.5
+        d.text((tm_x, status_y), timer_str, fill=cfg['text'], font=fnt_timer, anchor="lm")
 
         # ========================================================
         # 3. AKTUALIZACJA OKNA WARSTWOWEGO
@@ -1757,6 +1723,7 @@ class FloatingOverlay:
     def show_recording(self):
         with self._lock:
             self.mode = "recording"
+            self._session_kind = "dictation"
             self._start_time = time.time()
             self.clear_transcript()
             self._balloon_type = None
@@ -1783,6 +1750,7 @@ class FloatingOverlay:
     def show_meeting_recording(self):
         with self._lock:
             self.mode = "transcribing"
+            self._session_kind = "meeting"
             self._start_time = time.time()
             self.clear_transcript()
             self._balloon_type = None
@@ -1905,6 +1873,12 @@ class FloatingOverlay:
                 self.hwnd, hwnd_insert, 0, 0, 0, 0,
                 0x0001 | 0x0002 | 0x0010 | 0x0020  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE | SWP_FRAMECHANGED
             )
+            self._dirty = True
+
+    def set_widget_mode(self, mode: str):
+        """Tryb głównego przycisku: "dictation" (mikrofon) albo "meeting" (transkrypcja rozmowy)."""
+        with self._lock:
+            self.widget_mode = "meeting" if mode == "meeting" else "dictation"
             self._dirty = True
 
     def set_theme(self, theme_name: str):

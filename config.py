@@ -9,7 +9,7 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.2.2"
+APP_VERSION = "2.2.3"
 __version__ = APP_VERSION
 APP_RELEASE_DATE = "31.10.2026"
 GITHUB_URL = "https://github.com/sooony/Whiscribe"
@@ -32,6 +32,7 @@ DEFAULT_CONFIG = {
     "require_text_field": True,  # Wymaga aktywnego pola tekstowego
     "stream_realtime": True,  # Wpisywanie w czasie rzeczywistym (z korektą AI -> podgląd w widżecie)
     "auto_stop_silence_seconds": 4.5,  # Zatrzymanie po wykryciu ciszy (s)
+    "widget_mode": "dictation",  # Główny przycisk widżetu: "dictation" (mikrofon) albo "meeting" (rozmowa)
     "max_recording_seconds": 1200,  # Twardy limit jednego dyktowania (s); 0 = bez limitu
     "theme": "light",  # Motyw: light, dark, glass_light, glass_dark, glass_color
     "restore_clipboard": True,

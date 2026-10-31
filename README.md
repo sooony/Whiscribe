@@ -31,6 +31,7 @@ Moduł inspekcji interfejsu weryfikuje obecność kursora w edytowalnym elemenci
 Rejestracja skrótów na poziomie systemu operacyjnego pozwala na natychmiastowe rozpoczęcie dyktowania z dowolnego miejsca w systemie:
 - Domyślny skrót dyktowania: `Ctrl + Alt + D`.
 - Domyślny skrót trybu spotkania: `Ctrl + Alt + M`.
+- Główny przycisk widżetu działa według trybu wybranego w menu `···`: "Dyktowanie do tekstu" (ikona mikrofonu) albo "Transkrypcja rozmowy" (ikona ludzików).
 - Pełna możliwość modyfikacji kombinacji klawiszy w pliku konfiguracyjnym.
 
 ### 6. Architektura systemu: praca offline oraz moduł korekty językowej
