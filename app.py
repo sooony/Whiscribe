@@ -1883,10 +1883,12 @@ class DictationApp:
                 cleaned = (new_key or "").strip()
                 if not cleaned:
                     return
-                if curr_prov == "gemini" and not re.fullmatch(r"AIza[0-9A-Za-z_-]{35}", cleaned):
+                # Klucze Gemini: nowe z AI Studio "AQ.…", starsze "AIza…" (39 znaków).
+                # Odrzuca np. przypadkowo skopiowane ID projektu "gen-lang-client-…".
+                if curr_prov == "gemini" and not re.fullmatch(r"AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_.-]{20,}", cleaned):
                     logger.warning(f"Odrzucono klucz Gemini o niepoprawnym formacie (długość {len(cleaned)}).")
                     if self.overlay:
-                        self.overlay.show_balloon("info", "To nie jest klucz Gemini (zaczyna się od AIza, 39 znaków) – nie zapisano")
+                        self.overlay.show_balloon("info", "To nie jest klucz Gemini (zaczyna się od AQ. albo AIza) – nie zapisano")
                     return
 
                 self.config["llm_api_key"] = cleaned

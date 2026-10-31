@@ -106,13 +106,17 @@ def test_key_dialog_writes_new_key_to_secrets_file(monkeypatch, tmp_path):
         a.prompt_and_set_llm_api_key()
         return a
 
-    # Tekst, który nie jest kluczem Gemini, nie nadpisuje zapisanego klucza
-    run("abcdefghijklmnopqrstuvwxyz")
+    # Tekst, który nie jest kluczem Gemini (np. ID projektu), nie nadpisuje zapisanego klucza
+    run("gen-lang-client-0123456789")
     assert config.load_secrets().get("llm_api_key") == "stary_klucz"
+    # Nowy format kluczy z AI Studio ("AQ.") jest przyjmowany
+    aq = "AQ." + "Ab1_-" * 10
+    run(aq)
+    assert config.load_secrets().get("llm_api_key") == aq
     # Puste pole = bez zmian
     run("")
-    assert config.load_secrets().get("llm_api_key") == "stary_klucz"
-    # Poprawny klucz trafia do secrets.json i włącza korektę
+    assert config.load_secrets().get("llm_api_key") == aq
+    # Klucz w starszym formacie także trafia do secrets.json i włącza korektę
     good = "AIza" + "x" * 35
     a = run("  " + good + "  ")
     assert config.load_secrets().get("llm_api_key") == good
