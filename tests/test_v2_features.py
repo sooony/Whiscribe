@@ -112,10 +112,10 @@ class TestV2Features(unittest.TestCase):
         for theme in THEMES.keys():
             overlay = FloatingOverlay(theme=theme)
             targets = [
-                ('btn_bar_menu', int(overlay.bar_menu_cx), int(overlay.bar_menu_cy)),
-                ('btn_bar_minimize', int(overlay.bar_min_cx), int(overlay.bar_min_cy)),
-                ('btn_bar_close', int(overlay.bar_close_cx), int(overlay.bar_close_cy)),
-                ('btn_toggle_stream', int(overlay.bar_stream_cx), int(overlay.bar_stream_cy))
+                ('btn_bar_menu', int(overlay.bar_menu_cx * overlay.ui), int(overlay.bar_menu_cy * overlay.ui)),
+                ('btn_bar_minimize', int(overlay.bar_min_cx * overlay.ui), int(overlay.bar_min_cy * overlay.ui)),
+                ('btn_bar_close', int(overlay.bar_close_cx * overlay.ui), int(overlay.bar_close_cy * overlay.ui)),
+                ('btn_toggle_stream', int(overlay.bar_stream_cx * overlay.ui), int(overlay.bar_stream_cy * overlay.ui))
             ]
             for t_name, cx, cy in targets:
                 overlay._hover_target = t_name
@@ -131,8 +131,8 @@ class TestV2Features(unittest.TestCase):
             overlay._hover_target = None
             overlay._render_frame(1.0)
             arr = np.ctypeslib.as_array(ctypes.cast(overlay.p_bits, ctypes.POINTER(ctypes.c_uint8)), shape=(overlay.h, overlay.w, 4))
-            cy = int(overlay.bar_stream_cy)
-            cx = int(overlay.bar_stream_cx)
+            cy = int(overlay.bar_stream_cy * overlay.ui)
+            cx = int(overlay.bar_stream_cx * overlay.ui)
             dib_y = overlay.h - 1 - cy
             patch = arr[dib_y-4:dib_y+5, cx-4:cx+5, 3]
             min_a = np.min(patch)

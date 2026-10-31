@@ -59,7 +59,7 @@ class TestMicCycle(unittest.TestCase):
 
         overlay.show_idle()
         # Simulate click on mic button via WM_LBUTTONDOWN and WM_LBUTTONUP
-        lparam = (int(overlay.mic_cy) << 16) | int(overlay.mic_cx)
+        lparam = (int(overlay.mic_cy * overlay.ui) << 16) | int(overlay.mic_cx * overlay.ui)
         overlay._wnd_proc(overlay.hwnd, 0x0201, 1, lparam)
         overlay._wnd_proc(overlay.hwnd, 0x0202, 0, lparam)
         time.sleep(0.1)

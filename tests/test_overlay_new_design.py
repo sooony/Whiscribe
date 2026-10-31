@@ -10,7 +10,9 @@ class TestOverlayNewDesign(unittest.TestCase):
         # Pionowa karta: nagłówek + pastylki + jeden główny przycisk (bez osobnego przycisku spotkania)
         self.assertEqual(ov.cw, 250)
         self.assertEqual(ov.mh, ov.ch - ov.bh)
-        self.assertLessEqual(ov.cy0 + ov.ch, ov.h)
+        self.assertLessEqual(ov.cy0 + ov.ch, ov.dh)
+        # Na ekranie okno jest o ponad 30% mniejsze niż układ projektu
+        self.assertLessEqual(ov.h, ov.dh * 0.7)
         self.assertEqual(ov._get_target(ov.mic_cx, ov.mic_cy), 'btn_mic')
 
         # Domyślnie streaming jest wyłączony
@@ -63,8 +65,8 @@ class TestOverlayNewDesign(unittest.TestCase):
         self.assertFalse(ov.stream_realtime)
 
         # Symulacja kliknięcia lewym przyciskiem myszy w przycisk streamingu
-        click_x = int(ov.bar_stream_cx)
-        click_y = int(ov.bar_stream_cy)
+        click_x = int(ov.bar_stream_cx * ov.ui)
+        click_y = int(ov.bar_stream_cy * ov.ui)
         lparam = (click_y << 16) | (click_x & 0xFFFF)
 
         # WM_LBUTTONDOWN i WM_LBUTTONUP
@@ -99,7 +101,7 @@ class TestOverlayNewDesign(unittest.TestCase):
         ov.set_callbacks(on_toggle=lambda: calls.append("dictation"),
                          on_meeting_toggle=lambda: calls.append("meeting"),
                          on_stop=lambda: calls.append("stop"))
-        lparam = (int(ov.mic_cy) << 16) | int(ov.mic_cx)
+        lparam = (int(ov.mic_cy * ov.ui) << 16) | int(ov.mic_cx * ov.ui)
 
         def click():
             ov._wnd_proc(ov.hwnd, 0x0201, 0, lparam)
