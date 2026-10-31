@@ -32,7 +32,7 @@ Rejestracja skrótów na poziomie systemu operacyjnego pozwala na natychmiastowe
 - Domyślny skrót dyktowania: `Ctrl + Alt + D`.
 - Domyślny skrót trybu spotkania: `Ctrl + Alt + M`.
 - Główny przycisk widżetu działa według trybu wybranego w menu `···`: "Dyktowanie do tekstu" (ikona mikrofonu) albo "Transkrypcja rozmowy" (ikona ludzików).
-- Przyciski "Stream" i "Korekta" pod nagłówkiem włączają pisanie na żywo i korektę AI (włączony ma podświetlone tło). Matryca kropek po bokach głównego przycisku pokazuje głośność mowy: w spoczynku świeci tylko środkowy rząd.
+- Przyciski "Stream" i "Korekta" pod nagłówkiem włączają pisanie na żywo i korektę AI (włączony ma podświetlone tło). Matryca kropek po bokach głównego przycisku pokazuje głośność mowy i pojawia się tylko wtedy, gdy mówisz.
 - Pełna możliwość modyfikacji kombinacji klawiszy w pliku konfiguracyjnym.
 
 ### 6. Architektura systemu: praca offline oraz moduł korekty językowej

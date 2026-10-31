@@ -1508,8 +1508,8 @@ class FloatingOverlay:
         vol_boost = self._smooth_vol if self.mode == "recording" else min(1.0, self._smooth_vol * 1.84)
 
         # --- Amplituda: matryca 31 x 7 kropek 2x2 px pod głównym przyciskiem (widać ją po bokach).
-        # Zgaszone kropki tworzą ledwie widoczną siatkę; w spoczynku świeci środkowy rząd,
-        # przy mowie kropki zapalają się od środka rzędu, najwyżej przy przycisku ---
+        # Widać ją tylko przy mowie: w spoczynku i w ciszy nie ma żadnych kropek.
+        # Kropki zapalają się od środka rzędu, najwyżej przy przycisku ---
         if self.mode == "recording":
             bar_color = cfg['danger']
         elif self.mode == "transcribing":
@@ -1517,6 +1517,7 @@ class FloatingOverlay:
         else:
             bar_color = cfg['wave']
         live = self.mode in ("recording", "transcribing")
+        speaking = live and vol_boost >= 0.03
 
         cols, rows, mid = 31, 7, 3
         dot, col_gap, row_gap = 2, 2, 1
@@ -1528,30 +1529,28 @@ class FloatingOverlay:
         ld = ImageDraw.Draw(layer)
         base_a = bar_color[3] / 255.0
         half_w = mtx_w / 2.0
-        for i in range(cols):
+        for i in range(cols if speaking else 0):
             off = abs(i * (dot + col_gap) + dot / 2.0 - half_w)
             if off < self.mic_rad + 2:
                 continue  # zasłonięte przyciskiem
             lo, hi = MATRIX_PROFILE[i % len(MATRIX_PROFILE)]
-            lit = 0
-            if live and vol_boost >= 0.03:
-                env = 1.0 - 0.6 * (off - self.mic_rad) / (half_w - self.mic_rad)
-                mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + i * 0.72) + 0.15 * math.sin(t_now * 12.0 - i * 0.38)
-                lit = max(0, min(mid, int(round(mid * vol_boost * env * ((hi - lo) / 22.0) * mod * 1.7))))
+            env = 1.0 - 0.6 * (off - self.mic_rad) / (half_w - self.mic_rad)
+            mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + i * 0.72) + 0.15 * math.sin(t_now * 12.0 - i * 0.38)
+            lit = max(0, min(mid, int(round(mid * vol_boost * env * ((hi - lo) / 22.0) * mod * 1.7))))
             for k in range(rows):
                 dd = abs(k - mid)
                 if dd > lit:
-                    a = 0.13
-                else:
-                    a = 1.0 - 0.17 * dd
-                    if live and dd == lit and dd > 0:
-                        a *= 0.55 + 0.45 * (0.5 + 0.5 * math.sin(t_now * 2.0 * math.pi / (1.8 + (i % 5) * 0.3) + i * 0.9))
+                    continue  # zgaszona kropka = nic
+                a = 1.0 - 0.17 * dd
+                if dd == lit and dd > 0:
+                    a *= 0.55 + 0.45 * (0.5 + 0.5 * math.sin(t_now * 2.0 * math.pi / (1.8 + (i % 5) * 0.3) + i * 0.9))
                 xx = i * (dot + col_gap) * S
                 yy = k * (dot + row_gap) * S
                 ld.rounded_rectangle([xx, yy, xx + dot * S - 1, yy + dot * S - 1], radius=S,
                                      fill=bar_color[:3] + (int(255 * base_a * a),))
-        img.alpha_composite(layer, (mtx_x * S, mtx_y * S))
-        d = ImageDraw.Draw(img)
+        if speaking:
+            img.alpha_composite(layer, (mtx_x * S, mtx_y * S))
+            d = ImageDraw.Draw(img)
 
         # --- Główny przycisk ---
         mic_x = int(self.mic_cx * S)
