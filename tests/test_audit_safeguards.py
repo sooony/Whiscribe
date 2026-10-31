@@ -75,6 +75,18 @@ def test_save_config_does_not_leak_env_key(monkeypatch, tmp_path):
     assert saved_on_disk.get("llm_api_key") == "", "Klucz ze zmiennej ENV wyciekł do config.json!"
 
 
+def test_save_config_without_key_keeps_secrets_file(monkeypatch, tmp_path):
+    """Zapis konfiguracji bez klucza w pamięci (np. przełączenie Stream) nie może skasować secrets.json."""
+    secrets_path = os.path.join(str(tmp_path), "secrets.json")
+    with open(secrets_path, "w", encoding="utf-8") as f:
+        json.dump({"llm_api_key": "zachowany_klucz_123"}, f)
+    monkeypatch.setattr(config, "get_secrets_path", lambda: secrets_path)
+
+    save_config({"stream_realtime": False, "use_llm": False, "llm_api_key": ""})
+
+    assert config.load_secrets().get("llm_api_key") == "zachowany_klucz_123"
+
+
 def test_gemini_uses_header_not_query_param():
     """Kryterium A4: Żadne wywołanie API Gemini nie może przekazywać klucza w parametrze URL ?key=."""
     import transcriber

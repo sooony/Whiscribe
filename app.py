@@ -221,7 +221,7 @@ from PIL import Image, ImageDraw
 import pystray
 from pynput import keyboard
 
-from config import load_config, save_config, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION, APP_RELEASE_DATE, GITHUB_URL
+from config import load_config, save_config, save_secret_key, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION, APP_RELEASE_DATE, GITHUB_URL
 from recorder import AudioRecorder
 from transcriber import Transcriber
 from injector import inject_text, sync_text, send_unicode_string, ForwardStreamCommitter
@@ -1883,6 +1883,8 @@ class DictationApp:
                     self.config["llm_api_key"] = cleaned
                     if cleaned:
                         self.config["use_llm"] = True
+                    else:
+                        save_secret_key("")  # świadome usunięcie klucza z secrets.json
                     save_config(self.config)
                     if hasattr(self, "transcriber") and self.transcriber:
                         self.transcriber.config = self.config

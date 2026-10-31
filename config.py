@@ -9,7 +9,7 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.2.9"
+APP_VERSION = "2.2.10"
 __version__ = APP_VERSION
 APP_RELEASE_DATE = "31.10.2026"
 GITHUB_URL = "https://github.com/sooony/Whiscribe"
@@ -200,7 +200,9 @@ def save_config(config: dict):
                     print("OSTRZEŻENIE: nie udało się zapisać secrets.json – "
                           "klucz pozostaje w config.json. Nie dołączaj tego pliku do paczki!")
             else:
-                save_secret_key("")
+                # Brak klucza w pamięci NIE kasuje secrets.json (kasowało go zwykłe przełączenie
+                # Stream/Korekta, gdy konfiguracja nie miała klucza). Usunięcie klucza jest tylko
+                # świadome: okienko klucza API z pustym polem woła save_secret_key("").
                 cfg_to_save["llm_api_key"] = ""
 
         with open(cfg_file, "w", encoding="utf-8") as f:
