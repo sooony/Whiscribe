@@ -75,6 +75,50 @@ def test_save_config_does_not_leak_env_key(monkeypatch, tmp_path):
     assert saved_on_disk.get("llm_api_key") == "", "Klucz ze zmiennej ENV wyciekł do config.json!"
 
 
+def test_key_dialog_writes_new_key_to_secrets_file(monkeypatch, tmp_path):
+    """Nowy klucz z okienka trafia do secrets.json także wtedy, gdy stary pochodził z secrets.json."""
+    import tkinter
+    from tkinter import simpledialog
+    import app as app_mod
+
+    secrets_path = os.path.join(str(tmp_path), "secrets.json")
+    with open(secrets_path, "w", encoding="utf-8") as f:
+        json.dump({"llm_api_key": "stary_klucz"}, f)
+    monkeypatch.setattr(config, "get_secrets_path", lambda: secrets_path)
+
+    class _Root:
+        def withdraw(self): pass
+        def attributes(self, *a): pass
+        def destroy(self): pass
+
+    class _SyncThread:
+        def __init__(self, target=None, daemon=None, **kw): self._t = target
+        def start(self): self._t()
+
+    monkeypatch.setattr(tkinter, "Tk", _Root)
+    monkeypatch.setattr(app_mod.threading, "Thread", _SyncThread)
+
+    def run(typed):
+        monkeypatch.setattr(simpledialog, "askstring", lambda *a, **k: typed)
+        a = app_mod.DictationApp.__new__(app_mod.DictationApp)
+        a.config = {"llm_provider": "gemini", "llm_api_key": "stary_klucz", "_llm_key_source": "secrets_file", "use_llm": False}
+        a.overlay = None
+        a.prompt_and_set_llm_api_key()
+        return a
+
+    # Tekst, który nie jest kluczem Gemini, nie nadpisuje zapisanego klucza
+    run("abcdefghijklmnopqrstuvwxyz")
+    assert config.load_secrets().get("llm_api_key") == "stary_klucz"
+    # Puste pole = bez zmian
+    run("")
+    assert config.load_secrets().get("llm_api_key") == "stary_klucz"
+    # Poprawny klucz trafia do secrets.json i włącza korektę
+    good = "AIza" + "x" * 35
+    a = run("  " + good + "  ")
+    assert config.load_secrets().get("llm_api_key") == good
+    assert a.config["use_llm"] is True
+
+
 def test_save_config_without_key_keeps_secrets_file(monkeypatch, tmp_path):
     """Zapis konfiguracji bez klucza w pamięci (np. przełączenie Stream) nie może skasować secrets.json."""
     secrets_path = os.path.join(str(tmp_path), "secrets.json")

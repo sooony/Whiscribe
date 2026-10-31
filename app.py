@@ -10,6 +10,7 @@ import logging
 import io
 import wave
 import math
+import re
 import struct
 
 import tempfile
@@ -1870,31 +1871,41 @@ class DictationApp:
                 root.attributes("-topmost", True)
                 curr_prov = self.config.get("llm_provider", "gemini").lower()
                 prov_name = {"gemini": "Google Gemini", "groq": "Groq", "openai": "OpenAI"}.get(curr_prov, curr_prov.upper())
-                curr_key = self.config.get("llm_api_key", "")
+                has_key = bool(self.config.get("llm_api_key", "").strip())
+                # Pole zawsze puste: wklejony klucz nie dokleja się do starego, a klucz nie jest pokazywany
                 new_key = simpledialog.askstring(
                     f"Klucz API — {prov_name}",
-                    f"Wprowadź swój klucz API dla {prov_name}:",
-                    initialvalue=curr_key,
+                    f"Wklej klucz API dla {prov_name}"
+                    + (" (puste pole = bez zmian):" if has_key else ":"),
                     parent=root
                 )
                 root.destroy()
-                if new_key is not None:
-                    cleaned = new_key.strip()
-                    self.config["llm_api_key"] = cleaned
-                    if cleaned:
-                        self.config["use_llm"] = True
-                    else:
-                        save_secret_key("")  # świadome usunięcie klucza z secrets.json
-                    save_config(self.config)
-                    if hasattr(self, "transcriber") and self.transcriber:
-                        self.transcriber.config = self.config
+                cleaned = (new_key or "").strip()
+                if not cleaned:
+                    return
+                if curr_prov == "gemini" and not re.fullmatch(r"AIza[0-9A-Za-z_-]{35}", cleaned):
+                    logger.warning(f"Odrzucono klucz Gemini o niepoprawnym formacie (długość {len(cleaned)}).")
                     if self.overlay:
-                        self.overlay.ai_enabled = self.config.get("use_llm", False)
-                        self.overlay._dirty = True
-                    msg = f"Klucz API {prov_name} zapisany!" if cleaned else f"Klucz API {prov_name} usunięty."
-                    logger.info(msg)
-                    if self.overlay:
-                        self.overlay.show_balloon("info", msg)
+                        self.overlay.show_balloon("info", "To nie jest klucz Gemini (zaczyna się od AIza, 39 znaków) – nie zapisano")
+                    return
+
+                self.config["llm_api_key"] = cleaned
+                self.config["use_llm"] = True
+                # Klucz z okienka zawsze trafia wprost do secrets.json. Wcześniej przy kluczu
+                # wczytanym z secrets.json save_config() go nie zapisywał, więc nowy klucz żył
+                # tylko w pamięci, a po restarcie wracał stary.
+                save_secret_key(cleaned)
+                self.config["_llm_key_source"] = "secrets_file"
+                save_config(self.config)
+                if hasattr(self, "transcriber") and self.transcriber:
+                    self.transcriber.config = self.config
+                if self.overlay:
+                    self.overlay.ai_enabled = True
+                    self.overlay._dirty = True
+                msg = f"Klucz API {prov_name} zapisany!"
+                logger.info(msg)
+                if self.overlay:
+                    self.overlay.show_balloon("info", msg)
             except Exception as e:
                 logger.error(f"Błąd okna wprowadzania klucza API: {e}", exc_info=True)
 
