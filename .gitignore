@@ -17,17 +17,22 @@ __pycache__/
 # Meeting transcripts
 transkrypcje/
 
-# Internal tests and development artifacts
-tests/
+# Test and development artifacts
 smoke_test_*.py
-test_*.py
 run_all_qa_tests.py
 *.png
 test_*.txt
 test pola wpisu.txt
 *.tmp
+.pytest_cache/
 
 # PyInstaller & Portable Build
 build/
 dist/
 models/
+
+# Local user config (may contain API keys)
+config.json
+
+# Kopie zapasowe poprzednich wersji portable
+kopie-zapasowe/

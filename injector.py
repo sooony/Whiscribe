@@ -1,8 +1,31 @@
 import time
+import ctypes
+from ctypes import wintypes
 import pyperclip
 from pynput.keyboard import Controller, Key
 
 kb = Controller()
+
+# Własne instancje bibliotek z pełnymi sygnaturami: bez argtypes/restype ctypes obcina
+# 64-bitowe uchwyty i wskaźniki do 32 bitów (zapis pod błędny adres = crash procesu).
+_cb_user32 = ctypes.WinDLL("user32", use_last_error=True)
+_cb_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_cb_user32.OpenClipboard.argtypes = [wintypes.HWND]
+_cb_user32.OpenClipboard.restype = wintypes.BOOL
+_cb_user32.CloseClipboard.argtypes = []
+_cb_user32.CloseClipboard.restype = wintypes.BOOL
+_cb_user32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+_cb_user32.SetClipboardData.restype = wintypes.HANDLE
+_cb_user32.RegisterClipboardFormatW.argtypes = [wintypes.LPCWSTR]
+_cb_user32.RegisterClipboardFormatW.restype = wintypes.UINT
+_cb_kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+_cb_kernel32.GlobalAlloc.restype = wintypes.HGLOBAL
+_cb_kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+_cb_kernel32.GlobalLock.restype = wintypes.LPVOID
+_cb_kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+_cb_kernel32.GlobalUnlock.restype = wintypes.BOOL
+_cb_kernel32.GlobalFree.argtypes = [wintypes.HGLOBAL]
+_cb_kernel32.GlobalFree.restype = wintypes.HGLOBAL
 
 def send_backspaces(count: int):
     """Wysyła naciśnięcia klawisza Backspace za pomocą pynput."""
@@ -24,10 +47,8 @@ def normalize_word(w: str) -> str:
 
 class ForwardStreamCommitter:
     """
-    Zarządza płynnym wpisywaniem tekstu w czasie rzeczywistym w stylu Windows 11 Voice Typing.
-    ZASADA: Wyłącznie wpisywanie w przód (Forward-Only).
-    Nigdy nie wysyła naciśnięć Backspace do aktywnego dokumentu użytkownika.
-    Zapobiega powielaniu słów, połykaniu tekstu i skakaniu wstecz dzięki dopasowywaniu kotwicowemu (anchor alignment).
+    Zarządza płynnym wpisywaniem tekstu w trybie strumieniowym.
+    Wpisywanie wyłącznie w przód (Forward-Only) z dopasowaniem kotwicowym.
     """
     def __init__(self, type_callback=None, safe_margin: int = 2):
         self.type_callback = type_callback or send_unicode_string
@@ -118,7 +139,7 @@ class ForwardStreamCommitter:
 
         self.last_hypothesis_words = current_words
 
-        # Słowa stabilne to słowa sprzed ogona (ostatnie 1-2 słowa w locie mogą być jeszcze niepewne fonetycznie)
+        # Wyznaczenie stabilnego prefiksu słów (z pominięciem marginesu ogona)
         safe_margin = getattr(self, "safe_margin", 2)
         if len(current_words) > safe_margin:
             stable_words = current_words[:-safe_margin]
@@ -128,10 +149,7 @@ class ForwardStreamCommitter:
             self._emit_words(new_words)
 
     def commit_segment(self, segment_text: str):
-        """
-        Definitywnie zatwierdza cały zakończony segment zdania.
-        Wypisuje pozostałe słowa (z zerowym marginesem) i resetuje wskaźnik segmentu.
-        """
+        """Zatwierdza segment tekstu i wypisuje pozostałe słowa."""
         if not segment_text or not segment_text.strip():
             return
 
@@ -198,23 +216,35 @@ def sync_text(old_text: str, new_text: str) -> str:
 
     return new_text
 
-def inject_text(text: str, restore_clipboard: bool = False):
+def inject_text(text: str, restore_clipboard: bool = True):
     """
     Wkleja tekst do aktywnego okna przez schowek (Ctrl + V).
-    Zawiera pętlę odporności na zablokowanie schowka i zwalnianie klawisza Alt.
+    Zabezpiecza przed pozostawianiem dyktowanego tekstu w schowku systemowym:
+    - Przywraca poprzednią zawartość schowka użytkownika (jeśli istniała).
+    - Jeśli schowek był pusty, czyści go całkowicie po wklejeniu.
+    - Zapobiega zapisywaniu tymczasowego tekstu w historii schowka Windows 10/11 (Win+V).
     """
     if not text or not text.strip():
         return
 
     text = text.strip() + " "
     old_clipboard = None
-    if restore_clipboard:
-        for _ in range(3):
-            try:
-                old_clipboard = pyperclip.paste()
-                break
-            except Exception:
-                time.sleep(0.02)
+    for _ in range(3):
+        try:
+            old_clipboard = pyperclip.paste()
+            break
+        except Exception:
+            time.sleep(0.02)
+
+    # Rejestracja formatów wykluczających ze schowka Windows 10/11 (Win+V / Cloud Clipboard)
+    user32, kernel32 = _cb_user32, _cb_kernel32
+    GMEM_MOVEABLE = 0x0002
+    GMEM_ZEROINIT = 0x0040
+    try:
+        cf_exclude = user32.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")
+        cf_history = user32.RegisterClipboardFormatW("CanIncludeInClipboardHistory")
+    except Exception:
+        cf_exclude = cf_history = 0
 
     # Kopiowanie do schowka z ponawianiem przy kolizji z menedżerem schowka Windows
     copied = False
@@ -225,6 +255,26 @@ def inject_text(text: str, restore_clipboard: bool = False):
             break
         except Exception:
             time.sleep(0.02)
+
+    # Oznaczenie wpisu jako wykluczonego z historii schowka (Win+V)
+    if copied and cf_history:
+        try:
+            if user32.OpenClipboard(None):
+                try:
+                    # GMEM_ZEROINIT: blok ma już wartość 0 (= "nie zapisuj w historii"), nie trzeba go blokować
+                    for cf in (cf_history, cf_exclude):
+                        if not cf:
+                            continue
+                        h_mem = kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, 4)
+                        if h_mem and not user32.SetClipboardData(cf, h_mem):
+                            kernel32.GlobalFree(h_mem)
+                finally:
+                    user32.CloseClipboard()
+        except Exception:
+            try:
+                user32.CloseClipboard()
+            except Exception:
+                pass
 
     if not copied:
         # Fallback: bezpośrednie wpisanie znaków jeśli schowek systemowy jest zablokowany
@@ -245,9 +295,17 @@ def inject_text(text: str, restore_clipboard: bool = False):
     with kb.pressed(Key.ctrl):
         kb.tap('v')
 
-    if restore_clipboard and old_clipboard is not None:
-        time.sleep(0.35)
-        try:
-            pyperclip.copy(old_clipboard)
-        except Exception:
-            pass
+    # Odczekaj na odczytanie schowka przez docelową aplikację (np. Antigravity/Chrome/Word)
+    time.sleep(0.30)
+
+    # Przywrócenie lub wyczyszczenie schowka
+    try:
+        if restore_clipboard:
+            if old_clipboard and old_clipboard.strip() and old_clipboard != text:
+                pyperclip.copy(old_clipboard)
+            else:
+                pyperclip.copy("")
+        # Gdy restore_clipboard jest False, tekst pozostaje w schowku
+    except Exception:
+        pass
+

@@ -1,16 +1,45 @@
 import os
 import re
 import threading
+import time
 import numpy as np
 from faster_whisper import WhisperModel
 import httpx
 import logging
-from config import get_app_dir
+from config import get_app_dir, DEPRECATED_GEMINI_MODELS
 
 logger = logging.getLogger("Transcriber")
 
-# Predefiniowane wyrażenia regularne do usuwania artefaktów i halucynacji Whisper (filmy YouTube, TikTok, Reels)
-# ZACHOWUJĄC wszystkie naturalne powitania, zwroty grzecznościowe i codzienne słowa (np. Cześć, Dzień dobry, Dziękuję, Pozdrawiam, Słuchaj, Na razie).
+# Kolejność zapasowa: najpierw lekki model (zwykle < 1-2 s), pełne modele flash bywają przeciążone (503/timeout)
+GEMINI_FALLBACK_MODELS = ("gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-flash-latest")
+# Model, który się przyciął lub był przeciążony, idzie na koniec kolejki na tyle sekund
+LLM_SLOW_MODEL_COOLDOWN_S = 300.0
+
+
+def llm_time_budget(text: str, is_local: bool) -> float:
+    """
+    Łączny limit czasu na całą korektę (wszystkie próby i modele zapasowe razem).
+    Rośnie z długością tekstu, ale ma twardy sufit – po nim wklejamy surową transkrypcję.
+    """
+    n = len(text or "")
+    if is_local:
+        return max(30.0, min(90.0, 30.0 + n / 80.0))
+    return max(20.0, min(45.0, 20.0 + n / 200.0))
+
+
+def _request_timeout(deadline: float, max_attempt_s: float = None):
+    """
+    Timeout pojedynczego żądania: to, co zostało z budżetu, ale nie więcej niż max_attempt_s,
+    żeby jeden zawieszony model nie zjadł całego czasu na modele zapasowe (None = budżet wyczerpany).
+    """
+    remaining = deadline - time.monotonic()
+    if remaining < 1.0:
+        return None
+    if max_attempt_s:
+        remaining = min(remaining, max_attempt_s)
+    return httpx.Timeout(connect=min(5.0, remaining), read=remaining, write=min(10.0, remaining), pool=min(5.0, remaining))
+
+# Wyrażenia regularne do usuwania artefaktów i halucynacji modelu Whisper
 HALLUCINATION_PATTERNS = [
     # 1. Dziękuję / Dzięki za uwagę / za oglądanie / za wysłuchanie / za obejrzenie (WYŁĄCZNIE z frazą 'za uwagę/oglądanie/itp.')
     r'\b[Dd]ziękuj(emy|[eę])(\s+bardzo|\s+państwu|\s+serdecznie)*\s+za\s+(uwagę|oglądanie|obejrzenie|wysłuchanie)[.!,]?\s*',
@@ -41,7 +70,7 @@ HALLUCINATION_PATTERNS = [
 ]
 
 def is_valid_segment(s, text: str, audio: np.ndarray = None) -> bool:
-    """Sprawdza, czy segment nie jest czystym szumem/halucynacją."""
+    """Sprawdza, czy segment nie jest szumem lub halucynacją."""
     if not text:
         return False
     t = text.strip().lower()
@@ -135,6 +164,12 @@ class Transcriber:
         self.model = None
         self._lock = threading.Lock()
         self.initial_prompt = None
+        # Status ostatniej korekty LLM: None (nie zadano) / 'ok' / 'failed' / 'rejected'
+        self.last_llm_status = None
+        # Modele, które w tej sesji zwróciły 404 – nie pytamy o nie przy każdym dyktowaniu
+        self._dead_llm_models = set()
+        # Modele chwilowo przeciążone: {nazwa: time.monotonic() do kiedy omijać}
+        self._slow_llm_models = {}
         self._init_model()
 
     def _init_model(self):
@@ -160,13 +195,18 @@ class Transcriber:
             else:
                 dl_root = models_dir
 
+        model_revision = "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf" if model_size == "turbo" else None
+        model_kwargs = {}
+        if model_revision and not (os.path.exists(target) and os.path.isdir(target)):
+            model_kwargs["revision"] = model_revision
+
         logger.info(f"Ładowanie modelu Whisper: {target} (root: {dl_root}) na {device} ({compute_type})...")
         try:
-            self.model = WhisperModel(target, device=device, compute_type=compute_type, download_root=dl_root)
+            self.model = WhisperModel(target, device=device, compute_type=compute_type, download_root=dl_root, **model_kwargs)
             logger.info("Model Whisper załadowany pomyślnie!")
         except Exception as e:
             logger.error(f"Nie udało się załadować na {device}: {e}. Próbuję fallback na CPU...")
-            self.model = WhisperModel(target, device="cpu", compute_type="int8", download_root=dl_root)
+            self.model = WhisperModel(target, device="cpu", compute_type="int8", download_root=dl_root, **model_kwargs)
             logger.info("Model Whisper załadowany na CPU.")
 
     def transcribe_stream_chunk(self, audio: np.ndarray) -> tuple[list[tuple[str, float]], str]:
@@ -248,7 +288,7 @@ class Transcriber:
         return completed, tail_text
 
     def transcribe_fast(self, audio: np.ndarray) -> str:
-        """Błyskawiczna transkrypcja do podglądu na żywo (greedy decoding, beam_size=1)."""
+        """Szybka transkrypcja do podglądu na żywo (greedy decoding, beam_size=1)."""
         if audio is None or len(audio) < 16000 * 0.4:
             return ""
 
@@ -338,7 +378,7 @@ class Transcriber:
             logger.error(f"Błąd głównej transkrypcji: {e}", exc_info=True)
             return ""
 
-        # Oczyszczenie tekstu z typowych halucynacji (outro YouTube, samotne 'Koniec', 'Dziękuję' na końcu)
+        # Oczyszczenie tekstu z typowych halucynacji
         raw_text = clean_hallucinations(raw_text)
 
         if not raw_text:
@@ -351,10 +391,53 @@ class Transcriber:
         is_local_llm = provider in ("ollama", "local", "lmstudio")
 
         if use_llm and (api_key or is_local_llm):
+            self.last_llm_status = None
             cleaned_text = self._post_process_with_llm(raw_text)
-            return clean_hallucinations(cleaned_text) if cleaned_text else raw_text
+            if not cleaned_text:
+                return raw_text
+
+            cleaned_text = clean_hallucinations(cleaned_text)
+            if not self._is_plausible_correction(raw_text, cleaned_text):
+                self.last_llm_status = 'rejected'
+                return raw_text
+            return cleaned_text
 
         return raw_text
+
+    @staticmethod
+    def _is_plausible_correction(raw_text: str, corrected: str) -> bool:
+        """
+        Zabezpieczenie przed utratą treści przy korekcie LLM.
+
+        Korekta zastępuje tekst, który trafia do okna użytkownika, więc odpowiedź modelu
+        musi mieć porównywalną objętość. Odrzucamy wynik, gdy model uciął wypowiedź
+        (limit tokenów), streścił ją albo odpowiedział na jej treść zamiast ją poprawić.
+        """
+        if not corrected:
+            return False
+
+        raw_words = len(raw_text.split())
+        new_words = len(corrected.split())
+
+        # Kontrola skrócenia ma sens tylko dla dłuższych wypowiedzi – tam grozi ucięcie
+        # przez limit tokenów lub streszczenie. W krótkich zdaniach usunięcie samych
+        # wypełniaczy ("yyy eee no tak" -> "Tak.") to poprawny, duży skok proporcji.
+        if raw_words >= 12 and new_words < raw_words * 0.60:
+            logger.warning(
+                f"Odrzucono korektę LLM – podejrzana utrata treści "
+                f"({raw_words} -> {new_words} słów). Używam surowej transkrypcji."
+            )
+            return False
+
+        # Model nie powinien rozbudowywać wypowiedzi (dopisywanie, komentarze, odpowiadanie).
+        if raw_words >= 4 and new_words > raw_words * 1.8 + 10:
+            logger.warning(
+                f"Odrzucono korektę LLM – model rozbudował wypowiedź "
+                f"({raw_words} -> {new_words} słów). Używam surowej transkrypcji."
+            )
+            return False
+
+        return True
 
     def _post_process_with_llm(self, text: str) -> str:
         """Opcjonalna korekta językowa przez LLM (Gemini, Groq, OpenAI lub lokalną Ollama/LM Studio)."""
@@ -367,13 +450,24 @@ class Transcriber:
             return text
 
         try:
+            # Jeden budżet czasu na całą korektę: po jego przekroczeniu wklejamy surowy tekst,
+            # zamiast wisieć w "przetwarzaniu" przez kolejne próby i modele zapasowe.
+            budget = llm_time_budget(text, is_local)
+            deadline = time.monotonic() + budget
+
             if provider == "gemini":
                 # Google Gemini API
                 primary_model = self.config.get('llm_model', 'gemini-flash-latest')
-                candidate_models = [primary_model]
-                for fallback_m in ("gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"):
+                candidate_models = [] if primary_model in DEPRECATED_GEMINI_MODELS else [primary_model]
+                for fallback_m in GEMINI_FALLBACK_MODELS:
                     if fallback_m not in candidate_models:
                         candidate_models.append(fallback_m)
+                candidate_models = [m for m in candidate_models if m not in self._dead_llm_models] or list(GEMINI_FALLBACK_MODELS)
+                slow = getattr(self, "_slow_llm_models", None)
+                if slow is None:
+                    slow = self._slow_llm_models = {}
+                now = time.monotonic()
+                candidate_models.sort(key=lambda m: slow.get(m, 0.0) > now)  # stabilnie: przeciążone na koniec
 
                 payload = {
                     "contents": [
@@ -386,24 +480,47 @@ class Transcriber:
                     ],
                     "generationConfig": {
                         "temperature": 0.1,
-                        "maxOutputTokens": 1000
+                        # Limit musi pomieścić całą wypowiedź z marginesem – przy zbyt niskiej
+                        # wartości model ucina tekst, a w trybie podglądu to jego wynik jest wklejany.
+                        "maxOutputTokens": max(2048, len(text) // 2 + 1024)
                     }
                 }
-                with httpx.Client(timeout=4.5) as client:
+                headers = {"x-goog-api-key": api_key}
+                with httpx.Client() as client:
                     for model_name in candidate_models:
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                        timeout = _request_timeout(deadline, max(8.0, budget * 0.5))
+                        if timeout is None:
+                            logger.warning("Korekta Gemini przekroczyła łączny limit czasu – pomijam kolejne modele.")
+                            break
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
                         try:
-                            resp = client.post(url, json=payload)
+                            resp = client.post(url, headers=headers, json=payload, timeout=timeout)
                             if resp.status_code == 200:
                                 data = resp.json()
                                 candidates = data.get("candidates", [])
                                 if candidates:
                                     parts = candidates[0].get("content", {}).get("parts", [])
-                                    if parts:
-                                        cleaned = parts[0].get("text", "").strip()
-                                        if cleaned:
-                                            return cleaned
-                        except Exception:
+                                    # Modele "myślące" mogą zwrócić kilka części – pomijamy części z myśleniem
+                                    cleaned = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+                                    if cleaned:
+                                        self.last_llm_status = 'ok'
+                                        return cleaned
+                                    logger.warning(f"Gemini ({model_name}) zwrócił pustą odpowiedź (finishReason={candidates[0].get('finishReason')}).")
+                                else:
+                                    logger.warning(f"Gemini ({model_name}) nie zwrócił kandydatów: {str(data.get('promptFeedback', ''))[:200]}")
+                            elif resp.status_code in (401, 403):
+                                logger.error(f"Błąd autoryzacji Gemini API (kod {resp.status_code}): Niepoprawny klucz API!")
+                                break
+                            elif resp.status_code == 404:
+                                self._dead_llm_models.add(model_name)
+                                logger.warning(f"Model Gemini {model_name} jest niedostępny (404) – pomijam go do końca sesji.")
+                            else:
+                                if resp.status_code == 429 or resp.status_code >= 500:
+                                    slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
+                                logger.warning(f"Gemini API ({model_name}) zwróciło kod {resp.status_code}: {resp.text[:200]}")
+                        except Exception as req_err:
+                            slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
+                            logger.warning(f"Błąd połączenia z modelem {model_name}: {type(req_err).__name__}: {req_err}")
                             continue
             
             elif provider in ("groq", "openai", "ollama", "local", "lmstudio"):
@@ -427,23 +544,39 @@ class Transcriber:
                 elif is_local:
                     headers["Authorization"] = "Bearer ollama"
 
+                # Ollama domyślnie ogranicza odpowiedź do ~128 tokenów (num_predict), co ucinałoby
+                # dłuższe wypowiedzi. Limit wyliczamy z długości tekstu wejściowego.
+                out_tokens = max(2048, len(text) // 2 + 1024)
                 payload = {
                     "model": self.config.get("llm_model", default_model),
                     "messages": [
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": text}
                     ],
-                    "temperature": 0.1
+                    "temperature": 0.1,
+                    "max_tokens": out_tokens
                 }
-                with httpx.Client(timeout=6.0 if is_local else 4.0) as client:
+                if provider == "ollama":
+                    payload["options"] = {"num_predict": out_tokens}
+
+                with httpx.Client(timeout=_request_timeout(deadline)) as client:
                     resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
                         choices = data.get("choices", [])
                         if choices:
-                            return choices[0].get("message", {}).get("content", "").strip()
+                            out = choices[0].get("message", {}).get("content", "").strip()
+                            if out:
+                                self.last_llm_status = 'ok'
+                                return out
+                    elif resp.status_code in (401, 403):
+                        logger.error(f"Błąd autoryzacji {provider} (kod {resp.status_code}): niepoprawny klucz API!")
+                    else:
+                        logger.warning(f"{provider} zwrócił kod {resp.status_code}: {resp.text[:200]}")
 
         except Exception as e:
             logger.warning(f"Błąd korekty LLM ({provider}): {e}. Zwracam surowy tekst.")
 
+        self.last_llm_status = 'failed'
+        logger.warning("Korekta LLM nie powiodła się – zwracam surową transkrypcję Whispera.")
         return text

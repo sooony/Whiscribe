@@ -1,12 +1,5 @@
 """
-notepad_manager.py - Moduł automatyzacji i synchronizacji transkrypcji spotkań z Notatnikiem Windows.
-
-Funkcjonalności:
-1. Automatyczne uruchamianie okna Notepad.exe z nową sesją spotkania.
-2. Tworzenie bezpiecznego pliku kopii zapasowej w folderze 'transkrypcje/spotkanie_YYYY-MM-DD_HH-MM-SS.txt'.
-3. Płynne, bezopóźnieniowe dopisywanie nowych wypowiedzi z formatem: [HH:MM] Uczestnik: treść.
-4. Niekradnący fokusu mechanizm (UIAutomation ValuePattern + Win32 Fallback).
-5. Dołączanie podsumowania końcowego (czas trwania, data, liczba uczestników).
+notepad_manager.py - Zarządzanie zapisem transkrypcji spotkań do pliku i Notatnika Windows.
 """
 
 import os
@@ -47,7 +40,7 @@ class NotepadManager:
 
         header = (
             "======================================================================\n"
-            f" TRANSKRYPCJA SPOTKANIA (AI MEETING TRANSCRIPTION)\n"
+            f" TRANSKRYPCJA SPOTKANIA\n"
             f" Data: {self.start_dt.strftime('%Y-%m-%d')}\n"
             f" Rozpoczęcie: {self.start_dt.strftime('%H:%M:%S')}\n"
             " Separacja mówców: Ja (Mikrofon) | Uczestnicy zewnętrzni (Głośniki/System)\n"
@@ -61,33 +54,9 @@ class NotepadManager:
         except Exception as e:
             logger.error(f"Nie udało się utworzyć pliku {self.filepath}: {e}")
 
-        # Bezpieczny zapis do pliku tekstowego bez uruchamiania aplikacji Notepad.exe,
-        # co zapobiega otwieraniu starych zakładek i zawieszaniu systemu Windows 11.
+        # Zapis do pliku tekstowego bez wywoływania zewnętrznego procesu Notepad.exe
         logger.info(f"Sesja spotkania przygotowana, plik='{self.filepath}'")
         return self.filepath
-
-    def _connect_ui_automation(self):
-        """Wyszukuje kontrolkę edytora w otwartym Notatniku."""
-        time.sleep(0.8)
-        for attempt in range(10):
-            try:
-                import uiautomation as auto
-                # Znajdź okno Notatnika
-                np_window = auto.WindowControl(searchDepth=1, ClassName="Notepad")
-                if np_window.Exists(maxSearchSeconds=1):
-                    doc = np_window.DocumentControl()
-                    if doc.Exists(maxSearchSeconds=1):
-                        val_pat = doc.GetValuePattern()
-                        if val_pat:
-                            with self._lock:
-                                self._doc_control = doc
-                                self._val_pattern = val_pat
-                            logger.info("Pomyślnie podpięto UIAutomation pod Notatnik Windows 11.")
-                            return
-            except Exception as e:
-                logger.debug(f"Próba podpięcia uiautomation ({attempt+1}/10): {e}")
-            time.sleep(0.4)
-        logger.warning("Nie udało się podpiąć UIAutomation. Transkrypcja będzie zapisywana bezpośrednio do pliku.")
 
     def append_utterance(self, speaker: str, text: str, timestamp: datetime.datetime = None):
         """
@@ -157,27 +126,14 @@ class NotepadManager:
             self._update_notepad_display()
 
     def _update_notepad_display(self):
-        """Aktualizuje zawartość dokumentu w Notatniku bez zabierania fokusu."""
+        """Aktualizuje zawartość powiązanego dokumentu Notatnika, jeśli został jawnie podpięty."""
         if self._val_pattern:
             try:
                 self._val_pattern.SetValue(self._all_text)
-                return
             except Exception as e:
                 logger.debug(f"Błąd aktualizacji przez ValuePattern: {e}")
                 self._val_pattern = None
 
-        # Fallback: próba ponownego wyszukania lub Win32
-        try:
-            import uiautomation as auto
-            np_window = auto.WindowControl(searchDepth=1, ClassName="Notepad")
-            if np_window.Exists(maxSearchSeconds=0.5):
-                doc = np_window.DocumentControl()
-                val = doc.GetValuePattern()
-                if val:
-                    self._val_pattern = val
-                    val.SetValue(self._all_text)
-        except Exception:
-            pass
 
     def get_full_text(self) -> str:
         with self._lock:

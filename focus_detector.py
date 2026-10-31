@@ -2,12 +2,13 @@ import ctypes
 from ctypes import wintypes
 import logging
 import os
+import threading
 
 logger = logging.getLogger("FocusDetector")
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 
-# Klasy okien, które pod żadnym pozorem nie są polami tekstowymi (Pulpit, Pasek Zadań i Widżet Aplikacji)
+# Klasy okien nieedytowalnych (pulpit, pasek zadan, widzet aplikacji)
 NON_EDITABLE_WINDOW_CLASSES = {
     '#32769',                     # Pulpit Windows (tło)
     'Progman',                    # Menedżer programu (Pulpit)
@@ -33,16 +34,17 @@ NON_EDITABLE_CONTROL_TYPES = {
 
 # Środowiska programistyczne, edytory kodu i czaty (zawsze edytowalne okna robocze)
 IDE_AND_EDITOR_PROCESSES = {
-    'code.exe', 'cursor.exe', 'devenv.exe',
+    'code.exe', 'cursor.exe', 'devenv.exe', 'antigravity.exe', 'windsurf.exe', 'zed.exe',
     'notepad.exe', 'wordpad.exe', 'winword.exe', 'excel.exe',
     'powerpnt.exe', 'slack.exe', 'discord.exe', 'teams.exe',
     'sublime_text.exe', 'pycharm64.exe', 'idea64.exe', 'clion64.exe',
     'webstorm64.exe', 'rider64.exe', 'obsidian.exe', 'notion.exe'
 }
 
-# Przeglądarki internetowe (wymagają rzeczywistego fokusowania pola wprowadzania tekstu)
+# Przeglądarki internetowe (obszar roboczy stron www i aplikacji webowych)
 BROWSER_PROCESSES = {
-    'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe'
+    'chrome.exe', 'msedge.exe', 'firefox.exe', 'brave.exe', 'opera.exe', 'vivaldi.exe',
+    'arc.exe', 'chromium.exe'
 }
 
 # Terminale i konsole (zawsze przyjmują wprowadzanie tekstu)
@@ -92,17 +94,37 @@ def get_proc_name_from_hwnd(hwnd: int) -> str:
         kernel32.CloseHandle(h_proc)
     return ""
 
-def _check_win32_caret() -> tuple[bool, str]:
+def is_valid_target_window(hwnd: int, overlay_hwnd: int = 0) -> bool:
+    """Sprawdza, czy okno jest poprawnym oknem docelowym dla tekstu."""
+    if not hwnd or not user32.IsWindow(hwnd) or not user32.IsWindowVisible(hwnd):
+        return False
+    if overlay_hwnd and hwnd == overlay_hwnd:
+        return False
+    buf = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd, buf, 256)
+    cls_name = buf.value
+    if cls_name in NON_EDITABLE_WINDOW_CLASSES or cls_name.startswith("VoiceUIClass"):
+        return False
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if pid.value == os.getpid():
+        return False
+    return True
+
+def _check_win32_caret(target_hwnd: int = None) -> tuple[bool, str]:
     """Weryfikuje obecność natywnego kursora tekstowego (caret) lub kontrolki Edit w Win32."""
     try:
+        tid = 0
+        if target_hwnd and user32.IsWindow(target_hwnd):
+            tid = user32.GetWindowThreadProcessId(target_hwnd, None)
         gti = GUITHREADINFO()
         gti.cbSize = ctypes.sizeof(GUITHREADINFO)
-        if user32.GetGUIThreadInfo(0, ctypes.byref(gti)):
-            # Jeśli system zgłasza aktywny kursor tekstowy (migająca pionowa kreska)
+        if user32.GetGUIThreadInfo(tid, ctypes.byref(gti)):
+            # Aktywny kursor tekstowy Win32 (Caret)
             if gti.hwndCaret and gti.hwndCaret != 0:
                 return True, "Natywny kursor tekstowy Win32 (Caret)"
 
-            # Sprawdź klasę kontrolki z fokusem
+            # Weryfikacja klasy kontrolki z fokusem
             if gti.hwndFocus and gti.hwndFocus != 0:
                 cbuf = ctypes.create_unicode_buffer(128)
                 user32.GetClassNameW(gti.hwndFocus, cbuf, 128)
@@ -116,10 +138,8 @@ def _check_win32_caret() -> tuple[bool, str]:
 
 def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
     """
-    Rygorystycznie sprawdza przed rozpoczęciem dyktowania, czy aktywne okno lub kontrolka
-    to edytowalne pole tekstowe.
-    Zapobiega uruchomieniu syntezatora i przypadkowemu wędrowaniu po ikonach
-    pulpitu lub wywoływaniu skrótów klawiszowych w nieodpowiednich aplikacjach.
+    Sprawdza, czy aktywne okno lub kontrolka to edytowalne pole tekstowe.
+    Zapobiega wprowadzaniu tekstu w nieprawidłowe kontrolki systemowe.
     """
     hwnd_fg = target_hwnd if (target_hwnd and user32.IsWindow(target_hwnd)) else user32.GetForegroundWindow()
     if not hwnd_fg:
@@ -129,105 +149,146 @@ def is_text_field_focused(target_hwnd: int = None) -> tuple[bool, str]:
     user32.GetClassNameW(hwnd_fg, buf, 256)
     fg_class = buf.value
 
-    # 1. Bezwzględne zablokowanie pulpitu, paska zadań i widżetu aplikacji
-    if fg_class in NON_EDITABLE_WINDOW_CLASSES:
+    # 1. Wykluczenie pulpitu, paska zadan i okna aplikacji
+    if fg_class in NON_EDITABLE_WINDOW_CLASSES or fg_class.startswith("VoiceUIClass"):
         return False, f"Pulpit lub pasek zadań ({fg_class})"
+
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd_fg, ctypes.byref(pid))
+    if pid.value == os.getpid():
+        return False, "Własny widżet aplikacji Whiscribe"
 
     # 2. Terminale / konsole tekstowe (zawsze edytowalne)
     if fg_class in TERMINAL_CLASSES:
         return True, f"Terminal ({fg_class})"
 
     # 3. Sprawdzenie natywnego kursora Win32 (błyskawiczne i niezawodne w programach Win32)
-    has_caret, caret_reason = _check_win32_caret()
+    has_caret, caret_reason = _check_win32_caret(hwnd_fg)
     if has_caret:
         return True, caret_reason
 
     # 4. Identyfikacja procesu okna na pierwszym planie
     proc_name = get_proc_name_from_hwnd(hwnd_fg)
 
-    # 5. Sprawdzenie przez Windows UI Automation (dla Chrome, Edge, Notatnika Win11, VS Code, Word itp.)
-    try:
-        import uiautomation as auto
-        el = auto.GetFocusedControl()
-        if not el:
-            if proc_name in IDE_AND_EDITOR_PROCESSES:
-                return True, f"Środowisko programistyczne ({proc_name})"
-            return True, f"Aktywne okno aplikacji ({fg_class})"
+    # 5. Sprawdzenie przez Windows UI Automation z twardym limitem czasu (wątek roboczy)
+    uia_result = []
 
-        c_type = el.ControlTypeName
-        c_class = el.ClassName or ""
-        c_name = el.Name or ""
-
-        # 5a. Jawnie zakazane kontrolki interfejsu (drzewa plików, listy, przyciski, paski przewijania itp.)
-        # Odrzucamy je natychmiast, nawet w środowiskach programistycznych (np. kliknięcie w drzewo plików w IDE)
-        if c_type in NON_EDITABLE_CONTROL_TYPES:
-            return False, f"Kontrolka nieedytowalna ({c_type})"
-
-        # 5b. EditControl (<input>, <textarea>, pole czatu, edytor)
-        if c_type == 'EditControl':
+    def _uia_worker():
+        try:
+            ctypes.windll.ole32.CoInitialize(None)
             try:
-                if hasattr(el, 'IsEnabled') and not el.IsEnabled:
-                    return False, "Pole EditControl jest wyłączone (IsEnabled=False)"
-                val = el.GetPattern(auto.PatternId.ValuePattern)
-                if val and val.IsReadOnly:
-                    return False, "Pole EditControl jest tylko do odczytu (IsReadOnly=True)"
-            except Exception:
-                pass
-            return True, f"Pole edycyjne ({c_type})"
+                import uiautomation as auto
+                el = auto.GetFocusedControl()
+                if not el:
+                    if proc_name in IDE_AND_EDITOR_PROCESSES:
+                        uia_result.append((True, f"Środowisko programistyczne ({proc_name})"))
+                    elif proc_name in BROWSER_PROCESSES:
+                        uia_result.append((True, f"Przeglądarka internetowa ({proc_name})"))
+                    else:
+                        uia_result.append((False, f"Brak aktywnej kontrolki w oknie ({fg_class})"))
+                    return
 
-        # 5c. ComboBoxControl (np. pole wyboru / prompt)
-        if c_type == 'ComboBoxControl':
-            return True, f"Pole wyboru/wprowadzania ({c_name or c_type})"
+                c_type = el.ControlTypeName
+                c_class = el.ClassName or ""
+                c_name = el.Name or ""
 
-        # 5d. DocumentControl (Windows 11 Notatnik RichEditD2DPT, Word, WordPad, Dokumenty Google, edytory Electron)
-        if c_type == 'DocumentControl':
-            if proc_name in BROWSER_PROCESSES:
+                # 5a. Przeglądarki internetowe:
+                if proc_name in BROWSER_PROCESSES:
+                    if c_type in ('TitleBarControl', 'TabItemControl', 'MenuControl', 'MenuItemControl', 'ToolBarControl'):
+                        uia_result.append((False, f"Element nawigacyjny przeglądarki ({c_type})"))
+                        return
+                    if c_type in ('ButtonControl',) and ('caption' in c_class.lower() or 'close' in c_name.lower()):
+                        uia_result.append((False, f"Pasek tytułowy przeglądarki ({c_type})"))
+                        return
+                    if c_type == 'EditControl':
+                        try:
+                            if hasattr(el, 'IsEnabled') and not el.IsEnabled:
+                                uia_result.append((False, "Pole EditControl jest wyłączone (IsEnabled=False)"))
+                                return
+                            val = el.GetPattern(auto.PatternId.ValuePattern)
+                            if val and val.IsReadOnly:
+                                uia_result.append((False, "Pole EditControl jest tylko do odczytu (IsReadOnly=True)"))
+                                return
+                        except Exception:
+                            pass
+                        uia_result.append((True, f"Pole edycyjne przeglądarki ({c_type})"))
+                        return
+                    uia_result.append((True, f"Przeglądarka internetowa – obszar strony ({c_type})"))
+                    return
+
+                # 5b. Kontrolki nieedytowalne (drzewa plików, listy, paski przewijania itp.)
+                if c_type in NON_EDITABLE_CONTROL_TYPES:
+                    uia_result.append((False, f"Kontrolka nieedytowalna ({c_type})"))
+                    return
+
+                # 5c. EditControl (pole edycji tekstu)
+                if c_type == 'EditControl':
+                    try:
+                        if hasattr(el, 'IsEnabled') and not el.IsEnabled:
+                            uia_result.append((False, "Pole EditControl jest wyłączone (IsEnabled=False)"))
+                            return
+                        val = el.GetPattern(auto.PatternId.ValuePattern)
+                        if val and val.IsReadOnly:
+                            uia_result.append((False, "Pole EditControl jest tylko do odczytu (IsReadOnly=True)"))
+                            return
+                    except Exception:
+                        pass
+                    uia_result.append((True, f"Pole edycyjne ({c_type})"))
+                    return
+
+                # 5d. ComboBoxControl (pole wyboru / prompt)
+                if c_type == 'ComboBoxControl':
+                    uia_result.append((True, f"Pole wyboru/wprowadzania ({c_name or c_type})"))
+                    return
+
+                # 5e. DocumentControl (Word, Windows 11 Notatnik, WordPad, edytory Electron)
+                if c_type == 'DocumentControl':
+                    uia_result.append((True, f"Dokument tekstowy ({c_type})"))
+                    return
+
+                # 5f. Uniwersalne wzorce edycji tekstu (Monaco w VS Code, kontrolki webowe z TextEditPattern/ValuePattern)
                 try:
                     te = el.GetPattern(auto.PatternId.TextEditPattern)
-                    val = el.GetPattern(auto.PatternId.ValuePattern)
-                    if te is None and (val is None or val.IsReadOnly):
-                        return False, "Przeglądarka internetowa – strona jest tylko do odczytu"
+                    if te is not None:
+                        uia_result.append((True, f"Kontrolka wspiera TextEditPattern ({c_type})"))
+                        return
                 except Exception:
-                    return False, "Przeglądarka internetowa – strona nieedytowalna"
-            return True, f"Dokument tekstowy ({c_type})"
+                    pass
 
-        # 5e. Uniwersalne wzorce edycji tekstu dla kontrolek niestandardowych (np. Monaco w VS Code, contenteditable)
-        try:
-            te = el.GetPattern(auto.PatternId.TextEditPattern)
-            if te is not None:
-                return True, f"Kontrolka wspiera TextEditPattern ({c_type})"
-        except Exception:
-            pass
+                try:
+                    val = el.GetPattern(auto.PatternId.ValuePattern)
+                    if val and not val.IsReadOnly:
+                        uia_result.append((True, f"Kontrolka edytowalna ValuePattern ({c_type})"))
+                        return
+                except Exception:
+                    pass
 
-        try:
-            val = el.GetPattern(auto.PatternId.ValuePattern)
-            if val and not val.IsReadOnly:
-                return True, f"Kontrolka edytowalna ValuePattern ({c_type})"
-        except Exception:
-            pass
+                # 5g. Środowiska programistyczne i narzędzia robocze (VS Code, Cursor, edytory itp.)
+                if proc_name in IDE_AND_EDITOR_PROCESSES:
+                    if c_type in ('ButtonControl', 'TitleBarControl') and ('caption' in c_class.lower() or 'close' in c_name.lower()):
+                        uia_result.append((False, f"Pasek tytułowy aplikacji ({c_type})"))
+                        return
+                    uia_result.append((True, f"Środowisko programistyczne / Czat ({proc_name})"))
+                    return
 
-        # 5f. Środowiska programistyczne i narzędzia robocze (VS Code, Cursor, edytory itp.)
-        if proc_name in IDE_AND_EDITOR_PROCESSES:
-            # W edytorach kontrolki to często PaneControl/GroupControl reprezentujące czat lub edytor
-            # Blokujemy tylko jawne przyciski paska tytułowego (zamknij, minimalizuj)
-            if c_type in ('ButtonControl', 'TitleBarControl') and ('caption' in c_class.lower() or 'close' in c_name.lower()):
-                return False, f"Pasek tytułowy aplikacji ({c_type})"
-            return True, f"Środowisko programistyczne / Czat ({proc_name})"
+                # 5h. Dla pozostałych ogólnych aplikacji: brak wzorca edycji oznacza kontrolkę nieedytowalną
+                uia_result.append((False, f"Kontrolka bez możliwości wprowadzania tekstu ({c_type} / {fg_class})"))
+            finally:
+                ctypes.windll.ole32.CoUninitialize()
+        except Exception as e:
+            logger.debug(f"Błąd wątku inspekcji UIA: {e}")
 
-        # 5g. W przeglądarkach internetowych (Chrome, Edge, Firefox, Brave):
-        # Większość webowych edytorów tekstu (Google Docs, Notion, ChatGPT, Claude, WordPress, formularze, komentarze)
-        # jest renderowana wewnątrz kontrolek typu PaneControl, GroupControl, CustomControl, DocumentControl lub EditControl.
-        # Blokujemy TYLKO elementy nawigacyjne i systemowe samej przeglądarki (karty, pasek adresu, pasek tytułowy, suwak).
-        if proc_name in BROWSER_PROCESSES:
-            if c_type in ('ScrollBarControl', 'TitleBarControl', 'HeaderControl', 'MenuControl', 'MenuItemControl', 'TabItemControl', 'ToolBarControl'):
-                return False, f"Element nawigacyjny przeglądarki ({c_type})"
-            return True, f"Przeglądarka internetowa – obszar roboczy strony ({c_type})"
+    t = threading.Thread(target=_uia_worker, daemon=True)
+    t.start()
+    t.join(timeout=0.18)
 
-        # 5h. Zezwalamy dla normalnych kontrolek aplikacji roboczych (PaneControl, CustomControl itp.)
-        return True, f"Aktywne okno robocze ({c_type} / {fg_class})"
+    if uia_result:
+        return uia_result[0]
 
-    except Exception as e:
-        logger.debug(f"Info inspekcji UI Automation: {e}")
-        if proc_name in IDE_AND_EDITOR_PROCESSES:
-            return True, f"Środowisko programistyczne ({proc_name})"
-        return True, f"Domyślna akceptacja okna ({fg_class})"
+    # Timeout wątku UIA (COM zawisł lub zajął >180ms)
+    logger.debug(f"Timeout inspekcji UIA dla procesu {proc_name} ({fg_class})")
+    if proc_name in IDE_AND_EDITOR_PROCESSES:
+        return True, f"Środowisko programistyczne ({proc_name}) [timeout UIA]"
+    if proc_name in BROWSER_PROCESSES:
+        return True, f"Przeglądarka internetowa ({proc_name}) [timeout UIA]"
+    return False, f"Przekroczono limit czasu inspekcji kontrolki ({fg_class})"

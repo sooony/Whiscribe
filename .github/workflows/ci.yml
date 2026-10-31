@@ -1,0 +1,59 @@
+name: CI & Secret Scanner Gate
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  validate-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+
+      - name: Byte-compile all Python modules
+        shell: pwsh
+        run: |
+          Get-ChildItem -Filter "*.py" | ForEach-Object {
+              Write-Host "Compiling $($_.Name)..."
+              python -m py_compile $_.FullName
+          }
+
+      - name: Secret Scanner Gate (A3.5)
+        shell: pwsh
+        run: |
+          Write-Host "Scanning config*.json files for exposed API keys..."
+          $foundLeak = $false
+          Get-ChildItem -Recurse -Filter "config*.json" | Where-Object { $_.FullName -notmatch '\\models\\' } | ForEach-Object {
+              try {
+                  $json = Get-Content $_.FullName -Raw | ConvertFrom-Json
+                  if ($json.llm_api_key -and $json.llm_api_key.Trim() -ne "") {
+                      Write-Error "CRITICAL: Exposed API key found in $($_.FullName)!"
+                      $foundLeak = $true
+                  }
+              } catch {
+                  Write-Warning "Could not parse JSON in $($_.FullName): $_"
+              }
+          }
+          if ($foundLeak) {
+              exit 1
+          }
+          Write-Host "Secret Scanner Gate PASSED: No API keys found."
+
+      - name: Run unit tests
+        run: |
+          pytest tests/test_audit_safeguards.py -v

@@ -7,7 +7,7 @@ block_cipher = None
 
 datas = [
     ('icon.ico', '.'),
-    ('config.json', '.'),
+    ('config.example.json', '.'),
 ]
 binaries = []
 hiddenimports = [
@@ -38,6 +38,9 @@ hiddenimports = [
     'recorder',
     'transcriber',
     'config',
+    'pyperclip',
+    'httpx',
+    'httpcore',
 ]
 
 packages_to_collect = [
@@ -62,9 +65,9 @@ for pkg in packages_to_collect:
         print(f"Warning collecting {pkg}: {e}")
 
 # Explicitly ensure _portaudiowpatch pyd is added
+import glob
 site_pkgs = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', 'Lib', 'site-packages'))
-pyd_path = os.path.join(site_pkgs, '_portaudiowpatch.cp310-win_amd64.pyd')
-if os.path.exists(pyd_path):
+for pyd_path in glob.glob(os.path.join(site_pkgs, '_portaudiowpatch*.pyd')):
     binaries.append((pyd_path, '.'))
 
 a = Analysis(
@@ -114,3 +117,24 @@ coll = COLLECT(
     upx_exclude=[],
     name='Whiscribe-Portable',
 )
+
+import shutil
+out_dir = os.path.join('dist', 'Whiscribe-Portable')
+try:
+    if os.path.exists('icon.ico'):
+        shutil.copy('icon.ico', out_dir)
+except Exception as e:
+    print(f"Warning copying root assets: {e}")
+
+# Bezpiecznik w buildzie — przerwij budowanie, jeśli w paczce znalazł się klucz API
+import json, glob, sys
+for p in glob.glob(os.path.join('dist', 'Whiscribe-Portable', '**', 'config*.json'), recursive=True):
+    if 'models' in p:            # pomiń config.json modelu Whisper
+        continue
+    try:
+        cfg = json.load(open(p, encoding='utf-8'))
+        if cfg.get('llm_api_key'):
+            sys.exit(f'BUILD ABORTED: klucz API w {p}')
+    except (json.JSONDecodeError, OSError):
+        pass
+

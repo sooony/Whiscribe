@@ -42,6 +42,20 @@ class AudioToneDiarizer:
         self._next_participant_index = 1
         self.last_external_speaker = None
         self.last_external_time = 0.0
+        self.user_pitch = 0.0
+        self.user_centroid = 0.0
+
+    def update_user_voice(self, audio: np.ndarray):
+        """Rejestruje i adaptacyjnie uczy się profilu tonu głosu użytkownika ('Ja')."""
+        pitch, centroid = self.extract_voice_features(audio)
+        if pitch > 0:
+            if self.user_pitch <= 0:
+                self.user_pitch = pitch
+                self.user_centroid = centroid
+            else:
+                self.user_pitch = 0.85 * self.user_pitch + 0.15 * pitch
+                if centroid > 0:
+                    self.user_centroid = 0.85 * self.user_centroid + 0.15 * centroid
 
     def extract_voice_features(self, audio: np.ndarray) -> tuple[float, float]:
         """
@@ -50,6 +64,11 @@ class AudioToneDiarizer:
         """
         if audio is None or len(audio) < self.sample_rate * 0.15:
             return 0.0, 0.0
+
+        # Normalizacja amplitudy pod analizę widmową (odporność na ciche głośniki)
+        max_v = float(np.max(np.abs(audio))) if len(audio) > 0 else 0.0
+        if max_v > 0.001 and max_v < 0.7:
+            audio = audio * (0.85 / max_v)
 
         sr = self.sample_rate
         frame_len = int(sr * 0.04)  # 40 ms okno
@@ -171,7 +190,11 @@ class AudioToneDiarizer:
         num_external = len(self.clusters)
         total_participants = 1 + num_external  # 1 to "Ja"
 
-        breakdown = {"Ja": "Mikrofon (gospodarz spotkania)"}
+        user_desc = "Mikrofon (gospodarz spotkania)"
+        if self.user_pitch > 0:
+            user_desc += f" [Średni ton: {self.user_pitch:.0f} Hz]"
+
+        breakdown = {"Ja": user_desc}
         for cl in self.clusters:
             breakdown[cl.speaker_id] = f"Średni ton: {cl.pitch:.0f} Hz (wypowiedzi: {cl.samples_count})"
 
@@ -187,3 +210,5 @@ class AudioToneDiarizer:
         self._next_participant_index = 1
         self.last_external_speaker = None
         self.last_external_time = 0.0
+        self.user_pitch = 0.0
+        self.user_centroid = 0.0

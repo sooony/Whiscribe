@@ -1,0 +1,11 @@
+# Ensure consistent line endings across Windows and other environments
+* text=auto eol=crlf
+
+# Binary files
+*.png binary
+*.ico binary
+*.wav binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.pyd binary

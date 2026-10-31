@@ -33,20 +33,36 @@ class MeetingAudioSegment:
 class MeetingRecorder:
     def __init__(self, target_sample_rate: int = 16000):
         self.target_sample_rate = target_sample_rate
-        self.speech_queue = queue.Queue()
+        # Ograniczenie rozmiaru kolejki segmentów transkrypcji (max 40 segmentów)
+        self.speech_queue = queue.Queue(maxsize=40)
         self.is_recording = False
         self._stop_event = threading.Event()
 
         self.mic_volume = 0.0
         self.loopback_volume = 0.0
+        self.is_loopback_active = False
+        self.last_loopback_active_time = 0.0
 
         self._pyaudio = None
         self._mic_stream = None
         self._loop_stream = None
-        self._mic_raw_queue = queue.Queue()
-        self._loop_raw_queue = queue.Queue()
+        # Ograniczone bufory surowych danych (max 200 ramek audio)
+        self._mic_raw_queue = queue.Queue(maxsize=200)
+        self._loop_raw_queue = queue.Queue(maxsize=200)
         self._mic_thread = None
         self._loop_thread = None
+
+    def _enqueue_speech_segment(self, segment: MeetingAudioSegment):
+        """Bezpieczne wstawianie segmentu do kolejki transkrypcji z polityką odrzucania najstarszych."""
+        try:
+            self.speech_queue.put_nowait(segment)
+        except queue.Full:
+            logger.warning("Kolejka transkrypcji spotkania pełna! Odrzucanie najstarszego segmentu.")
+            try:
+                self.speech_queue.get_nowait()
+                self.speech_queue.put_nowait(segment)
+            except Exception:
+                pass
 
     def start(self):
         """Uruchamia rejestrację obu strumieni (Mic + Loopback) w asynchronicznym trybie WASAPI."""
@@ -84,10 +100,17 @@ class MeetingRecorder:
             logger.info(f"MeetingRecorder: Mikrofon: '{mic_dev['name']}'")
             logger.info(f"MeetingRecorder: Loopback: '{loopback_dev['name']}'")
 
-            # Callback dla strumienia mikrofonu (zero narzutu, czysta kolejka)
+            # Callback strumienia mikrofonu
             def _mic_callback(in_data, frame_count, time_info, status):
                 if in_data and self.is_recording:
-                    self._mic_raw_queue.put(in_data)
+                    try:
+                        self._mic_raw_queue.put_nowait(in_data)
+                    except queue.Full:
+                        try:
+                            self._mic_raw_queue.get_nowait()
+                            self._mic_raw_queue.put_nowait(in_data)
+                        except Exception:
+                            pass
                 return (None, pyaudio.paContinue)
 
             mic_rate = int(mic_dev['defaultSampleRate'])
@@ -105,7 +128,14 @@ class MeetingRecorder:
             # Callback dla strumienia loopback
             def _loop_callback(in_data, frame_count, time_info, status):
                 if in_data and self.is_recording:
-                    self._loop_raw_queue.put(in_data)
+                    try:
+                        self._loop_raw_queue.put_nowait(in_data)
+                    except queue.Full:
+                        try:
+                            self._loop_raw_queue.get_nowait()
+                            self._loop_raw_queue.put_nowait(in_data)
+                        except Exception:
+                            pass
                 return (None, pyaudio.paContinue)
 
             loop_rate = int(loopback_dev['defaultSampleRate'])
@@ -184,12 +214,16 @@ class MeetingRecorder:
             self._pyaudio = None
 
     def _resample_to_16k(self, audio: np.ndarray, orig_sr: int) -> np.ndarray:
-        """Szybka i precyzyjna konwersja do 16000 Hz."""
+        """Konwersja częstotliwości próbkowania do 16000 Hz z filtrem antyaliasingowym."""
         if orig_sr == self.target_sample_rate:
-            return audio
+            return audio.astype(np.float32)
+        if len(audio) == 0:
+            return np.empty(0, dtype=np.float32)
+
         if orig_sr % self.target_sample_rate == 0:
             dec = orig_sr // self.target_sample_rate
-            return audio[::dec]
+            # ftype='fir' z zero_phase=True zapobiega przesunięciu fazy i tłumi pasmo powyżej Nyquista (8kHz)
+            return scipy.signal.decimate(audio, dec, ftype='fir', zero_phase=True).astype(np.float32)
 
         import math
         gcd = math.gcd(self.target_sample_rate, orig_sr)
@@ -201,6 +235,8 @@ class MeetingRecorder:
         """
         Wątek odczytujący próbki audio z kolejki asynchronicznej, analizujący VAD
         i emitujący gotowe segmenty mowy do kolejki transkrypcji.
+        Próbki gromadzone są z natywnym próbkowaniem, a resampling do 16kHz
+        odbywa się jednorazowo na całym segmencie, eliminując zniekształcenia brzegowe.
         """
         speech_chunks = []
         is_speech_active = False
@@ -226,35 +262,46 @@ class MeetingRecorder:
                 else:
                     mono = data
 
-                # Konwersja do 16kHz
-                mono_16k = self._resample_to_16k(mono, orig_rate)
+                # Obliczenie energii RMS dla VAD i wskaźnika poziomu (energia sygnału niezależna od próbkowania)
+                rms = float(np.sqrt(np.mean(mono**2))) if len(mono) > 0 else 0.0
 
-                # Obliczenie energii RMS dla VAD i wskaźnika poziomu
-                rms = float(np.sqrt(np.mean(mono_16k**2))) if len(mono_16k) > 0 else 0.0
-
-                if source == "mic":
-                    self.mic_volume = self.mic_volume * 0.4 + rms * 0.6
-                else:
+                if source == "loopback":
                     self.loopback_volume = self.loopback_volume * 0.4 + rms * 0.6
+                    if rms > vad_threshold:
+                        self.is_loopback_active = True
+                        self.last_loopback_active_time = time.time()
+                    elif time.time() - self.last_loopback_active_time > 0.5:
+                        self.is_loopback_active = False
+                else:
+                    self.mic_volume = self.mic_volume * 0.4 + rms * 0.6
 
                 now = time.time()
 
-                if rms > vad_threshold:
+                eff_threshold = vad_threshold
+                if source == "mic":
+                    # Podniesienie progu detekcji mikrofonu, gdy loopback jest aktywny (tlumienie echa)
+                    loopback_playing = self.is_loopback_active or (now - self.last_loopback_active_time < 0.45)
+                    if loopback_playing:
+                        eff_threshold = max(vad_threshold * 2.8, self.loopback_volume * 0.50)
+
+                if rms > eff_threshold:
                     last_voice_time = now
                     if not is_speech_active:
                         is_speech_active = True
                         speech_start_time = datetime.datetime.now()
                         speech_chunks = []
-                    speech_chunks.append(mono_16k)
+                    speech_chunks.append(mono)
                 elif is_speech_active:
-                    speech_chunks.append(mono_16k)
+                    speech_chunks.append(mono)
 
                     elapsed_silence = now - last_voice_time
-                    current_duration = sum(len(c) for c in speech_chunks) / self.target_sample_rate
+                    current_duration = sum(len(c) for c in speech_chunks) / orig_rate
 
                     if elapsed_silence >= silence_timeout or current_duration >= max_chunk_sec:
-                        # Emituj segment mowy do kolejki transkrypcji
-                        audio_full = np.concatenate(speech_chunks)
+                        # Resamplujemy cały zebrany segment mowy jednorazowo z filtrem antyaliasingowym
+                        raw_full = np.concatenate(speech_chunks)
+                        audio_full = self._resample_to_16k(raw_full, orig_rate)
+
                         # Odrzuć zbyt ciche lub mikroskopijne szumy (< 0.25s)
                         if len(audio_full) >= self.target_sample_rate * 0.25 and np.max(np.abs(audio_full)) >= vad_threshold * 1.5:
                             segment = MeetingAudioSegment(
@@ -263,7 +310,7 @@ class MeetingRecorder:
                                 timestamp=speech_start_time or datetime.datetime.now(),
                                 duration_s=len(audio_full) / self.target_sample_rate
                             )
-                            self.speech_queue.put(segment)
+                            self._enqueue_speech_segment(segment)
 
                         # Reset pod kolejną wypowiedź
                         if elapsed_silence >= silence_timeout:
@@ -279,7 +326,8 @@ class MeetingRecorder:
         # Na zakończenie: emituj ewentualny pozostały fragment mowy z bufora
         if is_speech_active and speech_chunks:
             try:
-                audio_full = np.concatenate(speech_chunks)
+                raw_full = np.concatenate(speech_chunks)
+                audio_full = self._resample_to_16k(raw_full, orig_rate)
                 if len(audio_full) >= self.target_sample_rate * 0.25:
                     segment = MeetingAudioSegment(
                         source=source,
@@ -287,7 +335,7 @@ class MeetingRecorder:
                         timestamp=speech_start_time or datetime.datetime.now(),
                         duration_s=len(audio_full) / self.target_sample_rate
                     )
-                    self.speech_queue.put(segment)
+                    self._enqueue_speech_segment(segment)
             except Exception as e:
                 logger.debug(f"Błąd emitowania końcowego segmentu {source}: {e}")
 

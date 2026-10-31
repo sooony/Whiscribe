@@ -25,7 +25,7 @@ def _generate_wav(samples, sr=22050):
     return buf.getvalue()
 
 def _make_sound_start_1():
-    # 1. Nowoczesny dzwonek (Bell Chime): 580Hz -> 720Hz z ciepłą harmoniczną
+    # Preset 1 (Bell Chime): 580Hz -> 720Hz
     sr, dur_s, vol = 22050, 0.052, 0.22
     n = int(sr * dur_s)
     samples = []
@@ -38,7 +38,7 @@ def _make_sound_start_1():
     return _generate_wav(samples, sr)
 
 def _make_sound_start_2():
-    # 2. Subtelny Pop (Win11 Soft Bubble): szybki wznoszący chirp 460Hz -> 860Hz
+    # Preset 2 (Bubble Pop): 460Hz -> 860Hz
     sr, dur_s, vol = 22050, 0.034, 0.20
     n = int(sr * dur_s)
     samples = []
@@ -51,7 +51,7 @@ def _make_sound_start_2():
     return _generate_wav(samples, sr)
 
 def _make_sound_start_3():
-    # 3. Harmonia (Arpeggio Akord): C5 (523Hz) -> G5 (784Hz)
+    # Preset 3 (Arpeggio): C5 (523Hz) -> G5 (784Hz)
     sr, dur_s, vol = 22050, 0.065, 0.20
     n = int(sr * dur_s)
     samples = []
@@ -70,7 +70,7 @@ def _make_sound_start_3():
     return _generate_wav(samples, sr)
 
 def _make_sound_start_4():
-    # 4. Cyber Minimal (Dyskretny tik): krótki krystaliczny impuls 940Hz
+    # Preset 4 (Minimal): 940Hz
     sr, dur_s, vol = 22050, 0.019, 0.17
     n = int(sr * dur_s)
     samples = []
@@ -82,7 +82,7 @@ def _make_sound_start_4():
     return _generate_wav(samples, sr)
 
 def _make_sound_stop_1():
-    # 1. Łagodny spadek: 480Hz -> 380Hz
+    # Preset 1: 480Hz -> 380Hz
     sr, dur_s, vol = 22050, 0.048, 0.20
     n = int(sr * dur_s)
     samples = []
@@ -95,7 +95,7 @@ def _make_sound_stop_1():
     return _generate_wav(samples, sr)
 
 def _make_sound_stop_2():
-    # 2. Subtelny Pop (Win11 Soft Bubble opadający): 680Hz -> 340Hz
+    # Preset 2: 680Hz -> 340Hz
     sr, dur_s, vol = 22050, 0.032, 0.18
     n = int(sr * dur_s)
     samples = []
@@ -108,7 +108,7 @@ def _make_sound_stop_2():
     return _generate_wav(samples, sr)
 
 def _make_sound_stop_3():
-    # 3. Harmonia (Arpeggio Akord opadający): G5 (784Hz) -> C5 (523Hz)
+    # Preset 3: G5 (784Hz) -> C5 (523Hz)
     sr, dur_s, vol = 22050, 0.065, 0.20
     n = int(sr * dur_s)
     samples = []
@@ -127,7 +127,7 @@ def _make_sound_stop_3():
     return _generate_wav(samples, sr)
 
 def _make_sound_stop_4():
-    # 4. Cyber Minimal (Dyskretny niski tik): 440Hz
+    # Preset 4: 440Hz
     sr, dur_s, vol = 22050, 0.019, 0.17
     n = int(sr * dur_s)
     samples = []
@@ -221,12 +221,12 @@ from PIL import Image, ImageDraw
 import pystray
 from pynput import keyboard
 
-from config import load_config, save_config, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION
+from config import load_config, save_config, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION, APP_RELEASE_DATE, GITHUB_URL
 from recorder import AudioRecorder
 from transcriber import Transcriber
 from injector import inject_text, sync_text, send_unicode_string, ForwardStreamCommitter
 from overlay import FloatingOverlay, THEMES, draw_svg_mic
-from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd
+from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd, is_valid_target_window
 from meeting_manager import MeetingManager
 
 user32 = ctypes.windll.user32
@@ -238,6 +238,17 @@ user32.SetForegroundWindow.restype = wintypes.BOOL
 user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 user32.IsWindow.restype = wintypes.BOOL
 user32.IsWindow.argtypes = [wintypes.HWND]
+user32.IsIconic.restype = wintypes.BOOL
+user32.IsIconic.argtypes = [wintypes.HWND]
+user32.BringWindowToTop.restype = wintypes.BOOL
+user32.BringWindowToTop.argtypes = [wintypes.HWND]
+user32.AttachThreadInput.restype = wintypes.BOOL
+user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+try:
+    user32.AllowSetForegroundWindow.restype = wintypes.BOOL
+    user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+except Exception:
+    pass
 
 def safe_bring_to_foreground(hwnd: int) -> bool:
     """
@@ -245,31 +256,48 @@ def safe_bring_to_foreground(hwnd: int) -> bool:
     """
     if not hwnd or not user32.IsWindow(hwnd):
         return False
-    cur = user32.GetForegroundWindow()
+    cur = user32.GetForegroundWindow() or 0
     if cur == hwnd:
         return True
 
     try:
-        user32.AllowSetForegroundWindow(-1)
+        user32.AllowSetForegroundWindow(0xFFFFFFFF)  # ASFW_ANY
     except Exception:
         pass
 
-    fg_thread = user32.GetWindowThreadProcessId(cur, None)
+    fg_thread = user32.GetWindowThreadProcessId(cur, None) if cur else 0
+    target_thread = user32.GetWindowThreadProcessId(hwnd, None)
     app_thread = kernel32.GetCurrentThreadId()
-    attached = False
+
+    attached_fg = False
+    attached_target = False
+
     if fg_thread and fg_thread != app_thread:
         try:
-            attached = user32.AttachThreadInput(app_thread, fg_thread, True)
+            attached_fg = user32.AttachThreadInput(app_thread, fg_thread, True)
         except Exception:
-            attached = False
+            attached_fg = False
+
+    if target_thread and target_thread != app_thread and target_thread != fg_thread:
+        try:
+            attached_target = user32.AttachThreadInput(app_thread, target_thread, True)
+        except Exception:
+            attached_target = False
 
     try:
+        if user32.IsIconic(hwnd):
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE (tylko i wyłącznie gdy okno było zminimalizowane do paska zadań)
         user32.SetForegroundWindow(hwnd)
         user32.BringWindowToTop(hwnd)
     finally:
-        if attached:
+        if attached_fg:
             try:
                 user32.AttachThreadInput(app_thread, fg_thread, False)
+            except Exception:
+                pass
+        if attached_target:
+            try:
+                user32.AttachThreadInput(app_thread, target_thread, False)
             except Exception:
                 pass
 
@@ -292,8 +320,9 @@ def is_mouse_down() -> bool:
             return True
     return False
 
+from logging.handlers import RotatingFileHandler
 LOG_FILE = os.path.join(get_app_dir(), "app.log")
-handlers = [logging.FileHandler(LOG_FILE, encoding='utf-8')]
+handlers = [RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=2, encoding='utf-8')]
 if sys.stdout is not None:
     handlers.append(logging.StreamHandler(sys.stdout))
 
@@ -305,28 +334,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger("DictationApp")
 
+
+def _log_thread_exception(args):
+    if args.exc_type is SystemExit:
+        return
+    name = args.thread.name if args.thread else "?"
+    logger.error(f"Nieobsłużony wyjątek w wątku {name}", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+
+threading.excepthook = _log_thread_exception
+
 def create_tray_icon_image(state="idle", frame_idx=0, vol=0.0) -> Image.Image:
-    """Generuje ikonę dla zasobnika systemowego Windows 11 (granatowa bez obwiedni, biały mikrofon)."""
+    """Tworzy obraz ikony traya w zaleznosci od stanu."""
     img_hi = Image.new('RGBA', (256, 256), color=(0, 0, 0, 0))
     d = ImageDraw.Draw(img_hi)
     navy_color = (18, 28, 58, 255)
-    # Granatowe tło bez obwiedni (identyczne jak na pasku zadań)
+    # Tlo ikony
     d.ellipse((10, 10, 246, 246), fill=navy_color)
-    # Czysty biały mikrofon wektorowy
+    # Mikrofon wektorowy
     draw_svg_mic(img_hi, 128, 128, 124, color=(255, 255, 255, 255))
 
     if state == "recording":
-        # Wskaźnik nagrywania: subtelna czerwona dioda REC w prawym górnym rogu
+        # Wskaznik nagrywania (czerwony)
         pulse = 0.5 + 0.5 * math.sin(frame_idx * 0.5)
         rec_r = int(22 + pulse * 8)
         d.ellipse((196 - rec_r, 60 - rec_r, 196 + rec_r, 60 + rec_r), fill=(255, 45, 65, 255))
     elif state == "meeting":
-        # Wskaźnik spotkania: subtelna dioda w prawym górnym rogu
+        # Wskaznik spotkania (niebieski)
         pulse = 0.5 + 0.5 * math.sin(frame_idx * 0.5)
         rec_r = int(22 + pulse * 8)
         d.ellipse((196 - rec_r, 60 - rec_r, 196 + rec_r, 60 + rec_r), fill=(99, 133, 248, 255))
     elif state == "processing":
-        # Wskaźnik przetwarzania: subtelna bursztynowa dioda w prawym górnym rogu
+        # Wskaznik przetwarzania (bursztynowy)
         pulse = 0.5 + 0.5 * math.sin(frame_idx * 0.5)
         rec_r = int(22 + pulse * 8)
         d.ellipse((196 - rec_r, 60 - rec_r, 196 + rec_r, 60 + rec_r), fill=(245, 158, 11, 255))
@@ -348,9 +387,8 @@ def format_hotkey(hk: str) -> str:
 
 class UniversalGlobalHotKeys(keyboard.Listener):
     """
-    Globalny listener skrótów klawiszowych pynput, który:
-    1. Akceptuje zdarzenia wstrzykiwane (injected=True) – kluczowe dla myszek Logitech MX Master (Logi Options+),
-       oprogramowania myszy gamingowych, stream decków i makr.
+    Globalny listener skrótów klawiszowych pynput:
+    1. Obsługuje zdarzenia injected=True dla myszek (np. Logitech MX Master), makr i urządzeń wejściowych.
     2. Normalizuje klawisze modyfikatorów (alt_gr, alt_l, alt_r -> alt; ctrl_l, ctrl_r -> ctrl; shift_l, shift_r -> shift).
     """
     def __init__(self, hotkeys, *args, **kwargs):
@@ -395,34 +433,35 @@ def set_autostart(enable: bool) -> bool:
     lnk = os.path.join(startup_dir, "Whiscribe.lnk")
     if enable:
         if getattr(sys, 'frozen', False):
-            exe_path = sys.executable
-            work_dir = os.path.dirname(exe_path)
-            ps_cmd = (
-                f'$sh=New-Object -ComObject WScript.Shell; '
-                f'$s=$sh.CreateShortcut(\"{lnk}\"); '
-                f'$s.TargetPath=\"{exe_path}\"; '
-                f'$s.Arguments=\"\"; '
-                f'$s.WorkingDirectory=\"{work_dir}\"; '
-                f'$s.IconLocation=\"{exe_path},0\"; '
-                f'$s.Description=\"Whiscribe v{APP_VERSION} - AI Voice Typing\"; '
-                f'$s.Save()'
-            )
+            target = sys.executable
+            args = ""
+            workdir = os.path.dirname(target)
+            icon = f"{target},0"
         else:
             app_dir = get_app_dir()
-            vbs_path = os.path.join(app_dir, "run_silent.vbs")
-            ico_path = os.path.join(app_dir, "icon.ico")
-            ps_cmd = (
-                f'$sh=New-Object -ComObject WScript.Shell; '
-                f'$s=$sh.CreateShortcut(\"{lnk}\"); '
-                f'$s.TargetPath=\"wscript.exe\"; '
-                f'$s.Arguments=\"`\"{vbs_path}`\"\"; '
-                f'$s.WorkingDirectory=\"{app_dir}\"; '
-                f'$s.IconLocation=\"{ico_path},0\"; '
-                f'$s.Description=\"Whiscribe v{APP_VERSION} - AI Voice Typing\"; '
-                f'$s.Save()'
-            )
+            target = "wscript.exe"
+            args = f'"{os.path.join(app_dir, "run_silent.vbs")}"'
+            workdir = app_dir
+            icon = f"{os.path.join(app_dir, 'icon.ico')},0"
+
+        desc = f"Whiscribe v{APP_VERSION} - AI Voice Typing"
+        ps_script = (
+            "param($linkPath, $targetPath, $arguments, $workingDir, $iconLoc, $description) "
+            "$sh = New-Object -ComObject WScript.Shell; "
+            "$s = $sh.CreateShortcut($linkPath); "
+            "$s.TargetPath = $targetPath; "
+            "$s.Arguments = $arguments; "
+            "$s.WorkingDirectory = $workingDir; "
+            "$s.IconLocation = $iconLoc; "
+            "$s.Description = $description; "
+            "$s.Save()"
+        )
         try:
-            subprocess.run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_cmd], check=True, creationflags=0x08000000)
+            subprocess.run(
+                ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_script,
+                 lnk, target, args, workdir, icon, desc],
+                check=True, creationflags=0x08000000
+            )
             return True
         except Exception as e:
             logger.error(f"Błąd włączania autostartu: {e}")
@@ -437,7 +476,16 @@ def set_autostart(enable: bool) -> bool:
             return False
 
 
+# Maksymalna długość audio bez zakończonego segmentu w trybie streamingu (s)
+STREAM_MAX_UNCOMMITTED_S = 30.0
+# Po tylu sekundach bez wyniku ponowne naciśnięcie skrótu przerywa przetwarzanie
+PROCESSING_ABANDON_AFTER_S = 15.0
+
+
 class DictationApp:
+    # pystray nie jest bezpieczny wątkowo: dwa równoległe przypisania ikony zwalniają ten sam
+    # uchwyt (DestroyIcon) i drugie rzuca OSError. Wszystkie zmiany ikony idą przez ten lock.
+    _tray_icon_lock = threading.Lock()
     def __init__(self):
         self.config = load_config()
         self.recorder = AudioRecorder(sample_rate=16000)
@@ -448,6 +496,7 @@ class DictationApp:
         if self.overlay:
             self.overlay.show_live_preview = self.config.get("show_live_preview", False)
             self.overlay.stream_realtime = self.config.get("stream_realtime", False)
+            self.overlay.ai_enabled = self.config.get("use_llm", False)
         
         logger.info("Inicjalizacja modułu rozpoznawania mowy Whisper...")
         self.transcriber = Transcriber(self.config)
@@ -466,7 +515,8 @@ class DictationApp:
                 on_minimize=self.minimize_to_tray,
                 on_restore=self._on_overlay_restored,
                 on_hotkey=self._on_system_hotkey,
-                on_stream_toggle=self.toggle_streaming_mode
+                on_stream_toggle=self.toggle_streaming_mode,
+                on_ai_toggle=self.toggle_gemini_correction
             )
             self.overlay.set_settings_handler(self._show_settings_menu)
             self.overlay.show()
@@ -481,6 +531,13 @@ class DictationApp:
         self._type_lock = threading.RLock()
         self._stream_stop_event = threading.Event()
         self._streaming_thread = None
+        # Numer sesji streamingu: wątek z poprzedniego nagrania kończy się, gdy ruszy nowe
+        self._stream_session = 0
+        # Numer bieżącego zadania finalizacji. Zadanie porzucone (watchdog, ponowny skrót, X)
+        # nie wkleja już tekstu i nie zmienia stanu aplikacji, nawet jeśli skończy się później.
+        self._job_seq = 0
+        self._processing_started = 0.0
+        self._processing_deadline = 0.0
         self._recording_start_time = 0.0
         self.committed_text = ""
         self.committed_sample_offset = 0
@@ -491,7 +548,11 @@ class DictationApp:
         self.buffered_untyped_text = ""
         self.last_active_hwnd = 0
 
+        self._orig_lock_timeout = None
         try:
+            old_timeout = wintypes.DWORD()
+            if user32.SystemParametersInfoW(0x2000, 0, ctypes.byref(old_timeout), 0):
+                self._orig_lock_timeout = old_timeout.value
             user32.SystemParametersInfoW(0x2001, 0, ctypes.c_void_p(0), 2)
             user32.AllowSetForegroundWindow(-1)
         except Exception:
@@ -530,13 +591,66 @@ class DictationApp:
     def _on_overlay_restored(self):
         self._is_minimized_to_tray = False
 
+    def _llm_active(self) -> bool:
+        """Czy korekta AI jest realnie dostępna (podany klucz API lub skonfigurowany silnik lokalny)."""
+        if not self.config.get("use_llm", False):
+            return False
+        provider = self.config.get("llm_provider", "gemini").lower()
+        if provider in ("ollama", "local", "lmstudio"):
+            return True
+        return bool(self.config.get("llm_api_key", "").strip())
+
+    def _preview_only_mode(self) -> bool:
+        """
+        Tryb podglądu (streaming + korekta AI jednocześnie):
+        - transkrypcja na żywo trafia WYŁĄCZNIE do panelu widżetu,
+        - do okna docelowego wpisujemy raz, dopiero po korekcie całej wypowiedzi.
+        Dzięki temu nie trzeba cofać ani podmieniać tekstu już wpisanego w cudzym oknie.
+        """
+        return bool(self.config.get("stream_realtime", False)) and self._llm_active()
+
     def _type_stream_chunk(self, chunk: str):
         """Wpisuje słowa w przód (Forward-only) z ciągłym streamingiem bezpośrednio do aktywnego pola."""
         if not chunk:
             return
 
+        # Tryb podglądu: na żywo nie wpisujemy nic do okna docelowego.
+        # Tekst pojawia się tylko w widżecie, a po zakończeniu wklejamy skorygowaną całość.
+        if getattr(self, "_preview_mode_active", False):
+            return
+
         with self._type_lock:
-            send_unicode_string(chunk)
+            cur_fg = user32.GetForegroundWindow() or 0
+            overlay_hwnd = self.overlay.hwnd if self.overlay else 0
+
+            # Zabezpieczenie przed pisaniem do obcego okna podczas przełączania okien (Alt+Tab, kliknięcie poza target)
+            # oraz przed pisaniem w ułamku sekundy, gdy użytkownik trzyma wciśnięty przycisk myszy (drag suwaka/scroll, zaznaczanie tekstu)
+            target_inactive = bool(self.target_hwnd and user32.IsWindow(self.target_hwnd) and cur_fg != self.target_hwnd and cur_fg != overlay_hwnd)
+            mouse_busy = is_mouse_down()
+
+            if target_inactive or mouse_busy:
+                self.buffered_untyped_text += chunk
+                return
+
+            if self.buffered_untyped_text:
+                to_send = self.buffered_untyped_text + chunk
+                self.buffered_untyped_text = ""
+                send_unicode_string(to_send)
+            else:
+                send_unicode_string(chunk)
+
+    def _set_tray_icon(self, state: str, expect_state: str = None, **kwargs):
+        """Zmienia ikonę w zasobniku; błąd pystray nigdy nie przerywa wywołującego."""
+        if not self.tray_icon:
+            return
+        with self._tray_icon_lock:
+            # Klatka animacji nie może nadpisać ikony stanu, który już się zmienił
+            if expect_state is not None and self.state != expect_state:
+                return
+            try:
+                self.tray_icon.icon = create_tray_icon_image(state, **kwargs)
+            except Exception as e:
+                logger.debug(f"Nie udało się zmienić ikony w zasobniku ({state}): {e}")
 
     def _tray_anim_worker(self):
         """Animuje ikonę w pasku menu/zadań (obszarze powiadomień) podczas nagrywania lub spotkania."""
@@ -549,11 +663,9 @@ class DictationApp:
                     )
                 except Exception:
                     vol = 0.0
-                st = "recording" if self.state == "recording" else ("meeting" if self.state == "meeting_recording" else "processing")
-                try:
-                    self.tray_icon.icon = create_tray_icon_image(st, frame_idx=frame, vol=vol)
-                except Exception:
-                    pass
+                cur_state = self.state
+                st = "recording" if cur_state == "recording" else ("meeting" if cur_state == "meeting_recording" else "processing")
+                self._set_tray_icon(st, expect_state=cur_state, frame_idx=frame, vol=vol)
                 frame += 1
                 time.sleep(0.08)
             else:
@@ -596,22 +708,47 @@ class DictationApp:
         """Nasłuchuje sygnałów IPC z kolejnych wywołań aplikacji (np. skrót na pulpicie, przycisk myszy)."""
         EVENT_SHOW = r"Local\Whiscribe_ShowOverlay_Event"
         EVENT_TOGGLE = r"Local\Whiscribe_Toggle_Event"
-        h_show = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_SHOW)
-        h_toggle = ctypes.windll.kernel32.CreateEventW(None, False, False, EVENT_TOGGLE)
+        # Ochrona obiektów IPC DACL-em ograniczonym do właściciela sesji
+        sa_ptr = None
+        p_sd = ctypes.c_void_p()
+        try:
+            class SECURITY_ATTRIBUTES(ctypes.Structure):
+                _fields_ = [
+                    ("nLength", wintypes.DWORD),
+                    ("lpSecurityDescriptor", ctypes.c_void_p),
+                    ("bInheritHandle", wintypes.BOOL)
+                ]
+            if ctypes.windll.advapi32.ConvertStringSecurityDescriptorToSecurityDescriptorW("D:(A;;GA;;;OW)", 1, ctypes.byref(p_sd), None):
+                sa = SECURITY_ATTRIBUTES()
+                sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
+                sa.lpSecurityDescriptor = p_sd
+                sa.bInheritHandle = False
+                sa_ptr = ctypes.byref(sa)
+        except Exception:
+            pass
+
+        h_show = ctypes.windll.kernel32.CreateEventW(sa_ptr, False, False, EVENT_SHOW)
+        h_toggle = ctypes.windll.kernel32.CreateEventW(sa_ptr, False, False, EVENT_TOGGLE)
         while self._running:
             res_t = ctypes.windll.kernel32.WaitForSingleObject(h_toggle, 200)
             if res_t == 0:
                 logger.info("Odebrano sygnał IPC przełączenia dyktowania (--toggle).")
+                _play_chime_file('start_1')
                 self.toggle_dictation()
             res_s = ctypes.windll.kernel32.WaitForSingleObject(h_show, 200)
             if res_s == 0:
-                logger.info("Odebrano sygnał wybudzenia/pokazania widżetu PIL.")
+                logger.info("Odebrano sygnał wybudzenia/pokazania widżetu.")
                 self.restore_from_tray()
                 self._play_ready_chime()
         if h_show:
             ctypes.windll.kernel32.CloseHandle(h_show)
         if h_toggle:
             ctypes.windll.kernel32.CloseHandle(h_toggle)
+        if p_sd and p_sd.value:
+            try:
+                ctypes.windll.kernel32.LocalFree(p_sd)
+            except Exception:
+                pass
 
     def _play_start_chime(self):
         """Dźwięk rozpoczęcia wpisywania głosowego wg wybranego presetu."""
@@ -642,12 +779,12 @@ class DictationApp:
             _play_chime_file(f"stop_{preset_idx}")
 
     def _play_error_chime(self):
-        """Łagodny dźwięk ostrzegawczy przy braku pola tekstowego."""
+        """Dźwięk błędu przy braku aktywnego pola tekstowego."""
         if self.config.get("sound_feedback", True):
             _play_chime_file('error')
 
     def _play_ready_chime(self):
-        """Krótki, subtelny ton gotowości."""
+        """Sygnał dźwiękowy gotowości."""
         if self.config.get("sound_feedback", True):
             _play_chime_file('ready')
 
@@ -655,12 +792,24 @@ class DictationApp:
         self._play_ready_chime()
 
     def start_recording(self):
-        # 1. Rygorystyczny czujnik aktywnego pola tekstowego
-        cur_fg = user32.GetForegroundWindow()
-        check_hwnd = self.last_active_hwnd if (self.overlay and cur_fg == self.overlay.hwnd and self.last_active_hwnd) else None
+        # Weryfikacja aktywnego okna docelowego
+        cur_fg = user32.GetForegroundWindow() or 0
+        overlay_hwnd = self.overlay.hwnd if self.overlay else 0
+
+        target_hwnd = None
+        if is_valid_target_window(cur_fg, overlay_hwnd):
+            target_hwnd = cur_fg
+        elif hasattr(self, 'last_active_hwnd') and self.last_active_hwnd and is_valid_target_window(self.last_active_hwnd, overlay_hwnd):
+            target_hwnd = self.last_active_hwnd
+
+        # Jeśli target_hwnd istnieje, ale w momencie kliknięcia w widżet fokus został utracony (cur_fg != target_hwnd):
+        # przywróć fokus do okna docelowego PRZED weryfikacją pola tekstowego, aby kursor i kontrolka były aktywne!
+        if target_hwnd and cur_fg != target_hwnd:
+            safe_bring_to_foreground(target_hwnd)
+            time.sleep(0.04)
 
         if self.config.get("require_text_field", True):
-            is_focused, reason = is_text_field_focused(check_hwnd)
+            is_focused, reason = is_text_field_focused(target_hwnd)
             if not is_focused:
                 logger.warning(f"Zablokowano start dyktowania – brak aktywnego pola tekstowego ({reason})")
                 self._play_error_chime()
@@ -668,10 +817,6 @@ class DictationApp:
                     self.overlay.show()
                     self.overlay.show_error_balloon()
                 return
-
-        # Jeśli użytkownik kliknął widżet, przywróć fokus do docelowego okna roboczego
-        if check_hwnd and user32.IsWindow(check_hwnd):
-            safe_bring_to_foreground(check_hwnd)
 
         # 2. Bezpieczna zmiana stanu pod lockiem PRZED startem mikrofonu
         with self._lock:
@@ -684,13 +829,9 @@ class DictationApp:
             self.overlay.hide_balloon()
 
         # 3. Zapamiętanie i zablokowanie okna docelowego do wklejenia tekstu
-        cur_fg = user32.GetForegroundWindow()
-        if cur_fg and (not self.overlay or cur_fg != self.overlay.hwnd):
-            self.target_hwnd = cur_fg
-        elif hasattr(self, 'last_active_hwnd') and self.last_active_hwnd and user32.IsWindow(self.last_active_hwnd):
-            self.target_hwnd = self.last_active_hwnd
-
-        if hasattr(self, 'target_hwnd') and self.target_hwnd:
+        self.target_hwnd = target_hwnd if target_hwnd else (user32.GetForegroundWindow() or 0)
+        if self.target_hwnd:
+            self.last_active_hwnd = self.target_hwnd
             self.target_proc = get_proc_name_from_hwnd(self.target_hwnd)
             win_title = get_window_title(self.target_hwnd)
             logger.info(f"Zablokowano okno docelowe transkrypcji: HWND={self.target_hwnd:#x} ({self.target_proc} - '{win_title}')")
@@ -712,16 +853,23 @@ class DictationApp:
                 self.overlay.show()
                 self.overlay.show_recording()
         if self.tray_icon:
-            self.tray_icon.icon = create_tray_icon_image("recording")
+            self._set_tray_icon("recording")
 
         self._play_start_chime()
 
-        # Jeśli streaming na żywo jest włączony, uruchom wątek pisania w czasie rzeczywistym
+        # Tryb pracy ustalamy raz na całą sesję nagrywania, żeby przełączenie opcji
+        # w trakcie dyktowania nie rozdzieliło zachowania na pół wypowiedzi.
+        self._preview_mode_active = self._preview_only_mode()
+
+        # Jeśli streaming na żywo jest włączony, uruchom wątek transkrypcji w czasie rzeczywistym
         if self.config.get("stream_realtime", False):
-            self._streaming_thread = threading.Thread(target=self._streaming_worker, daemon=True)
+            if self._preview_mode_active:
+                logger.info("Tryb podglądu (streaming + korekta AI): tekst trafi do okna raz, po korekcie całości.")
+            self._stream_session += 1
+            self._streaming_thread = threading.Thread(target=self._streaming_worker, args=(self._stream_session,), daemon=True)
             self._streaming_thread.start()
 
-    def _streaming_worker(self):
+    def _streaming_worker(self, session: int = 0):
         """
         Wątek inteligentnego streamingu na żywo (styl Windows 11 Voice Typing):
         - Wyłącznie wpisywanie w przód (Forward-Only).
@@ -729,26 +877,53 @@ class DictationApp:
         - Trwające wypowiedzi zatwierdzają ustabilizowane słowa w przód.
         - Audio i transkrypcja Whisper działają nieprzerwanie, nawet gdy użytkownik przegląda Chrome lub inne okna!
         """
-        while not self._stream_stop_event.is_set() and self.state == "recording":
+        def _active():
+            return (session == self._stream_session and not self._stream_stop_event.is_set()
+                    and self.state == "recording")
+
+        while _active():
             time.sleep(0.32)
-            if self._stream_stop_event.is_set() or self.state != "recording":
+            if not _active():
                 break
 
-            audio = self.recorder.get_current_audio()
-            if audio is None:
-                continue
+            # Opróżnij bufor zgromadzony podczas przełączenia okien lub przeciągania myszą, gdy fokus powrócił do okna docelowego
+            # (w trybie podglądu nic nie wpisujemy na żywo, więc bufor pozostaje pusty)
+            if self.buffered_untyped_text and not getattr(self, "_preview_mode_active", False) and not is_mouse_down():
+                cur_fg = user32.GetForegroundWindow() or 0
+                if self.target_hwnd and cur_fg == self.target_hwnd:
+                    with self._type_lock:
+                        if self.buffered_untyped_text and not is_mouse_down():
+                            send_unicode_string(self.buffered_untyped_text)
+                            self.buffered_untyped_text = ""
 
             # Pobieramy wyłącznie dźwięk od ostatniego zatwierdzonego segmentu
-            uncommitted_audio = audio[self.committed_sample_offset:]
-
-            if len(uncommitted_audio) < 16000 * 0.40:
+            # (bez sklejania całego nagrania od początku przy każdym kroku)
+            uncommitted_audio = self.recorder.get_current_audio(self.committed_sample_offset)
+            if uncommitted_audio is None or len(uncommitted_audio) < 16000 * 0.40:
                 continue
 
             # Transkrypcja aktywnego fragmentu bez przerywania
             completed, tail_text = self.transcriber.transcribe_stream_chunk(uncommitted_audio)
 
-            if self._stream_stop_event.is_set() or self.state != "recording":
+            if not _active():
                 break
+
+            # Bufor bez zatwierdzonego segmentu nie może rosnąć bez końca: każdy krok
+            # transkrybowałby coraz dłuższe audio, a finalizacja czekałaby na zwolnienie GPU.
+            if not completed and len(uncommitted_audio) >= int(STREAM_MAX_UNCOMMITTED_S * 16000):
+                forced = tail_text
+                if not forced and not getattr(self, "_preview_mode_active", False):
+                    forced = self.transcriber.transcribe(uncommitted_audio)
+                    if not _active():
+                        break
+                unc_s = len(uncommitted_audio) / 16000.0
+                logger.info(f"Streaming: {unc_s:.0f}s audio bez zakończonego segmentu – wymuszone zatwierdzenie.")
+                tail_text = ""
+                if forced:
+                    completed = [(forced, unc_s)]
+                else:
+                    self.committed_sample_offset += len(uncommitted_audio)
+                    continue
 
             # 1. ZATWIERDŹ ZAKOŃCZONE SEGMENTY (COMMIT) - NA ZAWSZE W DOKUMENCIE
             if completed:
@@ -773,15 +948,34 @@ class DictationApp:
                     self.overlay.show_idle()
                 return
             self.state = "processing"
+            self._job_seq += 1
+            job = self._job_seq
+            self._processing_started = time.time()
+            # Wstępny limit na samo zatrzymanie nagrania; po pobraniu audio zostaje wydłużony
+            self._processing_deadline = self._processing_started + 30.0
 
+        try:
+            self._begin_finalization(job)
+        except Exception as e:
+            # Bez tego wyjątek (np. z ikony w zasobniku) zostawiał stan "processing" na zawsze
+            logger.error(f"Błąd przy zatrzymywaniu nagrywania: {e}", exc_info=True)
+            try:
+                self.recorder.stop()
+            except Exception:
+                pass
+            self._abandon_processing("błąd przy zatrzymywaniu nagrywania")
+
+    def _begin_finalization(self, job: int):
         logger.info("Zatrzymano nagrywanie, finalizowanie...")
         self._stream_stop_event.set()
-        self._play_stop_chime()
+        try:
+            self._play_stop_chime()
+        except Exception as e:
+            logger.debug(f"Dźwięk stopu nie zadziałał: {e}")
 
         if self.overlay:
             self.overlay.show_processing()
-        if self.tray_icon:
-            self.tray_icon.icon = create_tray_icon_image("processing")
+        self._set_tray_icon("processing")
 
         # Bezpieczne odczekanie na zakończenie bieżącego kroku streamingu GPU
         if self._streaming_thread and self._streaming_thread.is_alive():
@@ -790,14 +984,56 @@ class DictationApp:
         # Pobierz pełne nagranie
         audio_data = self.recorder.stop()
 
-        # Uruchom finalizację w osobnym wątku
-        threading.Thread(target=self._process_audio_worker, args=(audio_data,), daemon=True).start()
+        # Limit czasu całej finalizacji: Whisper (proporcjonalnie do długości nagrania)
+        # + maksymalny budżet korekty AI + zapas. Po nim watchdog wraca do stanu gotowości.
+        audio_s = len(audio_data) / 16000.0 if audio_data is not None else 0.0
+        llm_budget = 0.0
+        if self._llm_active():
+            is_local = self.config.get("llm_provider", "gemini").lower() in ("ollama", "local", "lmstudio")
+            llm_budget = 90.0 if is_local else 45.0
+        with self._lock:
+            if job == self._job_seq:
+                self._processing_deadline = time.time() + 60.0 + audio_s * 0.5 + llm_budget
 
-    def _process_audio_worker(self, audio_data):
+        # Uruchom finalizację w osobnym wątku
+        threading.Thread(target=self._process_audio_worker, args=(audio_data, job), daemon=True).start()
+
+    def _is_current_job(self, job) -> bool:
+        return job is None or job == self._job_seq
+
+    def _abandon_processing(self, reason: str) -> bool:
+        """
+        Porzuca zawieszoną finalizację i wraca do stanu gotowości.
+        Wątek finalizacji może dalej pracować, ale jego wynik trafi już tylko do widżetu.
+        """
+        with self._lock:
+            if self.state != "processing":
+                return False
+            self._job_seq += 1
+            self.state = "idle"
+            elapsed = time.time() - self._processing_started
+            self._processing_deadline = 0.0
+        logger.warning(f"Przerwano przetwarzanie po {elapsed:.0f}s ({reason}). Aplikacja wraca do gotowości.")
+        self._stream_stop_event.set()
+        self.committed_text = ""
+        self.committed_sample_offset = 0
+        self.buffered_untyped_text = ""
+        if self.tray_icon:
+            self._set_tray_icon("idle")
+        if self.overlay:
+            self.overlay.show_idle()
+            self.overlay.show_balloon("info", "Przetwarzanie przerwane — jeśli tekst dojdzie później, będzie w widżecie")
+        return True
+
+    def _process_audio_worker(self, audio_data, job=None):
         try:
             t0 = time.time()
 
-            if self.config.get("stream_realtime", False):
+            # Tryb podglądu (streaming + korekta AI) finalizuje się jak tryb wsadowy:
+            # pełna transkrypcja całego nagrania -> korekta AI -> jedno wklejenie.
+            preview_mode = getattr(self, "_preview_mode_active", False)
+
+            if self.config.get("stream_realtime", False) and not preview_mode:
                 # Tryb streamingu:
                 remaining_audio = audio_data[self.committed_sample_offset:] if len(audio_data) > self.committed_sample_offset else None
                 final_tail = ""
@@ -806,7 +1042,14 @@ class DictationApp:
                     if len(trimmed_rem) >= 16000 * 0.25:
                         final_tail = self.transcriber.transcribe(trimmed_rem)
 
+                if not self._is_current_job(job):
+                    logger.warning("Streaming: finalizacja porzucona – końcówka trafia tylko do widżetu.")
+                    if final_tail and self.overlay:
+                        self.overlay.add_transcript_entry(final_tail)
+                    return
+
                 # 1. Przywróć definitywnie fokus do okna docelowego PRZED wpisaniem końcówki i opróżnieniem bufora
+                focus_ok = True
                 if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):
                     cur_fg = user32.GetForegroundWindow()
                     if cur_fg != self.target_hwnd:
@@ -816,38 +1059,71 @@ class DictationApp:
                             if user32.GetForegroundWindow() == self.target_hwnd:
                                 break
                             time.sleep(0.02)
+                    focus_ok = (user32.GetForegroundWindow() == self.target_hwnd)
 
-                # Opróżnij zaległy bufor jeśli cokolwiek zostało podczas przełączania okien
-                with self._type_lock:
-                    if self.buffered_untyped_text:
-                        send_unicode_string(self.buffered_untyped_text)
-                        self.buffered_untyped_text = ""
+                if focus_ok:
+                    # Opróżnij zaległy bufor jeśli cokolwiek zostało podczas przełączania okien
+                    with self._type_lock:
+                        if self.buffered_untyped_text:
+                            send_unicode_string(self.buffered_untyped_text)
+                            self.buffered_untyped_text = ""
 
-                    if final_tail:
-                        self.committer.finalize(final_tail)
-                        if self.overlay:
-                            self.overlay.add_transcript_entry(final_tail)
-                    else:
-                        self.committer.finalize()
+                        if final_tail:
+                            self.committer.finalize(final_tail)
+                            if self.overlay:
+                                self.overlay.add_transcript_entry(final_tail)
+                        else:
+                            self.committer.finalize()
 
-                    # Upewnij się, że ogon (final_tail) lub jakiekolwiek zaległe znaki po finalize też zostały wpisane
-                    if self.buffered_untyped_text:
-                        send_unicode_string(self.buffered_untyped_text)
-                        self.buffered_untyped_text = ""
+                        # Upewnij się, że ogon (final_tail) lub jakiekolwiek zaległe znaki po finalize też zostały wpisane
+                        if self.buffered_untyped_text:
+                            send_unicode_string(self.buffered_untyped_text)
+                            self.buffered_untyped_text = ""
+                else:
+                    logger.warning(f"Streaming: nie udało się przywrócić fokusu do okna docelowego. Wstrzymano wpisywanie.")
+                    if final_tail and self.overlay:
+                        self.overlay.add_transcript_entry(final_tail)
+                    if self.overlay:
+                        self.overlay.show_balloon("info", "Fokus okna utracony — końcówka tekstu zachowana w widżecie")
 
-                logger.info(f"Finalizacja streamingu: {time.time() - t0:.2f}s | Wpisano łącznie: '{self.committer.typed_text.strip()}'")
+                logger.info(f"Finalizacja streamingu: {time.time() - t0:.2f}s | Wpisano znaków: {len(self.committer.typed_text)}")
+                logger.debug(f"Streaming wpisany tekst: '{self.committer.typed_text.strip()}'")
 
             else:
-                # Czyste wklejenie po zatrzymaniu nagrywania (tryb batch)
+                # Transkrypcja batch po zatrzymaniu nagrywania
                 final_text = self.transcriber.transcribe(audio_data)
                 duration = time.time() - t0
-                logger.info(f"Finalny czas: {duration:.2f}s | Tekst: '{final_text}'")
+                logger.info(f"Finalny czas: {duration:.2f}s | Długość tekstu: {len(final_text)} znaków")
+                logger.debug(f"Tekst transkrypcji: '{final_text}'")
+
+                if not self._is_current_job(job):
+                    # Użytkownik lub watchdog przerwał oczekiwanie – mógł już dyktować do innego okna,
+                    # więc nie wklejamy, tylko zostawiamy tekst w widżecie.
+                    logger.warning(f"Spóźniony wynik po {duration:.0f}s – nie wklejam, tekst zostaje w widżecie.")
+                    if final_text and self.overlay:
+                        self.overlay.add_transcript_entry(final_text)
+                        self.overlay.show_balloon("info", "Spóźniony tekst jest w widżecie (nie wklejono)")
+                    return
+
+                # Jeśli korekta była oczekiwana, ale się nie udała, użytkownik musi o tym wiedzieć –
+                # inaczej dostaje surowy tekst Whispera i nie ma pojęcia, że AI nie zadziałało.
+                llm_status = getattr(self.transcriber, "last_llm_status", None)
+                if self._llm_active() and llm_status in ("failed", "rejected") and self.overlay:
+                    powod = ("model odrzucił wynik korekty" if llm_status == "rejected"
+                             else "silnik AI niedostępny")
+                    logger.warning(f"Korekta AI nieudana ({powod}) – wklejono surową transkrypcję.")
+                    self.overlay.show_balloon("info", f"Korekta AI nieudana ({powod}) — tekst surowy")
 
                 if final_text:
                     if self.overlay:
+                        # W trybie podglądu surowe wiersze z nasłuchu zastępujemy skorygowaną całością,
+                        # żeby w panelu nie zostały dwie wersje tego samego tekstu.
+                        if preview_mode:
+                            self.overlay.clear_transcript()
                         self.overlay.add_transcript_entry(final_text)
 
-                    # Przywróć definitywnie fokus do okna docelowego BEZPOŚREDNIO przed wklejeniem
+                    # Przywrocenie fokusu do okna docelowego przed wklejeniem
+                    focus_ok = True
                     if hasattr(self, 'target_hwnd') and self.target_hwnd and user32.IsWindow(self.target_hwnd):
                         cur_fg = user32.GetForegroundWindow()
                         if cur_fg != self.target_hwnd:
@@ -857,19 +1133,29 @@ class DictationApp:
                                 if user32.GetForegroundWindow() == self.target_hwnd:
                                     break
                                 time.sleep(0.02)
+                        focus_ok = (user32.GetForegroundWindow() == self.target_hwnd)
 
-                    inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", False))
+                    if focus_ok:
+                        inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", True))
+                    else:
+                        logger.warning(f"Nie udało się przywrócić fokusu do okna docelowego (HWND={self.target_hwnd:#x}, aktywne={user32.GetForegroundWindow():#x}). Wstrzymano wklejanie dla ochrony danych.")
+                        if self.overlay:
+                            self.overlay.show_balloon("info", "Fokus okna utracony — tekst zachowano w widżecie")
 
         except Exception as e:
             logger.error(f"Błąd podczas finalizacji: {e}", exc_info=True)
         finally:
+            with self._lock:
+                if not self._is_current_job(job):
+                    # Zadanie porzucone: stan należy już do nowej sesji
+                    return
+                self.state = "idle"
+                self._processing_deadline = 0.0
             self.committed_text = ""
             self.committed_sample_offset = 0
             self.buffered_untyped_text = ""
-            with self._lock:
-                self.state = "idle"
             if self.tray_icon:
-                self.tray_icon.icon = create_tray_icon_image("idle")
+                self._set_tray_icon("idle")
             if self.overlay:
                 self.overlay.show_idle()
                 if self.config.get("always_on_top", True) and getattr(self.overlay, "hwnd", None):
@@ -889,12 +1175,23 @@ class DictationApp:
             self.start_recording()
         elif self.state == "recording":
             self.stop_and_transcribe()
+        elif self.state == "processing":
+            elapsed = now - self._processing_started
+            if elapsed >= PROCESSING_ABANDON_AFTER_S:
+                self._abandon_processing("ponowne naciśnięcie skrótu")
+            else:
+                logger.info(f"Skrót w trakcie przetwarzania ({elapsed:.0f}s) – czekam na wynik.")
+                if self.overlay:
+                    self.overlay.show_balloon("info", "Trwa przetwarzanie… (po 15 s skrót je przerwie)")
         elif self.state == "meeting_recording":
             logger.info("Zatrzymywanie spotkania przed przełączeniem do trybu dyktowania...")
             self.stop_meeting()
 
     def cancel_dictation(self):
-        """Anuluje nagrywanie bez wklejania tekstu (np. po kliknięciu krzyżyka ✕)."""
+        """Anuluje nagrywanie (albo trwające przetwarzanie) bez wprowadzania tekstu."""
+        if self.state == "processing":
+            self._abandon_processing("anulowano z widżetu")
+            return
         with self._lock:
             if self.state != "recording":
                 return
@@ -910,7 +1207,7 @@ class DictationApp:
             self.overlay.clear_transcript()
             self.overlay.show_idle()
         if self.tray_icon:
-            self.tray_icon.icon = create_tray_icon_image("idle")
+            self._set_tray_icon("idle")
         self._play_error_chime()
 
     def _watchdog_hotkey(self):
@@ -927,11 +1224,29 @@ class DictationApp:
     def _monitor_silence(self):
         """Automatyczne zatrzymanie po ciszy oraz śledzenie ostatniego aktywnego okna roboczego."""
         while self._running:
-            time.sleep(0.2)
+            time.sleep(0.1)
             if self.state == "idle":
-                cur_fg = user32.GetForegroundWindow()
-                if cur_fg and (not self.overlay or cur_fg != self.overlay.hwnd):
+                cur_fg = user32.GetForegroundWindow() or 0
+                overlay_hwnd = self.overlay.hwnd if self.overlay else 0
+                if is_valid_target_window(cur_fg, overlay_hwnd):
                     self.last_active_hwnd = cur_fg
+
+            # Watchdog: finalizacja nie może trwać w nieskończoność
+            if self.state == "processing" and self._processing_deadline and time.time() > self._processing_deadline:
+                self._abandon_processing("przekroczony limit czasu przetwarzania")
+                continue
+
+            # Twardy limit jednego dyktowania (np. zapomniane nagrywanie przy szumie w tle)
+            try:
+                max_rec_sec = float(self.config.get("max_recording_seconds", 1200) or 0)
+            except (TypeError, ValueError):
+                max_rec_sec = 0.0
+            if max_rec_sec > 0 and self.state == "recording" and time.time() - self._recording_start_time >= max_rec_sec:
+                logger.warning(f"Nagranie osiągnęło limit {max_rec_sec / 60:.0f} min – automatyczne zatrzymanie.")
+                if self.overlay:
+                    self.overlay.show_balloon("info", f"Limit {max_rec_sec / 60:.0f} min nagrania – zatrzymano")
+                self.stop_and_transcribe()
+                continue
 
             auto_stop_sec = float(self.config.get("auto_stop_silence_seconds", 4.5))
             if auto_stop_sec > 0 and self.state == "recording":
@@ -964,7 +1279,7 @@ class DictationApp:
                 self.overlay.show()
                 self.overlay.show_meeting_recording()
         if self.tray_icon:
-            self.tray_icon.icon = create_tray_icon_image("meeting")
+            self._set_tray_icon("meeting")
 
         self._play_start_chime()
 
@@ -990,7 +1305,7 @@ class DictationApp:
         if self.overlay:
             self.overlay.show_processing()
         if self.tray_icon:
-            self.tray_icon.icon = create_tray_icon_image("processing")
+            self._set_tray_icon("processing")
         self._play_stop_chime()
 
         def _finalize_worker():
@@ -1003,7 +1318,7 @@ class DictationApp:
                 with self._lock:
                     self.state = "idle"
                 if self.tray_icon:
-                    self.tray_icon.icon = create_tray_icon_image("idle")
+                    self._set_tray_icon("idle")
                 if self.overlay:
                     self.overlay.show_idle()
                 logger.info("Aplikacja pomyślnie powróciła do stanu gotowości (idle).")
@@ -1107,7 +1422,14 @@ class DictationApp:
         logger.info(f"Wymóg pola tekstowego: {'Włączony' if self.config['require_text_field'] else 'Wyłączony'}")
 
     def toggle_streaming_mode(self):
-        self.config["stream_realtime"] = not self.config.get("stream_realtime", True)
+        new_val = not self.config.get("stream_realtime", False)
+        self.config["stream_realtime"] = new_val
+
+        # Streaming i korekta AI mogą być włączone jednocześnie — wchodzą wtedy w tryb podglądu:
+        # transkrypcja leci na żywo do widżetu, a do okna docelowego trafia raz skorygowana całość.
+        if new_val and self._llm_active() and self.overlay:
+            self.overlay.show_balloon("info", "Podgląd na żywo + korekta AI: tekst zostanie wklejony po korekcie")
+
         save_config(self.config)
         if self.overlay:
             self.overlay.stream_realtime = self.config["stream_realtime"]
@@ -1124,6 +1446,11 @@ class DictationApp:
                 self.overlay.show()
                 self.overlay.show_idle()
         logger.info(f"Zawsze na wierzchu: {'Włączone' if self.config['always_on_top'] else 'Wyłączone'}")
+
+    def toggle_restore_clipboard(self, icon=None, item=None):
+        self.config["restore_clipboard"] = not self.config.get("restore_clipboard", True)
+        save_config(self.config)
+        logger.info(f"Czyszczenie schowka (ochrona prywatności): {'Włączone' if self.config['restore_clipboard'] else 'Wyłączone'}")
 
     def exit_app(self):
         logger.info("Zamykanie aplikacji...")
@@ -1149,6 +1476,12 @@ class DictationApp:
                 self.tray_icon.stop()
             except Exception:
                 pass
+        if getattr(self, '_orig_lock_timeout', None) is not None:
+            try:
+                user32.SystemParametersInfoW(0x2001, 0, ctypes.c_void_p(self._orig_lock_timeout), 2)
+            except Exception:
+                pass
+        logging.shutdown()
         time.sleep(0.05)
         os._exit(0)
 
@@ -1192,7 +1525,7 @@ class DictationApp:
             MF_CHECKED = 0x0008
             MF_UNCHECKED = 0x0000
 
-            # 1. Podmenu: Styl widżetu (Wszystkie 5 dopracowanych motywów)
+            # 1. Podmenu: Styl widżetu
             cur_theme = self.config.get("theme", "light")
             themes = [
                 ("light", "Jasny (Fluent Light)", 301),
@@ -1253,16 +1586,47 @@ class DictationApp:
                 user32.AppendMenuW(h_silence_sub, MF_STRING | chk, s_id, s_label)
             user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "Automatyczne zatrzymanie ciszy")
 
-            # 4. Podmenu: Korekta AI (Google Gemini Flash)
+            # 4. Podmenu: Korekta AI (LLM: Gemini / Groq / OpenAI / Ollama / LM Studio)
+            cur_provider = self.config.get("llm_provider", "gemini").lower()
+            prov_names = {
+                "gemini": "Google Gemini",
+                "ollama": "Ollama (Lokalne)",
+                "local": "LM Studio (Lokalne)",
+                "groq": "Groq Cloud",
+                "openai": "OpenAI"
+            }
+            active_prov_name = prov_names.get(cur_provider, cur_provider.upper())
+
             use_ai = self.config.get("use_llm", False)
             chk_ai = MF_CHECKED if use_ai else MF_UNCHECKED
-            user32.AppendMenuW(h_ai_sub, MF_STRING | chk_ai, 701, "Włącz korektę Gemini Flash")
-            user32.AppendMenuW(h_ai_sub, MF_STRING, 702, "Wprowadź klucz API Gemini...")
+            user32.AppendMenuW(h_ai_sub, MF_STRING | chk_ai, 701, f"Włącz korektę AI ({active_prov_name})")
             user32.AppendMenuW(h_ai_sub, MF_SEPARATOR, 0, "")
-            has_key = bool(self.config.get("llm_api_key", "").strip())
-            key_label = "Status: Klucz API skonfigurowany" if has_key else "Status: Brak klucza API"
+
+            providers = [
+                ("gemini", "Google Gemini", 710),
+                ("ollama", "Ollama (Lokalne / 100% Offline)", 711),
+                ("local", "LM Studio (Lokalne / 100% Offline)", 712),
+                ("groq", "Groq Cloud (Llama 3.3)", 713),
+                ("openai", "OpenAI (GPT-4o-mini)", 714),
+            ]
+            for p_code, p_name, p_id in providers:
+                chk = MF_CHECKED if cur_provider == p_code else MF_UNCHECKED
+                user32.AppendMenuW(h_ai_sub, MF_STRING | chk, p_id, p_name)
+
+            user32.AppendMenuW(h_ai_sub, MF_SEPARATOR, 0, "")
+            user32.AppendMenuW(h_ai_sub, MF_STRING, 702, "Klucz API chmury (Gemini / Groq / OpenAI)...")
+            user32.AppendMenuW(h_ai_sub, MF_STRING, 704, "Adres serwera lokalnego (Ollama / LM Studio)...")
+            user32.AppendMenuW(h_ai_sub, MF_SEPARATOR, 0, "")
+
+            is_local = cur_provider in ("ollama", "local", "lmstudio")
+            if is_local:
+                ep = self.config.get("llm_endpoint", "http://localhost:11434/v1")
+                key_label = f"Status: Serwer lokalny ({ep})"
+            else:
+                has_key = bool(self.config.get("llm_api_key", "").strip())
+                key_label = "Status: Klucz API skonfigurowany" if has_key else "Status: Brak klucza API"
             user32.AppendMenuW(h_ai_sub, MF_STRING | 0x0002, 703, key_label)
-            user32.AppendMenuW(h_menu, MF_POPUP, h_ai_sub, "Korekta AI (Gemini Flash)")
+            user32.AppendMenuW(h_menu, MF_POPUP, h_ai_sub, f"Korekta AI ({active_prov_name})")
 
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
@@ -1276,6 +1640,9 @@ class DictationApp:
             chk_field = MF_CHECKED if self.config.get("require_text_field", True) else MF_UNCHECKED
             user32.AppendMenuW(h_menu, MF_STRING | chk_field, 102, "Wymagaj aktywnego pola tekstowego")
 
+            chk_clip = MF_CHECKED if self.config.get("restore_clipboard", True) else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_clip, 107, "Czyść schowek po wklejeniu")
+
             chk_autostart = MF_CHECKED if is_autostart_enabled() else MF_UNCHECKED
             user32.AppendMenuW(h_menu, MF_STRING | chk_autostart, 106, "Uruchamiaj z systemem Windows (Autostart)")
 
@@ -1286,11 +1653,15 @@ class DictationApp:
             user32.AppendMenuW(h_menu, MF_STRING | chk_meeting, 104, "Transkrypcja spotkań")
             user32.AppendMenuW(h_menu, MF_STRING, 105, "Otwórz folder transkrypcji spotkań")
 
-            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
-
             # 6. Zarządzanie oknem / Aplikacją
             user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj widżet (do paska)")
             user32.AppendMenuW(h_menu, MF_STRING, 402, "Zamknij aplikację")
+
+            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
+            # 7. Repozytorium GitHub i Informacje o programie (pod zamknięciem aplikacji)
+            user32.AppendMenuW(h_menu, MF_STRING, 801, "Projekt na GitHubie (sooony/Whiscribe)")
+            user32.AppendMenuW(h_menu, MF_STRING, 802, f"O programie (v{APP_VERSION} z {APP_RELEASE_DATE})...")
 
             # Host window z WS_EX_TOPMOST (0x0008) i WS_EX_TOOLWINDOW (0x0080)
             WS_EX_TOPMOST = 0x00000008
@@ -1332,6 +1703,8 @@ class DictationApp:
                 self.open_transcripts_folder()
             elif cmd == 106:
                 self.toggle_autostart()
+            elif cmd == 107:
+                self.toggle_restore_clipboard()
             elif cmd == 201:
                 self.config["auto_stop_silence_seconds"] = 3.0
                 save_config(self.config)
@@ -1363,9 +1736,25 @@ class DictationApp:
                 p_map = {521: 1, 522: 2, 523: 3, 524: 4, 520: 0}
                 self.set_sound_stop_preset(p_map[cmd])
             elif cmd == 701:
-                self.toggle_gemini_correction()
+                self.toggle_llm_correction()
             elif cmd == 702:
-                self.prompt_and_set_gemini_api_key()
+                self.prompt_and_set_llm_api_key()
+            elif cmd == 704:
+                self.prompt_and_set_local_endpoint()
+            elif cmd == 710:
+                self.set_llm_provider("gemini")
+            elif cmd == 711:
+                self.set_llm_provider("ollama")
+            elif cmd == 712:
+                self.set_llm_provider("local")
+            elif cmd == 713:
+                self.set_llm_provider("groq")
+            elif cmd == 714:
+                self.set_llm_provider("openai")
+            elif cmd == 801:
+                self.open_github_repo()
+            elif cmd == 802:
+                self.show_about_dialog()
             elif cmd == 601:
                 self.minimize_to_taskbar()
             elif cmd == 402:
@@ -1380,30 +1769,83 @@ class DictationApp:
         save_config(self.config)
         logger.info(f"Zmieniono motyw graficzny na: {new_theme}")
 
-    def toggle_gemini_correction(self):
-        """Włącza lub wyłącza korektę AI (Gemini Flash)."""
+    def set_llm_provider(self, provider: str):
+        """Ustawia dostawcę korekty LLM (gemini, groq, openai, ollama, local)."""
+        provider = provider.lower()
+        self.config["llm_provider"] = provider
+        if provider == "gemini":
+            if not self.config.get("llm_model") or "llama" in self.config.get("llm_model", ""):
+                self.config["llm_model"] = "gemini-flash-latest"
+        elif provider == "ollama":
+            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
+                self.config["llm_model"] = "llama3.2"
+        elif provider == "local":
+            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
+                self.config["llm_model"] = "local-model"
+        elif provider == "groq":
+            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
+                self.config["llm_model"] = "llama-3.3-70b-versatile"
+        elif provider == "openai":
+            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
+                self.config["llm_model"] = "gpt-4o-mini"
+
+        save_config(self.config)
+        if hasattr(self, "transcriber") and self.transcriber:
+            self.transcriber.config = self.config
+
+        prov_labels = {
+            "gemini": "Google Gemini",
+            "ollama": "Ollama (Lokalne)",
+            "local": "LM Studio (Lokalne)",
+            "groq": "Groq Cloud",
+            "openai": "OpenAI"
+        }
+        name = prov_labels.get(provider, provider)
+        logger.info(f"Zmieniono silnik korekty AI na: {name}")
+        if self.overlay:
+            self.overlay.show_balloon("info", f"Dostawca AI: {name}")
+
+    def toggle_llm_correction(self):
+        """Włącza lub wyłącza korektę AI bez nadpisywania skonfigurowanego dostawcy."""
         curr = self.config.get("use_llm", False)
         if not curr:
-            if not self.config.get("llm_api_key", "").strip():
-                self.prompt_and_set_gemini_api_key()
+            provider = self.config.get("llm_provider", "gemini").lower()
+            is_local = provider in ("ollama", "local", "lmstudio")
+            api_key = self.config.get("llm_api_key", "").strip()
+
+            if not is_local and not api_key:
+                self.prompt_and_set_llm_api_key()
                 return
+
             self.config["use_llm"] = True
-            self.config["llm_provider"] = "gemini"
-            if not self.config.get("llm_model"):
-                self.config["llm_model"] = "gemini-flash-latest"
+
+            # Przy włączonym streamingu wchodzimy w tryb podglądu: na żywo widzisz tekst
+            # w widżecie, a do okna docelowego wklejamy raz skorygowaną całość.
+            if self.config.get("stream_realtime", False):
+                logger.info("Korekta AI włączona przy aktywnym streamingu - tryb podglądu w widżecie.")
         else:
             self.config["use_llm"] = False
 
         save_config(self.config)
         if hasattr(self, "transcriber") and self.transcriber:
             self.transcriber.config = self.config
-        state_str = "włączona" if self.config["use_llm"] else "wyłączona"
-        logger.info(f"Korekta językowa Gemini Flash: {state_str}")
         if self.overlay:
-            self.overlay.show_balloon("info", f"Korekta Gemini: {state_str}")
+            self.overlay.ai_enabled = self.config["use_llm"]
+            self.overlay._dirty = True
 
-    def prompt_and_set_gemini_api_key(self):
-        """Wyświetla okno dialogowe pozwalające wprowadzić lub zmienić klucz API Google Gemini."""
+        prov_name = {"gemini": "Gemini", "ollama": "Ollama", "local": "LM Studio", "groq": "Groq", "openai": "OpenAI"}.get(self.config.get("llm_provider", "gemini").lower(), "AI")
+        state_str = "włączona" if self.config["use_llm"] else "wyłączona"
+        logger.info(f"Korekta językowa ({prov_name}): {state_str}")
+        if self.overlay:
+            if self.config["use_llm"] and self.config.get("stream_realtime", False):
+                self.overlay.show_balloon("info", f"Korekta {prov_name} ON — podgląd na żywo, wklejenie po korekcie")
+            else:
+                self.overlay.show_balloon("info", f"Korekta {prov_name}: {state_str}")
+
+    toggle_gemini_correction = toggle_llm_correction
+
+    def prompt_and_set_llm_api_key(self):
+        """Wyświetla okno wprowadzania klucza API dla bieżącego dostawcy chmurowego."""
         def _dialog():
             try:
                 import tkinter as tk
@@ -1411,10 +1853,12 @@ class DictationApp:
                 root = tk.Tk()
                 root.withdraw()
                 root.attributes("-topmost", True)
+                curr_prov = self.config.get("llm_provider", "gemini").lower()
+                prov_name = {"gemini": "Google Gemini", "groq": "Groq", "openai": "OpenAI"}.get(curr_prov, curr_prov.upper())
                 curr_key = self.config.get("llm_api_key", "")
                 new_key = simpledialog.askstring(
-                    "Klucz API Google Gemini",
-                    "Wprowadź swój klucz API Google Gemini (np. ze strony aistudio.google.com):",
+                    f"Klucz API — {prov_name}",
+                    f"Wprowadź swój klucz API dla {prov_name}:",
                     initialvalue=curr_key,
                     parent=root
                 )
@@ -1424,17 +1868,51 @@ class DictationApp:
                     self.config["llm_api_key"] = cleaned
                     if cleaned:
                         self.config["use_llm"] = True
-                        self.config["llm_provider"] = "gemini"
-                        self.config["llm_model"] = "gemini-flash-latest"
                     save_config(self.config)
                     if hasattr(self, "transcriber") and self.transcriber:
                         self.transcriber.config = self.config
-                    msg = "Klucz API Gemini zapisany i aktywowany!" if cleaned else "Klucz API Gemini usunięty."
+                    if self.overlay:
+                        self.overlay.ai_enabled = self.config.get("use_llm", False)
+                        self.overlay._dirty = True
+                    msg = f"Klucz API {prov_name} zapisany!" if cleaned else f"Klucz API {prov_name} usunięty."
                     logger.info(msg)
                     if self.overlay:
                         self.overlay.show_balloon("info", msg)
             except Exception as e:
-                logger.error(f"Błąd okna wprowadzania klucza API Gemini: {e}", exc_info=True)
+                logger.error(f"Błąd okna wprowadzania klucza API: {e}", exc_info=True)
+
+        threading.Thread(target=_dialog, daemon=True).start()
+
+    prompt_and_set_gemini_api_key = prompt_and_set_llm_api_key
+
+    def prompt_and_set_local_endpoint(self):
+        """Wyświetla okno do konfiguracji adresu lokalnego serwera API (Ollama/LM Studio)."""
+        def _dialog():
+            try:
+                import tkinter as tk
+                from tkinter import simpledialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                curr_ep = self.config.get("llm_endpoint", "http://localhost:11434/v1")
+                new_ep = simpledialog.askstring(
+                    "Adres serwera lokalnego LLM",
+                    "Wprowadź adres URL API (np. http://localhost:11434/v1 dla Ollama lub http://localhost:1234/v1 dla LM Studio):",
+                    initialvalue=curr_ep,
+                    parent=root
+                )
+                root.destroy()
+                if new_ep is not None and new_ep.strip():
+                    self.config["llm_endpoint"] = new_ep.strip()
+                    save_config(self.config)
+                    if hasattr(self, "transcriber") and self.transcriber:
+                        self.transcriber.config = self.config
+                    msg = f"Zapisano adres serwera: {self.config['llm_endpoint']}"
+                    logger.info(msg)
+                    if self.overlay:
+                        self.overlay.show_balloon("info", msg)
+            except Exception as e:
+                logger.error(f"Błąd okna konfiguracji adresu lokalnego LLM: {e}")
 
         threading.Thread(target=_dialog, daemon=True).start()
 
@@ -1442,6 +1920,49 @@ class DictationApp:
         curr = is_autostart_enabled()
         set_autostart(not curr)
         logger.info(f"Autostart Windows: {'Wyłączony' if curr else 'Włączony'}")
+
+    def open_github_repo(self):
+        """Otwiera repozytorium Whiscribe na GitHubie w domyślnej przeglądarce."""
+        import webbrowser
+        try:
+            webbrowser.open(GITHUB_URL)
+            logger.info(f"Otwarto stronę projektu GitHub: {GITHUB_URL}")
+        except Exception as e:
+            logger.error(f"Błąd otwierania linku GitHub: {e}")
+
+    def show_about_dialog(self):
+        """Wyświetla okno dialogowe z informacjami o wersji, dacie wydania i linkiem do repozytorium GitHub."""
+        def _dialog():
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                about_text = (
+                    f"Whiscribe — Dyktowanie i Transkrypcja Mowy dla Windows 11\n\n"
+                    f"• Wersja: v{APP_VERSION}\n"
+                    f"• Data wydania: {APP_RELEASE_DATE}\n"
+                    f"• Silnik mowy: OpenAI Whisper (large-v3-turbo / float16 na GPU CUDA)\n"
+                    f"• Korekta językowa: Gemini Flash / LLM\n"
+                    f"• Skróty: Dyktowanie (Ctrl+Alt+D), Spotkanie (Ctrl+Alt+M)\n"
+                    f"• Repozytorium: {GITHUB_URL}\n\n"
+                    f"Czy chcesz otworzyć repozytorium projektu na GitHubie w przeglądarce?"
+                )
+                res = messagebox.askyesno(
+                    f"O programie — {APP_NAME} v{APP_VERSION}",
+                    about_text,
+                    parent=root
+                )
+                root.destroy()
+                if res:
+                    self.open_github_repo()
+            except Exception as e:
+                logger.error(f"Błąd okna dialogowego O programie: {e}")
+                msg = f"Whiscribe v{APP_VERSION} ({APP_RELEASE_DATE})\n\nGitHub: {GITHUB_URL}"
+                user32.MessageBoxW(0, msg, f"O programie {APP_NAME}", 0x00000040 | 0x00040000)
+
+        threading.Thread(target=_dialog, daemon=True).start()
 
     def run_tray(self):
         self.setup_hotkey()
@@ -1504,11 +2025,35 @@ class DictationApp:
             pystray.MenuItem("Wyłączone (tylko ręcznie)", self.set_silence_timeout(0.0), checked=lambda item: float(self.config.get("auto_stop_silence_seconds", 4.5)) == 0.0)
         )
 
+        def set_provider_action(p):
+            def handler(icon=None, item=None):
+                self.set_llm_provider(p)
+            return handler
+
+        provider_sub = pystray.Menu(
+            pystray.MenuItem("Google Gemini", set_provider_action("gemini"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "gemini"),
+            pystray.MenuItem("Ollama (Lokalne / 100% Offline)", set_provider_action("ollama"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "ollama"),
+            pystray.MenuItem("LM Studio (Lokalne / 100% Offline)", set_provider_action("local"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "local"),
+            pystray.MenuItem("Groq Cloud (Llama 3.3)", set_provider_action("groq"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "groq"),
+            pystray.MenuItem("OpenAI (ChatGPT)", set_provider_action("openai"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "openai"),
+        )
+
         ai_menu = pystray.Menu(
-            pystray.MenuItem("Włącz korektę Gemini Flash", lambda icon=None, item=None: self.toggle_gemini_correction(), checked=lambda item: self.config.get("use_llm", False)),
-            pystray.MenuItem("Wprowadź klucz API Gemini...", lambda icon=None, item=None: self.prompt_and_set_gemini_api_key()),
+            pystray.MenuItem(
+                lambda item: f"Włącz korektę AI ({self.config.get('llm_provider', 'gemini').upper()})",
+                lambda icon=None, item=None: self.toggle_llm_correction(),
+                checked=lambda item: self.config.get("use_llm", False)
+            ),
+            pystray.MenuItem("Wybór silnika AI", provider_sub),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem(lambda item: "Status: Klucz API skonfigurowany" if self.config.get("llm_api_key", "").strip() else "Status: Brak klucza API", None, enabled=False)
+            pystray.MenuItem("Klucz API chmury (Gemini / Groq / OpenAI)...", lambda icon=None, item=None: self.prompt_and_set_llm_api_key()),
+            pystray.MenuItem("Adres serwera lokalnego (Ollama / LM Studio)...", lambda icon=None, item=None: self.prompt_and_set_local_endpoint()),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                lambda item: f"Status: Serwer lokalny ({self.config.get('llm_endpoint', '')})" if self.config.get("llm_provider", "").lower() in ("ollama", "local", "lmstudio") else ("Status: Klucz API skonfigurowany" if self.config.get("llm_api_key", "").strip() else "Status: Brak klucza API"),
+                None,
+                enabled=False
+            )
         )
 
         def toggle_vis_action(icon=None, item=None):
@@ -1533,7 +2078,7 @@ class DictationApp:
             ),
             pystray.MenuItem("Otwórz folder z transkrypcjami spotkań", self.open_transcripts_folder),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Korekta AI (Gemini Flash)", ai_menu),
+            pystray.MenuItem("Korekta AI (LLM)", ai_menu),
             pystray.MenuItem("Styl widżetu", theme_menu),
             pystray.MenuItem("Dźwięki i powiadomienia", sound_menu),
             pystray.MenuItem("Automatyczne zatrzymanie ciszy", silence_menu),
@@ -1554,12 +2099,20 @@ class DictationApp:
                 checked=lambda item: self.config.get("require_text_field", True)
             ),
             pystray.MenuItem(
+                "Czyść schowek po wklejeniu",
+                lambda icon=None, item=None: self.toggle_restore_clipboard(),
+                checked=lambda item: self.config.get("restore_clipboard", True)
+            ),
+            pystray.MenuItem(
                 "Uruchamiaj z systemem Windows (Autostart)",
                 lambda icon=None, item=None: self.toggle_autostart(),
                 checked=lambda item: is_autostart_enabled()
             ),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Zakończ Whiscribe", self.exit_app)
+            pystray.MenuItem("Zakończ Whiscribe", self.exit_app),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Projekt na GitHubie", lambda icon=None, item=None: self.open_github_repo()),
+            pystray.MenuItem(f"O programie (v{APP_VERSION} z {APP_RELEASE_DATE})...", lambda icon=None, item=None: self.show_about_dialog())
         )
 
         self.tray_icon = pystray.Icon(
@@ -1618,8 +2171,9 @@ if __name__ == "__main__":
                     my_pid = os.getpid()
                     try:
                         import subprocess
+                        ps_cmd = f"Get-Process -Name 'Whiscribe' -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne {my_pid} }} | Stop-Process -Force"
                         subprocess.run(
-                            ["powershell", "-NoProfile", "-Command", f"Get-Process -Name '*Whiscribe*' | Where-Object {{ $_.Id -ne {my_pid} }} | Stop-Process -Force"],
+                            ["powershell", "-NoProfile", "-Command", ps_cmd],
                             creationflags=0x08000000
                         )
                         time.sleep(0.5)
@@ -1639,7 +2193,7 @@ if __name__ == "__main__":
                         ctypes.windll.kernel32.CloseHandle(h_send)
                     sys.exit(0)
 
-        # Kreator pierwszego uruchomienia i automatyczny dobór silnika AI do sprzętu
+        # Kreator pierwszego uruchomienia
         try:
             from hardware_profiler import show_first_run_wizard_if_needed
             initial_cfg = load_config()

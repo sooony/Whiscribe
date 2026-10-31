@@ -199,6 +199,38 @@ FONT_REG_PATH = os.path.join(WINDIR, 'Fonts', 'segoeui.ttf')
 FONT_BOLD_PATH = os.path.join(WINDIR, 'Fonts', 'segoeuib.ttf')
 FONT_SEMI_PATH = os.path.join(WINDIR, 'Fonts', 'seguisb.ttf')
 
+import logging
+logger = logging.getLogger("Overlay")
+
+_FONT_CACHE = {}
+
+def get_cached_font(font_path: str, size: int):
+    """Pobiera skompilowaną czcionkę z pamięci podręcznej, eliminując narzut operacji We/Wy w pętli renderowania."""
+    key = (font_path, size)
+    font = _FONT_CACHE.get(key)
+    if font is None:
+        try:
+            font = ImageFont.truetype(font_path, size)
+        except Exception:
+            try:
+                font = ImageFont.load_default()
+            except Exception:
+                font = None
+        _FONT_CACHE[key] = font
+    return font
+
+def _safe_dispatch(fn, *args, **kwargs):
+    """Bezpieczne uruchamianie callbacków widżetu w osobnym wątku z pełnym logowaniem wyjątków."""
+    if not fn:
+        return
+    def _run():
+        try:
+            fn(*args, **kwargs)
+        except Exception:
+            logger.exception(f"Błąd podczas wykonywania callbacku interfejsu ({getattr(fn, '__name__', repr(fn))}):")
+    threading.Thread(target=_run, daemon=True).start()
+
+
 THEMES = {
     'light': {
         'name': 'Jasny (Light Modern)',
@@ -225,7 +257,13 @@ THEMES = {
         'scroll_track': (238, 242, 248, 255),
         'shadow_alpha': 20,
         'glow1': (105, 157, 255, 12),
-        'glow2': (178, 112, 255, 10)
+        'glow2': (178, 112, 255, 10),
+        'stream_lbl': (70, 90, 125, 255),
+        'stream_lbl_active': (20, 35, 65, 255),
+        'stream_on_text': (24, 55, 160, 255),
+        'stream_off_text': (190, 22, 38, 255),
+        'bar_btn_col': (65, 85, 120, 255),
+        'bar_btn_close_hover': (190, 20, 35, 255)
     },
     'dark': {
         'name': 'Ciemny (Dark Modern)',
@@ -252,13 +290,19 @@ THEMES = {
         'scroll_track': (28, 38, 54, 255),
         'shadow_alpha': 40,
         'glow1': (105, 157, 255, 16),
-        'glow2': (178, 112, 255, 14)
+        'glow2': (178, 112, 255, 14),
+        'stream_lbl': (180, 195, 220, 255),
+        'stream_lbl_active': (240, 245, 255, 255),
+        'stream_on_text': (56, 189, 248, 255),
+        'stream_off_text': (255, 85, 95, 255),
+        'bar_btn_col': (180, 195, 220, 255),
+        'bar_btn_close_hover': (255, 100, 110, 255)
     },
     'glass_light': {
         'name': 'Glass Jasny (Mica Light)',
         'panel_bg': (255, 255, 255, 185),
         'panel_border': (255, 255, 255, 180),
-        'bar_bg': (206, 218, 236, 190),
+        'bar_bg': (206, 218, 236, 215),
         'toggle_active_bg': (180, 198, 226, 255),
         'toggle_hover_bg': (194, 208, 230, 255),
         'toggle_active_hover_bg': (170, 190, 220, 255),
@@ -279,7 +323,13 @@ THEMES = {
         'scroll_track': (235, 240, 248, 255),
         'shadow_alpha': 18,
         'glow1': (150, 190, 255, 22),
-        'glow2': (200, 170, 255, 18)
+        'glow2': (200, 170, 255, 18),
+        'stream_lbl': (70, 90, 125, 255),
+        'stream_lbl_active': (20, 35, 65, 255),
+        'stream_on_text': (24, 55, 160, 255),
+        'stream_off_text': (190, 22, 38, 255),
+        'bar_btn_col': (65, 85, 120, 255),
+        'bar_btn_close_hover': (190, 20, 35, 255)
     },
     'glass_dark': {
         'name': 'Glass Ciemny (Mica Dark)',
@@ -306,13 +356,19 @@ THEMES = {
         'scroll_track': (30, 44, 72, 255),
         'shadow_alpha': 42,
         'glow1': (105, 157, 255, 22),
-        'glow2': (178, 112, 255, 18)
+        'glow2': (178, 112, 255, 18),
+        'stream_lbl': (180, 195, 220, 255),
+        'stream_lbl_active': (240, 245, 255, 255),
+        'stream_on_text': (56, 189, 248, 255),
+        'stream_off_text': (255, 85, 95, 255),
+        'bar_btn_col': (180, 195, 220, 255),
+        'bar_btn_close_hover': (255, 100, 110, 255)
     },
     'glass_color': {
         'name': 'Glass Kolorowy (Vibrant Glass)',
         'panel_bg': (86, 111, 235, 215),
         'panel_border': (255, 255, 255, 140),
-        'bar_bg': (74, 76, 171, 190),
+        'bar_bg': (74, 76, 171, 215),
         'toggle_active_bg': (105, 115, 225, 255),
         'toggle_hover_bg': (90, 96, 200, 255),
         'toggle_active_hover_bg': (120, 130, 240, 255),
@@ -333,7 +389,13 @@ THEMES = {
         'scroll_track': (95, 115, 220, 255),
         'shadow_alpha': 35,
         'glow1': (105, 175, 255, 35),
-        'glow2': (255, 116, 220, 30)
+        'glow2': (255, 116, 220, 30),
+        'stream_lbl': (220, 230, 255, 240),
+        'stream_lbl_active': (255, 255, 255, 255),
+        'stream_on_text': (255, 255, 255, 255),
+        'stream_off_text': (255, 120, 135, 255),
+        'bar_btn_col': (230, 238, 255, 235),
+        'bar_btn_close_hover': (255, 255, 255, 255)
     }
 }
 
@@ -351,7 +413,7 @@ THEME_MAP = {
     'nordic_titanium': 'glass_light'
 }
 
-# 27 bar height profiles from HTML prototype
+# Profile wysokosci slupkow audio
 BAR_HEIGHTS = [
     [7,15,10,22],[11,27,16,31],[8,18,12,25],[14,33,19,36],
     [10,21,15,29],[13,30,18,34],[8,16,11,23],[16,34,20,38],
@@ -365,7 +427,7 @@ BAR_HEIGHTS = [
 _ICON_CACHE = {}
 
 def get_svg_mic_image(sz, color=(255, 255, 255, 255)):
-    """Render supersampled (4x) vector microphone icon from exact prototype SVG."""
+    """Renderuje wektorowa ikone mikrofonu."""
     key = ('mic', sz, color)
     if key in _ICON_CACHE:
         return _ICON_CACHE[key]
@@ -377,27 +439,23 @@ def get_svg_mic_image(sz, color=(255, 255, 255, 255)):
     scale = w / 24.0
     stroke = max(1, int(round(2.0 * scale)))
 
-    # <rect x="8" y="3" width="8" height="12" rx="4"></rect>
     rx1 = 8.0 * scale
     ry1 = 3.0 * scale
     rx2 = 16.0 * scale
     ry2 = 15.0 * scale
     d.rounded_rectangle([rx1, ry1, rx2, ry2], radius=int(4.0 * scale), outline=color, width=stroke)
 
-    # <path d="M5 11a7 7 0 0 0 14 0 ..."> (Cradle arc centered at 12, 11 r=7)
     cx1 = 5.0 * scale
     cy1 = 4.0 * scale
     cx2 = 19.0 * scale
     cy2 = 18.0 * scale
     d.arc([cx1, cy1, cx2, cy2], start=0, end=180, fill=color, width=stroke)
 
-    # ... M12 18v3 ... (Stem)
     sx = 12.0 * scale
     sy1 = 18.0 * scale
     sy2 = 21.0 * scale
     d.line([(sx, sy1), (sx, sy2)], fill=color, width=stroke)
 
-    # ... M8.5 21h7 ... (Base foot)
     fx1 = 8.5 * scale
     fx2 = 15.5 * scale
     fy = 21.0 * scale
@@ -416,7 +474,7 @@ def _eval_cubic_bezier(p0, p1, p2, p3, n=16):
     return pts
 
 def get_people_image(sz, color=(255, 255, 255, 255)):
-    """Render supersampled (4x) vector people icon from exact prototype SVG."""
+    """Renderuje wektorowa ikone spotkania."""
     key = ('people', sz, color)
     if key in _ICON_CACHE:
         return _ICON_CACHE[key]
@@ -427,15 +485,12 @@ def get_people_image(sz, color=(255, 255, 255, 255)):
     d = ImageDraw.Draw(img)
     scale = w / 38.0
 
-    # <circle cx="14" cy="13" r="6"></circle>
     c1x, c1y, r1 = 14.0 * scale, 13.0 * scale, 6.0 * scale
     d.ellipse([c1x - r1, c1y - r1, c1x + r1, c1y + r1], fill=color)
 
-    # <circle cx="27" cy="15" r="4.6"></circle>
     c2x, c2y, r2 = 27.0 * scale, 15.0 * scale, 4.6 * scale
     d.ellipse([c2x - r2, c2y - r2, c2x + r2, c2y + r2], fill=color)
 
-    # <path d="M3.5 30c0-5.2 4.3-9.4 9.5-9.4s9.5 4.2 9.5 9.4H3.5Z"></path>
     p0 = np.array([3.5, 30.0])
     p1 = np.array([3.5, 24.8])
     p2 = np.array([7.8, 20.6])
@@ -447,7 +502,6 @@ def get_people_image(sz, color=(255, 255, 255, 255)):
     pts1.append((3.5, 30.0))
     d.polygon([(x * scale, y * scale) for x, y in pts1], fill=color)
 
-    # <path d="M22 29.5c.3-3.6 3.3-6.6 7-6.6 3.6 0 6.5 2.8 6.9 6.6H22Z"></path>
     q0 = np.array([22.0, 29.5])
     q1 = np.array([22.3, 25.9])
     q2 = np.array([25.3, 22.9])
@@ -464,21 +518,21 @@ def get_people_image(sz, color=(255, 255, 255, 255)):
     return out
 
 def draw_svg_mic(target, cx, cy, sz, color=(255, 255, 255, 255)):
-    """SVG Microphone icon matching HTML prototype (viewBox 0 0 24 24, stroke-width 2)."""
+    """Rysuje ikone mikrofonu."""
     img_dest = target if isinstance(target, Image.Image) else getattr(target, '_image', None)
     mic_img = get_svg_mic_image(sz, color)
     if img_dest:
         img_dest.alpha_composite(mic_img, (int(round(cx - sz / 2.0)), int(round(cy - sz / 2.0))))
 
 def draw_people_icon(target, cx, cy, sz, color=(255, 255, 255, 255)):
-    """SVG Group / People icon matching HTML prototype (viewBox 0 0 38 38, fill currentColor)."""
+    """Rysuje ikone spotkania."""
     img_dest = target if isinstance(target, Image.Image) else getattr(target, '_image', None)
     people_img = get_people_image(sz, color)
     if img_dest:
         img_dest.alpha_composite(people_img, (int(round(cx - sz / 2.0)), int(round(cy - sz / 2.0))))
 
 def _create_taskbar_icon():
-    """Generuje elegancką ikonę HICON dla paska zadań Windows 11 (granatowa bez obwiedni, biały mikrofon)."""
+    """Tworzy ikone HICON dla paska zadan Windows."""
     try:
         import sys
         base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
@@ -491,9 +545,7 @@ def _create_taskbar_icon():
         ico_path = os.path.join(temp_dir, "voice_ui_taskbar.ico")
         img_hi = Image.new('RGBA', (256, 256), color=(0, 0, 0, 0))
         d = ImageDraw.Draw(img_hi)
-        # Granatowe tło bez obwiedni (Navy Blue)
         d.ellipse((10, 10, 246, 246), fill=(18, 28, 58, 255))
-        # Czysty biały mikrofon wektorowy
         draw_svg_mic(img_hi, 128, 128, 124, color=(255, 255, 255, 255))
         img_hi.save(ico_path, format='ICO', sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
         return user32.LoadImageW(None, ico_path, 1, 32, 32, 0x0010)
@@ -501,7 +553,7 @@ def _create_taskbar_icon():
         return None
 
 def _add_hwnd_to_taskbar(hwnd: int):
-    """Rejestruje okno w powłoce Windows Shell (ITaskbarList), gwarantując obecność na dolnym pasku zadań Windows 11."""
+    """Rejestruje okno w ITaskbarList."""
     if not hwnd or not user32.IsWindow(hwnd):
         return None
     try:
@@ -556,12 +608,12 @@ def _wrap_text_lines(text, max_w, draw, font):
 
 class FloatingOverlay:
     """
-    Wiernie odwzorowany interfejs Voice UI zgodny w 100% z prototypem użytkownika (250x90 Voice Module + Panel Transkrypcji).
-    - Zablokowanie kradzieży fokusu (WS_EX_NOACTIVATE, MA_NOACTIVATE)
-    - Płynne przeciąganie po obu monitorach
-    - Kreski reaktywne fali dźwiękowej (27 słupków z dynamiczną modulacją)
-    - Panel transkrypcji z pełnym przewijaniem (scroll myszą i suwak) bez znaczników czasu
-    - Dymek błędu braku pola tekstowego
+    Pływający widżet Voice UI oparty na Win32 Layered Windows:
+    - Brak aktywacji fokusu (WS_EX_NOACTIVATE, MA_NOACTIVATE)
+    - Obsługa przeciągania okna
+    - Reaktywna fala dźwiękowa
+    - Panel historii transkrypcji z przewijaniem
+    - Komunikaty stanu i błędów
     """
 
     def __init__(self, theme='dark', always_on_top=True):
@@ -604,12 +656,12 @@ class FloatingOverlay:
         self.bar_r = 15
 
         # Przyciski belki górnej (.window-bar):
-        # Przełącznik trybu streamingu: Etykieta "Streaming" + pastylka [ ON ] / [ OFF ]
-        self.stream_lbl_x = self.bx + 8
+        # 1. Przełącznik trybu streamingu: Etykieta "Stream" + pastylka [ ON ] / [ OFF ]
+        self.stream_lbl_x = self.bx + 7
         self.stream_lbl_y = self.by + 13.5
-        self.stream_pill_w = 34
-        self.stream_pill_h = 18
-        self.stream_total_w = 98
+        self.stream_pill_w = 28
+        self.stream_pill_h = 17
+        self.stream_total_w = 65
 
         self.stream_btn_x = self.stream_lbl_x
         self.stream_btn_y = self.by + 4
@@ -617,6 +669,20 @@ class FloatingOverlay:
         self.stream_btn_h = 19
         self.stream_realtime = False
         self.on_stream_toggle_callback = None
+
+        # 2. Przełącznik korekty AI: Etykieta "Korekta AI" + pastylka [ ON ] / [ OFF ]
+        self.ai_lbl_x = self.stream_btn_x + self.stream_btn_w + 7
+        self.ai_lbl_y = self.by + 13.5
+        self.ai_pill_w = 28
+        self.ai_pill_h = 17
+        self.ai_total_w = 82
+
+        self.ai_btn_x = self.ai_lbl_x
+        self.ai_btn_y = self.by + 4
+        self.ai_btn_w = self.ai_total_w
+        self.ai_btn_h = 19
+        self.ai_enabled = False
+        self.on_ai_toggle_callback = None
 
         # Zachowanie kompatybilności dla dawnych odwołań
         self.bar_stream_cx = self.stream_btn_x + self.stream_btn_w // 2
@@ -736,7 +802,7 @@ class FloatingOverlay:
                     self._start_time = time.time()
             self._dirty = True
 
-    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None, on_stream_toggle=None):
+    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None, on_stream_toggle=None, on_ai_toggle=None):
         self.on_stop_callback = on_stop
         self.on_close_callback = on_close
         self.on_toggle_callback = on_toggle
@@ -747,6 +813,8 @@ class FloatingOverlay:
             self.on_hotkey_callback = on_hotkey
         if on_stream_toggle is not None:
             self.on_stream_toggle_callback = on_stream_toggle
+        if on_ai_toggle is not None:
+            self.on_ai_toggle_callback = on_ai_toggle
 
     def set_meeting_volume_getter(self, getter):
         self.loopback_volume_getter = getter
@@ -774,8 +842,8 @@ class FloatingOverlay:
         return (self.px <= x <= self.px + self.pw) and (self.py <= y <= self.py + self.ph)
 
     def _get_target(self, x, y):
-        # 1. Sprawdź kliknięcie w panelu górnym (tylko w dymku błędu)
-        if self._balloon_type == "error":
+        # 1. Sprawdź kliknięcie w panelu górnym (w dymku błędu lub info)
+        if self._balloon_type in ("error", "info"):
             btn_x = self.px + 16
             btn_y = self.py + self.ph - 30
             btn_w = self.pw - 32
@@ -787,19 +855,23 @@ class FloatingOverlay:
 
         # 2. Sprawdź kontrolki na belce okna (.window-bar)
         if self._is_inside_bar(x, y):
-            # Przycisk Przełączania Streamingu ("Streaming ON" / "Streaming OFF")
+            # Przycisk Przełączania Streamingu ("Stream ON" / "Stream OFF")
             if (self.stream_btn_x <= x <= self.stream_btn_x + self.stream_btn_w) and (self.by <= y <= self.by + self.bh):
                 return 'btn_toggle_stream'
 
-            # Przycisk Zamknij ✕
+            # Przycisk Przełączania Korekty AI ("Korekta ON" / "Korekta OFF")
+            if (self.ai_btn_x <= x <= self.ai_btn_x + self.ai_btn_w) and (self.by <= y <= self.by + self.bh):
+                return 'btn_toggle_ai'
+
+            # Przycisk Zamknij
             if abs(x - self.bar_close_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_close'
 
-            # Przycisk Zminimalizuj −
+            # Przycisk Minimalizuj
             if abs(x - self.bar_min_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_minimize'
 
-            # Przycisk Menu •••
+            # Przycisk Menu
             if abs(x - self.bar_menu_cx) <= 12 and (self.by <= y <= self.by + self.bh):
                 return 'btn_bar_menu'
 
@@ -837,14 +909,14 @@ class FloatingOverlay:
         WM_MOUSEWHEEL = 0x020A
 
         if msg == WM_MOUSEACTIVATE:
-            # Kluczowe: kliknięcie w widżet NIE kradnie fokusu z edytora docelowego!
+            # MA_NOACTIVATE: nie zmienia aktywnego okna
             return MA_NOACTIVATE
 
         WM_HOTKEY = 0x0312
         if msg == WM_HOTKEY:
             hotkey_id = int(wparam)
             if self.on_hotkey_callback:
-                threading.Thread(target=self.on_hotkey_callback, args=(hotkey_id,), daemon=True).start()
+                _safe_dispatch(self.on_hotkey_callback, hotkey_id)
             return 0
 
         WM_APP_REGISTER_HOTKEY = 0x8001
@@ -873,12 +945,12 @@ class FloatingOverlay:
             if cmd == SC_MINIMIZE:
                 self.minimize()
                 if self.on_minimize_callback:
-                    threading.Thread(target=self.on_minimize_callback, daemon=True).start()
+                    _safe_dispatch(self.on_minimize_callback)
                 return 0
             elif cmd == SC_RESTORE:
                 self.restore()
                 if self.on_restore_callback:
-                    threading.Thread(target=self.on_restore_callback, daemon=True).start()
+                    _safe_dispatch(self.on_restore_callback)
                 return 0
 
         if msg == WM_SIZE:
@@ -889,12 +961,12 @@ class FloatingOverlay:
                 if self.hwnd and self.always_on_top:
                     user32.SetWindowPos(self.hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
                 if self.on_restore_callback:
-                    threading.Thread(target=self.on_restore_callback, daemon=True).start()
+                    _safe_dispatch(self.on_restore_callback)
             elif wparam == 1:  # SIZE_MINIMIZED
                 self._user_minimized = True
                 self._visible = False
                 if self.on_minimize_callback:
-                    threading.Thread(target=self.on_minimize_callback, daemon=True).start()
+                    _safe_dispatch(self.on_minimize_callback)
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
         if msg == WM_MOUSEWHEEL:
@@ -968,7 +1040,7 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_close', 'btn_minimize', 'btn_rozumiem'):
+            if self._hover_target in ('btn_mic', 'btn_meeting', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_toggle_ai', 'btn_close', 'btn_minimize', 'btn_rozumiem'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
             elif self._hover_target in ('widget_drag', 'panel_content', 'balloon_body'):
@@ -1020,31 +1092,31 @@ class FloatingOverlay:
             if self._pressed_btn == target:
                 if target == 'btn_mic':
                     if self.mode == "recording":
-                        if self.on_stop_callback:
-                            threading.Thread(target=self.on_stop_callback, daemon=True).start()
+                        _safe_dispatch(self.on_stop_callback)
                     elif self.mode == "transcribing":
-                        if self.on_meeting_toggle_callback:
-                            threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
+                        _safe_dispatch(self.on_meeting_toggle_callback)
                     else:
-                        if self.on_toggle_callback:
-                            threading.Thread(target=self.on_toggle_callback, daemon=True).start()
+                        _safe_dispatch(self.on_toggle_callback)
 
                 elif target == 'btn_meeting':
                     if self.mode == "transcribing":
-                        if self.on_meeting_toggle_callback:
-                            threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
+                        _safe_dispatch(self.on_meeting_toggle_callback)
                     elif self.mode == "recording":
-                        if self.on_stop_callback:
-                            threading.Thread(target=self.on_stop_callback, daemon=True).start()
+                        _safe_dispatch(self.on_stop_callback)
                     else:
-                        if self.on_meeting_toggle_callback:
-                            threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
+                        _safe_dispatch(self.on_meeting_toggle_callback)
 
                 elif target == 'btn_toggle_stream':
                     self.stream_realtime = not self.stream_realtime
                     self._dirty = True
-                    if self.on_stream_toggle_callback:
-                        threading.Thread(target=self.on_stream_toggle_callback, daemon=True).start()
+                    _safe_dispatch(self.on_stream_toggle_callback)
+
+                elif target == 'btn_toggle_ai':
+                    if self.on_ai_toggle_callback:
+                        _safe_dispatch(self.on_ai_toggle_callback)
+                    else:
+                        self.ai_enabled = not self.ai_enabled
+                        self._dirty = True
 
                 elif target == 'btn_rozumiem':
                     self.hide_balloon()
@@ -1057,21 +1129,17 @@ class FloatingOverlay:
                         menu_screen_y = self.pos_y + int(self.by)
                     else:
                         menu_screen_y = self.pos_y + int(self.by + self.bh)
-                    if self.settings_handler:
-                        threading.Thread(target=self.settings_handler, args=(menu_screen_x, menu_screen_y), daemon=True).start()
+                    _safe_dispatch(self.settings_handler, menu_screen_x, menu_screen_y)
 
                 elif target in ('btn_bar_minimize', 'btn_minimize'):
                     self.minimize()
-                    if self.on_minimize_callback:
-                        threading.Thread(target=self.on_minimize_callback, daemon=True).start()
+                    _safe_dispatch(self.on_minimize_callback)
 
                 elif target in ('btn_bar_close', 'btn_close'):
                     if self.mode == "recording":
-                        if self.on_close_callback:
-                            threading.Thread(target=self.on_close_callback, daemon=True).start()
+                        _safe_dispatch(self.on_close_callback)
                     elif self.mode == "transcribing":
-                        if self.on_meeting_toggle_callback:
-                            threading.Thread(target=self.on_meeting_toggle_callback, daemon=True).start()
+                        _safe_dispatch(self.on_meeting_toggle_callback)
                     else:
                         self.hide()
 
@@ -1081,8 +1149,7 @@ class FloatingOverlay:
         elif msg == WM_RBUTTONUP:
             pt_screen = wintypes.POINT()
             user32.GetCursorPos(ctypes.byref(pt_screen))
-            if self.settings_handler:
-                threading.Thread(target=self.settings_handler, args=(pt_screen.x, pt_screen.y), daemon=True).start()
+            _safe_dispatch(self.settings_handler, pt_screen.x, pt_screen.y)
             return 0
 
         elif msg == 0x0010:  # WM_CLOSE
@@ -1134,7 +1201,7 @@ class FloatingOverlay:
             WS_SYSMENU = 0x00080000
             WS_MINIMIZEBOX = 0x00020000
 
-            ex_flags = WS_EX_LAYERED | WS_EX_APPWINDOW
+            ex_flags = WS_EX_LAYERED | WS_EX_APPWINDOW | WS_EX_NOACTIVATE
             if self.always_on_top:
                 ex_flags |= WS_EX_TOPMOST
 
@@ -1199,9 +1266,11 @@ class FloatingOverlay:
                             self.hwnd, -1, 0, 0, 0, 0,
                             0x0001 | 0x0002 | 0x0010  # SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
                         )
+                needs_anim = (self.mode in ("recording", "transcribing", "processing")) or self._is_dragging
+                target_interval = 0.030 if needs_anim else 0.050
                 elapsed = now - last_frame_time
-                if elapsed < 0.030:
-                    time.sleep(max(0.001, 0.030 - elapsed))
+                if elapsed < target_interval:
+                    time.sleep(max(0.001, target_interval - elapsed))
                     continue
 
                 if self._balloon_type and self._balloon_until > 0 and now > self._balloon_until:
@@ -1212,14 +1281,12 @@ class FloatingOverlay:
                     self._dirty = True
                     prev_hover = self._hover_target
 
-                needs_anim = (self.mode in ("recording", "transcribing", "processing")) or self._is_dragging
-
                 if self._visible and self.hwnd and (needs_anim or self._dirty):
                     self._dirty = False
                     last_frame_time = time.time()
                     self._render_frame(last_frame_time)
                 else:
-                    time.sleep(0.025)
+                    time.sleep(0.035)
 
         except Exception as e:
             import logging
@@ -1247,20 +1314,13 @@ class FloatingOverlay:
         img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         d = ImageDraw.Draw(img)
 
-        # Czcionki
-        try:
-            fnt_tab = ImageFont.truetype(FONT_SEMI_PATH, int(8.2 * scale))
-            fnt_text = ImageFont.truetype(FONT_REG_PATH, int(8.8 * scale))
-            fnt_time = ImageFont.truetype(FONT_REG_PATH, int(8.2 * scale))
-            fnt_status = ImageFont.truetype(FONT_REG_PATH, int(8.5 * scale))
-            fnt_timer = ImageFont.truetype(FONT_BOLD_PATH, int(8.5 * scale))
-            fnt_close = ImageFont.truetype(FONT_REG_PATH, int(15 * scale))
-        except Exception:
-            try:
-                fnt_tab = ImageFont.truetype(FONT_BOLD_PATH, int(8.5 * scale))
-            except Exception:
-                fnt_tab = ImageFont.load_default()
-            fnt_text = fnt_time = fnt_status = fnt_timer = fnt_close = ImageFont.load_default()
+        # Czcionki z pamięci podręcznej (zero narzutu We/Wy per klatka)
+        fnt_tab = get_cached_font(FONT_SEMI_PATH, int(8.2 * scale)) or get_cached_font(FONT_BOLD_PATH, int(8.5 * scale))
+        fnt_text = get_cached_font(FONT_REG_PATH, int(8.8 * scale))
+        fnt_time = get_cached_font(FONT_REG_PATH, int(8.2 * scale))
+        fnt_status = get_cached_font(FONT_REG_PATH, int(8.5 * scale))
+        fnt_timer = get_cached_font(FONT_BOLD_PATH, int(8.5 * scale))
+        fnt_close = get_cached_font(FONT_REG_PATH, int(15 * scale))
 
         # Pobierz poziomy głośności
         vol = 0.0
@@ -1278,7 +1338,7 @@ class FloatingOverlay:
             timer_s = int(t_now - self._start_time)
 
         # ========================================================
-        # 1. PANEL GÓRNY (Transkrypcja lub Ostrzeżenie Błędu)
+        # 1. PANEL GÓRNY (Transkrypcja lub Ostrzeżenie Błędu / Info)
         # ========================================================
         px = int(self.px * scale)
         py = int(self.py * scale)
@@ -1286,8 +1346,8 @@ class FloatingOverlay:
         ph = int(self.ph * scale)
         pr = int(self.panel_r * scale)
 
-        if self._balloon_type == "error":
-            # Dymek błędu z przyciskiem Rozumiem
+        if self._balloon_type in ("error", "info"):
+            # Dymek powiadomienia (błąd lub informacja) z przyciskiem zamknięcia
             sh = Image.new('RGBA', (W, H), (0, 0, 0, 0))
             sd = ImageDraw.Draw(sh)
             sh_offset_y = int(2.5 * scale)
@@ -1299,18 +1359,40 @@ class FloatingOverlay:
             d = ImageDraw.Draw(img)
             d.rounded_rectangle([px, py, px + pw, py + ph], radius=pr, fill=cfg['panel_bg'], outline=cfg['panel_border'], width=max(1, int(1.1*scale)))
 
-            # Ikona błędu ❌
-            err_cx = px + int(24 * scale)
-            err_cy = py + int(30 * scale)
-            err_r = int(9 * scale)
-            d.ellipse([err_cx - err_r, err_cy - err_r, err_cx + err_r, err_cy + err_r], fill=(209, 52, 56, 255))
-            ex_sz = int(3.5 * scale)
-            d.line([(err_cx - ex_sz, err_cy - ex_sz), (err_cx + ex_sz, err_cy + ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
-            d.line([(err_cx - ex_sz, err_cy + ex_sz), (err_cx + ex_sz, err_cy - ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
+            if self._balloon_type == "error":
+                # Ikona bledu (czerwona z krzyżykiem)
+                err_cx = px + int(24 * scale)
+                err_cy = py + int(30 * scale)
+                err_r = int(9 * scale)
+                d.ellipse([err_cx - err_r, err_cy - err_r, err_cx + err_r, err_cy + err_r], fill=(209, 52, 56, 255))
+                ex_sz = int(3.5 * scale)
+                d.line([(err_cx - ex_sz, err_cy - ex_sz), (err_cx + ex_sz, err_cy + ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
+                d.line([(err_cx - ex_sz, err_cy + ex_sz), (err_cx + ex_sz, err_cy - ex_sz)], fill=(255, 255, 255, 255), width=max(1, int(1.6*scale)))
 
-            d.text((px + int(42 * scale), py + int(18 * scale)), "Aby używać wpisywania głosowego,", fill=cfg['text'], font=fnt_text)
-            d.text((px + int(42 * scale), py + int(32 * scale)), "zaznacz pole tekstowe i spróbuj", fill=cfg['text'], font=fnt_text)
-            d.text((px + int(42 * scale), py + int(46 * scale)), "ponownie.", fill=cfg['text'], font=fnt_text)
+                d.text((px + int(42 * scale), py + int(18 * scale)), "Aby używać wpisywania głosowego,", fill=cfg['text'], font=fnt_text)
+                d.text((px + int(42 * scale), py + int(32 * scale)), "zaznacz pole tekstowe i spróbuj", fill=cfg['text'], font=fnt_text)
+                d.text((px + int(42 * scale), py + int(46 * scale)), "ponownie.", fill=cfg['text'], font=fnt_text)
+                btn_caption = "Rozumiem"
+            else:
+                # Ikona informacyjna (niebieska z 'i')
+                info_cx = px + int(24 * scale)
+                info_cy = py + int(30 * scale)
+                info_r = int(9 * scale)
+                d.ellipse([info_cx - info_r, info_cy - info_r, info_cx + info_r, info_cy + info_r], fill=(0, 120, 215, 255))
+                dot_r = int(1.4 * scale)
+                d.ellipse([info_cx - dot_r, info_cy - int(4.5 * scale) - dot_r, info_cx + dot_r, info_cy - int(4.5 * scale) + dot_r], fill=(255, 255, 255, 255))
+                d.line([(info_cx, info_cy - int(1.5 * scale)), (info_cx, info_cy + int(4.5 * scale))], fill=(255, 255, 255, 255), width=max(1, int(1.8*scale)))
+
+                raw_msg = getattr(self, '_balloon_text', '') or getattr(self, '_balloon_message', '') or "Informacja"
+                import textwrap
+                lines = []
+                for p in raw_msg.split('\n'):
+                    lines.extend(textwrap.wrap(p, width=32) or [''])
+                lines = lines[:3]
+                start_y = 18 if len(lines) >= 3 else (25 if len(lines) == 2 else 32)
+                for idx, line in enumerate(lines):
+                    d.text((px + int(42 * scale), py + int((start_y + idx * 14) * scale)), line, fill=cfg['text'], font=fnt_text)
+                btn_caption = "Rozumiem"
 
             btn_x = px + int(16 * scale)
             btn_y = py + ph - int(34 * scale)
@@ -1323,10 +1405,10 @@ class FloatingOverlay:
             else:
                 btn_fill = (45, 60, 90, 255) if self._hover_target == 'btn_rozumiem' else (35, 48, 75, 255)
             d.rounded_rectangle([btn_x, btn_y, btn_x + btn_w, btn_y + btn_h], radius=int(6*scale), fill=btn_fill, outline=cfg['panel_border'])
-            d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), "Rozumiem", fill=cfg['text'], font=fnt_tab, anchor="mm")
+            d.text((btn_x + btn_w/2, btn_y + btn_h/2 - int(0.5*scale)), btn_caption, fill=cfg['text'], font=fnt_tab, anchor="mm")
 
         # ========================================================
-        # 2. OKNO GŁÓWNE: POŁĄCZONA BELKA I MODUŁ GŁOSU
+        # 2. OKNO GLOWNE: BELKA I MODUL GLOSU
         # ========================================================
         bx = int(self.bx * scale)
         by = int(self.by * scale)
@@ -1338,7 +1420,7 @@ class FloatingOverlay:
         mw = int(self.mw * scale)
         mh = int(self.mh * scale)
 
-        # Cień połączonej karty okna (Window Bar + Voice Module)
+        # Cien karty okna
         sh_m = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         smd = ImageDraw.Draw(sh_m)
         sh_offset_y = int(2.5 * scale)
@@ -1348,7 +1430,7 @@ class FloatingOverlay:
         sh_m = sh_m.filter(ImageFilter.GaussianBlur(radius=sh_blur))
         img.alpha_composite(sh_m)
 
-        # Tła i obramowania połączonej karty
+        # Tla i obramowania
         d = ImageDraw.Draw(img)
         d.rounded_rectangle([bx, by, bx + bw, my], radius=int(self.bar_r * scale), corners=(True, True, False, False), fill=cfg.get('bar_bg', cfg['panel_bg']))
         d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), fill=cfg['panel_bg'])
@@ -1358,7 +1440,7 @@ class FloatingOverlay:
         d.rounded_rectangle([mx, my, mx + mw, my + mh], radius=int(self.mod_r * scale), corners=(False, False, True, True), outline=cfg['panel_border'], width=border_w)
         d.line([(bx, my), (bx + bw, my)], fill=cfg['panel_border'], width=border_w)
 
-        # Subtelne radialne podświetlenie karty modułu
+        # Podswietlenie modulu
         glow_mod = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         gmd = ImageDraw.Draw(glow_mod)
         g_col1 = cfg.get('glow1', (105, 157, 255, 14))
@@ -1375,67 +1457,115 @@ class FloatingOverlay:
         img.alpha_composite(glow_mod_masked)
         d = ImageDraw.Draw(img)
 
-        # --- KONTROLKI BELKI GÓRNEJ (.window-bar) ---
-        # 1. Przełącznik trybu streamingu: Etykieta "Streaming" + pastylka [ ON ] / [ OFF ]
-        lbl_x = int(self.stream_lbl_x * scale)
-        bar_cy = int(self.stream_lbl_y * scale)
+        # Kontrolki belki
         is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
 
-        # 1a. Tekst "Streaming" poza pastylką
-        lbl_col = (220, 230, 245, 255) if (self._hover_target == 'btn_toggle_stream' or self.stream_realtime) else cfg['muted']
-        d.text((lbl_x, bar_cy), "Streaming", fill=lbl_col, font=fnt_tab, anchor="lm")
-        bbox_lbl = d.textbbox((lbl_x, bar_cy), "Streaming", font=fnt_tab, anchor="lm")
+        # 1. Przelacznik Stream
+        s_lbl_x = int(self.stream_lbl_x * scale)
+        bar_cy = int(self.stream_lbl_y * scale)
 
-        # 1b. Zwięzła, krótsza pastylka wyłącznie dla statusu [ ON ] / [ OFF ]
-        pill_x = bbox_lbl[2] + int(6 * scale)
-        pill_w = int(self.stream_pill_w * scale)
-        pill_h = int(self.stream_pill_h * scale)
-        pill_y = bar_cy - pill_h // 2
-        pill_r = int(5 * scale)
+        is_stream_hover = (self._hover_target == 'btn_toggle_stream')
+        is_stream_active = (is_stream_hover or self.stream_realtime)
 
-        # Tło i obramowanie pastylki
-        if self._hover_target == 'btn_toggle_stream':
-            pill_bg = cfg.get('toggle_active_hover_bg' if self.stream_realtime else 'btn_hover_bg', (200, 212, 230, 255))
-            d.rounded_rectangle([pill_x, pill_y, pill_x + pill_w, pill_y + pill_h], radius=pill_r, fill=pill_bg)
-        elif self.stream_realtime:
-            pill_bg = cfg.get('toggle_active_bg', (36, 50, 78, 255))
-            d.rounded_rectangle([pill_x, pill_y, pill_x + pill_w, pill_y + pill_h], radius=pill_r, fill=pill_bg)
+        if is_stream_active:
+            s_fallback = (20, 35, 65, 255) if self.theme in ('light', 'glass_light') else (255, 255, 255, 255)
+            s_col = cfg.get('stream_lbl_active', s_fallback)
         else:
-            off_bg = (28, 32, 42, 255) if is_dark else (240, 244, 250, 255)
-            d.rounded_rectangle([pill_x, pill_y, pill_x + pill_w, pill_y + pill_h], radius=pill_r, fill=off_bg, outline=cfg['panel_border'], width=max(1, int(1*scale)))
+            s_fallback = (70, 90, 125, 255) if self.theme in ('light', 'glass_light') else (180, 195, 220, 255)
+            s_col = cfg.get('stream_lbl', s_fallback)
+        d.text((s_lbl_x, bar_cy), "Stream", fill=s_col, font=fnt_tab, anchor="lm")
+        bbox_s = d.textbbox((s_lbl_x, bar_cy), "Stream", font=fnt_tab, anchor="lm")
 
-        # 1c. Wyśrodkowany napis wewnątrz pastylki ("ON" / "OFF")
-        state_text = "ON" if self.stream_realtime else "OFF"
-        state_col = cfg.get('accent', (56, 189, 248, 255)) if self.stream_realtime else ((239, 68, 68, 220) if is_dark else (220, 38, 38, 220))
-        d.text((pill_x + pill_w / 2, bar_cy - int(0.5 * scale)), state_text, fill=state_col, font=fnt_tab, anchor="mm")
+        s_pill_x = bbox_s[2] + int(4 * scale)
+        s_pill_w = int(self.stream_pill_w * scale)
+        s_pill_h = int(self.stream_pill_h * scale)
+        s_pill_y = bar_cy - s_pill_h // 2
+        s_pill_r = int(5 * scale)
 
-        # 2. Przyciski sterowania oknem po prawej stronie
+        if self.stream_realtime:
+            s_pill_bg = cfg.get('toggle_active_hover_bg' if is_stream_hover else 'toggle_active_bg', (36, 50, 78, 255))
+            d.rounded_rectangle([s_pill_x, s_pill_y, s_pill_x + s_pill_w, s_pill_y + s_pill_h], radius=s_pill_r, fill=s_pill_bg)
+        elif is_stream_hover:
+            s_pill_bg = cfg.get('btn_hover_bg', (200, 212, 230, 255))
+            d.rounded_rectangle([s_pill_x, s_pill_y, s_pill_x + s_pill_w, s_pill_y + s_pill_h], radius=s_pill_r, fill=s_pill_bg)
+
+        s_state_text = "ON" if self.stream_realtime else "OFF"
+        if self.stream_realtime:
+            s_on_fallback = (24, 55, 160, 255) if self.theme in ('light', 'glass_light') else ((255, 255, 255, 255) if self.theme == 'glass_color' else (56, 189, 248, 255))
+            s_state_col = cfg.get('stream_on_text', s_on_fallback)
+        else:
+            s_off_fallback = (190, 22, 38, 255) if self.theme in ('light', 'glass_light') else ((255, 120, 135, 255) if self.theme == 'glass_color' else (255, 85, 95, 255))
+            s_state_col = cfg.get('stream_off_text', s_off_fallback)
+        d.text((s_pill_x + s_pill_w / 2, bar_cy - int(0.5 * scale)), s_state_text, fill=s_state_col, font=fnt_tab, anchor="mm")
+
+        # 2. Przelacznik Korekta
+        k_lbl_x = s_pill_x + s_pill_w + int(8 * scale)
+        is_ai_hover = (self._hover_target == 'btn_toggle_ai')
+        is_ai_active = (is_ai_hover or self.ai_enabled)
+
+        if is_ai_active:
+            k_fallback = (20, 35, 65, 255) if self.theme in ('light', 'glass_light') else (255, 255, 255, 255)
+            k_col = cfg.get('stream_lbl_active', k_fallback)
+        else:
+            k_fallback = (70, 90, 125, 255) if self.theme in ('light', 'glass_light') else (180, 195, 220, 255)
+            k_col = cfg.get('stream_lbl', k_fallback)
+        d.text((k_lbl_x, bar_cy), "Korekta AI", fill=k_col, font=fnt_tab, anchor="lm")
+        bbox_k = d.textbbox((k_lbl_x, bar_cy), "Korekta AI", font=fnt_tab, anchor="lm")
+
+        k_pill_x = bbox_k[2] + int(4 * scale)
+        k_pill_w = int(self.ai_pill_w * scale)
+        k_pill_h = int(self.ai_pill_h * scale)
+        k_pill_y = bar_cy - k_pill_h // 2
+        k_pill_r = int(5 * scale)
+
+        if self.ai_enabled:
+            k_pill_bg = cfg.get('toggle_active_hover_bg' if is_ai_hover else 'toggle_active_bg', (36, 50, 78, 255))
+            d.rounded_rectangle([k_pill_x, k_pill_y, k_pill_x + k_pill_w, k_pill_y + k_pill_h], radius=k_pill_r, fill=k_pill_bg)
+        elif is_ai_hover:
+            k_pill_bg = cfg.get('btn_hover_bg', (200, 212, 230, 255))
+            d.rounded_rectangle([k_pill_x, k_pill_y, k_pill_x + k_pill_w, k_pill_y + k_pill_h], radius=k_pill_r, fill=k_pill_bg)
+
+        k_state_text = "ON" if self.ai_enabled else "OFF"
+        if self.ai_enabled:
+            k_on_fallback = (24, 55, 160, 255) if self.theme in ('light', 'glass_light') else ((255, 255, 255, 255) if self.theme == 'glass_color' else (56, 189, 248, 255))
+            k_state_col = cfg.get('stream_on_text', k_on_fallback)
+        else:
+            k_off_fallback = (190, 22, 38, 255) if self.theme in ('light', 'glass_light') else ((255, 120, 135, 255) if self.theme == 'glass_color' else (255, 85, 95, 255))
+            k_state_col = cfg.get('stream_off_text', k_off_fallback)
+        d.text((k_pill_x + k_pill_w / 2, bar_cy - int(0.5 * scale)), k_state_text, fill=k_state_col, font=fnt_tab, anchor="mm")
+
+        # 3. Przyciski po prawej stronie
         bar_cy = int(self.bar_close_cy * scale)
+        bar_icon_col = cfg.get('bar_btn_col', (65, 85, 120, 255) if not is_dark else (180, 195, 220, 255))
 
-        # 2a. Przycisk Menu ••• (otwiera pełne menu ustawień)
+        # Menu
         mcx = int(self.bar_menu_cx * scale)
-        if self._hover_target == 'btn_bar_menu':
+        is_menu_hover = (self._hover_target == 'btn_bar_menu')
+        if is_menu_hover:
             d.rounded_rectangle([mcx - int(9*scale), bar_cy - int(9*scale), mcx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
         dot_r = int(1.1 * scale)
         sp = int(3.8 * scale)
-        dot_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if self._hover_target == 'btn_bar_menu' else cfg['muted']
+        dot_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if is_menu_hover else bar_icon_col
         for ox in (-sp, 0, sp):
             d.ellipse([mcx + ox - dot_r, bar_cy - dot_r, mcx + ox + dot_r, bar_cy + dot_r], fill=dot_col)
 
-        # 2b. Przycisk Zminimalizuj − (minimalizuje do paska zadań)
+        # Minimalizacja
         mncx = int(self.bar_min_cx * scale)
-        if self._hover_target in ('btn_bar_minimize', 'btn_minimize'):
+        is_min_hover = (self._hover_target in ('btn_bar_minimize', 'btn_minimize'))
+        if is_min_hover:
             d.rounded_rectangle([mncx - int(9*scale), bar_cy - int(9*scale), mncx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_hover_bg', (200, 212, 230, 255)))
         ln_w = int(4.5 * scale)
-        min_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if self._hover_target in ('btn_bar_minimize', 'btn_minimize') else cfg['muted']
+        min_col = ((255, 255, 255, 255) if is_dark else (20, 40, 75, 255)) if is_min_hover else bar_icon_col
         d.line([(mncx - ln_w, bar_cy), (mncx + ln_w, bar_cy)], fill=min_col, width=max(1, int(1.3 * scale)))
 
-        # 2c. Przycisk Zamknij ✕ (zamyka / ukrywa aplikację)
+        # Zamkniecie
         ccx = int(self.bar_close_cx * scale)
-        if self._hover_target in ('btn_bar_close', 'btn_close'):
+        is_close_hover = (self._hover_target in ('btn_bar_close', 'btn_close'))
+        if is_close_hover:
             d.rounded_rectangle([ccx - int(9*scale), bar_cy - int(9*scale), ccx + int(9*scale), bar_cy + int(9*scale)], radius=int(5*scale), fill=cfg.get('btn_close_hover_bg', (250, 210, 215, 255)))
         csz = int(3.5 * scale)
-        close_col = (255, 80, 80, 255) if self._hover_target in ('btn_bar_close', 'btn_close') else cfg['muted']
+        close_hover_fallback = (190, 20, 35, 255) if self.theme in ('light', 'glass_light') else ((255, 255, 255, 255) if self.theme == 'glass_color' else (255, 100, 110, 255))
+        close_col = cfg.get('bar_btn_close_hover', close_hover_fallback) if is_close_hover else bar_icon_col
         d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=max(1, int(1.3 * scale)))
         d.line([(ccx - csz, bar_cy + csz), (ccx + csz, bar_cy - csz)], fill=close_col, width=max(1, int(1.3 * scale)))
 
@@ -1473,18 +1603,17 @@ class FloatingOverlay:
             draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=(255, 255, 255, 255))
 
         elif self.mode == "processing":
-            # Bursztynowy przycisk finalizacji
+            # Stan przetwarzania
             d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=(245, 158, 11, 255))
             draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=(255, 255, 255, 255))
 
         else:
-            # W spoczynku: miękki okrąg z palety bez obramowania
+            # Stan bezczynnosci
             d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=cfg['mic_standby_bg'])
             draw_svg_mic(d, mic_x, mic_y, sz=int(21 * scale), color=cfg.get('mic_standby_color', (223, 232, 251, 255)))
 
-        # --- PRZYCISK 2: SPOTKANIE (Prawy) ---
+        # Przycisk Spotkanie (Prawy)
         if self.mode == "transcribing":
-            # Niebieski aktywny przycisk z poświatą (zamkniętą w karcie)
             p_factor = 0.5 + 0.5 * math.sin(t_now * 5.0)
             glow_rad = int(b_rad + (4 + p_factor * 3.0) * scale)
             glow_mt = Image.new('RGBA', (W, H), (0, 0, 0, 0))
@@ -1503,9 +1632,9 @@ class FloatingOverlay:
             d.ellipse([meet_x - b_rad, meet_y - b_rad, meet_x + b_rad, meet_y + b_rad], fill=cfg['meet_standby_bg'])
             draw_people_icon(d, meet_x, meet_y, sz=int(27 * scale), color=cfg.get('meet_standby_color', (255, 255, 255, 230)))
 
-        # --- SEKCJA ŚRODKOWA: FALA DŹWIĘKOWA (dokładnie 80px) ---
+        # Wizualizacja audio
         center_cx = mx + mw // 2
-        wave_cy = my + int(39.5 * scale)
+        wave_cy = my + int(40.5 * scale)
 
         num_bars = len(BAR_HEIGHTS)
         bar_w = 1.6 * scale
@@ -1527,19 +1656,19 @@ class FloatingOverlay:
         bar_color = cfg['danger'] if self.mode == "recording" else (cfg['text'] if self.mode == "transcribing" else cfg['wave'])
 
         base_h = 4.0 * scale
-        max_h = 20.0 * scale
-        vol_boost = min(1.0, self._smooth_vol * 1.6)
+        max_h = 23.0 * scale
+        vol_boost = min(1.0, self._smooth_vol * 1.84)
 
         for i, h_vals in enumerate(BAR_HEIGHTS):
             bx_cur = start_bx + i * (bar_w + bar_gap)
             if self.mode in ("recording", "transcribing") and vol_boost >= 0.03:
-                # Dynamiczne powiększanie i zmniejszanie w zależności od natężenia głosu
+                # Skalowanie dynamiczne
                 prof_factor = (h_vals[1] - h_vals[0]) / 22.0
                 mod = 1.0 + 0.25 * math.sin(t_now * 7.5 + i * 0.72) + 0.15 * math.sin(t_now * 12.0 - i * 0.38)
-                dynamic_span = (max_h - base_h) * vol_boost * prof_factor * mod
+                dynamic_span = (max_h - base_h) * vol_boost * prof_factor * mod * 1.15
                 eff_h = min(max_h, max(base_h, base_h + dynamic_span))
             else:
-                # W spoczynku: profil wysokości kresek fali odpowiadający specyfikacji prototypu
+                # Slupki spoczynkowe
                 eff_h = h_vals[0] * 0.75 * scale
 
             by1 = wave_cy - eff_h / 2.0
@@ -1591,6 +1720,9 @@ class FloatingOverlay:
         # ========================================================
         # 3. AKTUALIZACJA OKNA WARSTWOWEGO
         # ========================================================
+        if not self.hwnd or not getattr(self, 'p_bits', None):
+            return img
+
         smooth = img.resize((self.w, self.h), Image.Resampling.LANCZOS)
         arr = np.array(smooth, dtype=np.uint8)
         r = arr[:, :, 0].astype(np.uint32)
@@ -1615,6 +1747,7 @@ class FloatingOverlay:
             self.mem_dc, ctypes.byref(pt_src), 0, ctypes.byref(blend), 2
         )
         user32.ReleaseDC(0, screen_dc)
+        return img
 
     # ========================================================
     # METODY PUBLICZNE (STEROWANIE STANEM)
@@ -1654,16 +1787,24 @@ class FloatingOverlay:
             self._dirty = True
         self.show()
 
-    def show_error_balloon(self, duration_s=7.0):
-        self._balloon_type = "error"
-        self._balloon_until = time.time() + duration_s if duration_s > 0 else 0
-        self._dirty = True
+    def show_balloon(self, kind: str = "info", text: str = "", duration_s: float = 4.0):
+        """Wyświetla dymek powiadomienia (info lub error) z określonym tekstem."""
+        with self._lock:
+            self._balloon_type = kind
+            self._balloon_text = text
+            self._balloon_until = time.time() + duration_s if duration_s > 0 else 0
+            self._dirty = True
         self.show()
 
+    def show_error_balloon(self, duration_s=7.0):
+        self.show_balloon("error", "", duration_s=duration_s)
+
     def hide_balloon(self):
-        self._balloon_type = None
-        self._balloon_until = 0
-        self._dirty = True
+        with self._lock:
+            self._balloon_type = None
+            self._balloon_text = ""
+            self._balloon_until = 0
+            self._dirty = True
 
     def update_live_text(self, text: str):
         if text:

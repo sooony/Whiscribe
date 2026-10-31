@@ -15,6 +15,7 @@ MODEL_SPECS = {
     "turbo": {
         "name": "Klasa PRO: duży model (large-v3-turbo)",
         "repo_id": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+        "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
         "size_mb": 1500,
         "device": "cuda",
         "compute_type": "float16",
@@ -48,14 +49,31 @@ def detect_hardware():
         pass
 
     gpu_names = []
+    # 1. Próba pobrania nazw GPU przez PowerShell Get-CimInstance (zastępuje wycofany w nowym Win11 wmic)
     try:
-        out = subprocess.check_output(['wmic', 'path', 'win32_VideoController', 'get', 'name'], stderr=subprocess.DEVNULL, text=True)
+        startupinfo = None
+        if hasattr(subprocess, 'STARTUPINFO'):
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        cmd = ['powershell', '-NoProfile', '-NonInteractive', '-Command', '(Get-CimInstance Win32_VideoController).Name']
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL, text=True, startupinfo=startupinfo, timeout=4)
         for line in out.splitlines():
             line = line.strip()
-            if line and line.lower() != 'name':
+            if line:
                 gpu_names.append(line)
     except Exception:
         pass
+
+    # 2. Fallback do wmic jeśli powershell zawiedzie
+    if not gpu_names:
+        try:
+            out = subprocess.check_output(['wmic', 'path', 'win32_VideoController', 'get', 'name'], stderr=subprocess.DEVNULL, text=True, timeout=3)
+            for line in out.splitlines():
+                line = line.strip()
+                if line and line.lower() != 'name':
+                    gpu_names.append(line)
+        except Exception:
+            pass
 
     nvidia_gpus = [g for g in gpu_names if any(k in g.lower() for k in ['nvidia', 'geforce', 'rtx', 'gtx'])]
     best_gpu = nvidia_gpus[0] if nvidia_gpus else (gpu_names[0] if gpu_names else 'Zintegrowana grafika / CPU')
@@ -118,7 +136,7 @@ def is_model_downloaded(model_alias: str) -> bool:
 def show_first_run_wizard_if_needed(config: dict) -> bool:
     """
     Sprawdza stan konfiguracji i dostępność wag.
-    Jeśli aplikacja została uruchomiona po raz pierwszy i brak modelu, wyświetla nowoczesne okno instalatora.
+    Jeśli aplikacja została uruchomiona po raz pierwszy i brak modelu, wyświetla okno instalatora.
     """
     cur_model = config.get("model_size", "turbo")
     hw = detect_hardware()
@@ -142,7 +160,7 @@ def show_first_run_wizard_if_needed(config: dict) -> bool:
         return True
 
     root = tk.Tk()
-    root.title("Whiscribe AI — Konfiguracja pierwszego uruchomienia")
+    root.title("Whiscribe — Konfiguracja pierwszego uruchomienia")
     root.geometry("640x520")
     root.resizable(False, False)
 
@@ -154,7 +172,7 @@ def show_first_run_wizard_if_needed(config: dict) -> bool:
         except Exception:
             pass
 
-    # Kolorystyka Windows 11 Fluent Dark / Slate
+    # Kolory interfejsu
     bg_color = "#101827"
     card_bg = "#1f293d"
     text_color = "#f3f4f6"
@@ -275,7 +293,8 @@ def show_first_run_wizard_if_needed(config: dict) -> bool:
                 os.makedirs(models_dir, exist_ok=True)
                 
                 # Pobierz model do katalogu lokalnego
-                download_model(choice, output_dir=os.path.join(models_dir, choice))
+                rev = spec.get("revision")
+                download_model(choice, output_dir=os.path.join(models_dir, choice), revision=rev)
                 
                 # Zapisz wybraną konfigurację
                 config["model_size"] = choice

@@ -32,21 +32,20 @@ class AudioRecorder:
         self.current_volume = self.current_volume * 0.35 + rms * 0.65
 
         # Adaptacyjny poziom szumu tła:
-        # WAŻNE: Aktualizujemy szum tła TYLKO przy niskiej energii (cisza otoczenia poniżej 0.015),
-        # aby mowa ludzka nie zawyżała progu szumu i nie wyłączała syntezatora w trakcie mówienia!
+        # Aktualizacja szumu tła przy niskiej energii
         if rms < 0.015:
             if rms < self.noise_floor:
                 self.noise_floor = self.noise_floor * 0.95 + rms * 0.05
             else:
                 self.noise_floor = min(0.008, self.noise_floor * 0.99 + rms * 0.01)
 
-        # Czuła detekcja mowy człowieka (nie przerywa przy cichszej mowie lub oddechach):
+        # Próg detekcji mowy
         voice_threshold = max(0.0035, self.noise_floor * 1.5)
         if rms > voice_threshold:
             self._last_voice_time = time.time()
 
     def get_volume_level(self) -> float:
-        """Zwraca znormalizowany poziom głośności (0.0 - 1.0) do animacji syntezatora."""
+        """Zwraca znormalizowany poziom głośności (0.0 - 1.0) do animacji fali."""
         if not self.is_recording:
             return 0.0
         effective_vol = max(0.0, self.current_volume - self.noise_floor)
@@ -75,8 +74,7 @@ class AudioRecorder:
     @staticmethod
     def trim_silence(audio: np.ndarray, sample_rate: int = 16000, keep_lead_s: float = 0.20, keep_tail_s: float = 0.35) -> np.ndarray:
         """
-        Odcina zbędną ciszę i szum tła z początku i z końca nagrania (pozostawiając margines na oddech/początek mowy),
-        co zapobiega wstępnym i końcowym halucynacjom modelu Whisper.
+        Usuwa ciszę z początku i końca nagrania z zachowaniem marginesu.
         """
         if audio is None or len(audio) < sample_rate * 0.5:
             return audio
@@ -125,10 +123,7 @@ class AudioRecorder:
             audio_data = np.concatenate(self._audio_chunks)
             self._audio_chunks = []
 
-        # 1. Obcięcie wstępnej i końcowej ciszy przed wzmocnieniem
-        audio_data = self.trim_silence(audio_data, sample_rate=self.sample_rate, keep_lead_s=0.20, keep_tail_s=0.35)
-
-        # 2. Inteligentna normalizacja głośności
+        # Normalizacja amplitudy (bez ucinania ciszy, co zapobiega rozjeżdżaniu się indeksów streamingu)
         max_val = np.max(np.abs(audio_data)) if len(audio_data) > 0 else 0.0
         if max_val >= 0.020 and max_val < 0.75:
             gain = min(3.5, 0.80 / max_val)
@@ -136,11 +131,21 @@ class AudioRecorder:
 
         return audio_data
 
-    def get_current_audio(self) -> np.ndarray:
+    def get_current_audio(self, start_sample: int = 0) -> np.ndarray:
+        """Zwraca nagranie od próbki start_sample (domyślnie całe), bez sklejania wcześniejszych bloków."""
         with self._lock:
-            if not self._audio_chunks:
+            chunks = self._audio_chunks
+            cut = 0
+            if start_sample > 0:
+                skipped, idx = 0, 0
+                while idx < len(chunks) and skipped + len(chunks[idx]) <= start_sample:
+                    skipped += len(chunks[idx])
+                    idx += 1
+                chunks = chunks[idx:]
+                cut = start_sample - skipped
+            if not chunks:
                 return np.array([], dtype=np.float32)
-            audio_data = np.concatenate(self._audio_chunks).copy()
+            audio_data = np.concatenate(chunks)[cut:]
 
         max_val = np.max(np.abs(audio_data)) if len(audio_data) > 0 else 0.0
         if max_val >= 0.020 and max_val < 0.75:

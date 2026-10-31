@@ -1,12 +1,6 @@
 """
-meeting_manager.py - Główny koordynator sesji transkrypcji spotkań (Meeting Manager).
-
-Łączy:
-1. MeetingRecorder (rejestracja Mic + WASAPI Loopback)
-2. AudioToneDiarizer (rozpoznawanie mówców i tonu głosu)
-3. Transcriber (Whisper CUDA/CPU)
-4. NotepadManager (synchronizacja z Notatnikiem Windows w czasie rzeczywistym)
-5. Opcjonalną integrację z LLM (Gemini/Groq) dla podsumowania ustaleń
+meeting_manager.py - Koordynator sesji transkrypcji spotkań.
+Zarządza nagrywaniem (mikrofon + loopback), diarizacją, transkrypcją i zapisem.
 """
 
 import threading
@@ -14,7 +8,9 @@ import queue
 import time
 import datetime
 import os
+import re
 import logging
+import numpy as np
 from meeting_recorder import MeetingRecorder, MeetingAudioSegment
 from diarizer import AudioToneDiarizer
 from notepad_manager import NotepadManager
@@ -37,6 +33,7 @@ class MeetingManager:
         self.start_dt = None
         self.on_utterance_callback = None
         self.utterance_count = 0
+        self.recent_utterances = []  # Bufor ostatnich wypowiedzi do deduplikacji echa akustycznego
 
     def start_meeting(self, on_utterance=None) -> str:
         """Rozpoczyna sesję spotkania: uruchamia Notatnik, nagrywanie i wątek transkrypcji."""
@@ -48,6 +45,7 @@ class MeetingManager:
         self.start_dt = datetime.datetime.now()
         self.diarizer.reset()
         self.utterance_count = 0
+        self.recent_utterances.clear()
         self.on_utterance_callback = on_utterance
 
         # 1. Przygotuj plik i uruchom Notatnik
@@ -75,6 +73,8 @@ class MeetingManager:
                 # 1. Określenie mówcy na podstawie źródła i analizy tonu
                 if segment.source == "mic":
                     speaker = "Ja"
+                    if hasattr(self.diarizer, "update_user_voice"):
+                        self.diarizer.update_user_voice(segment.audio)
                 else:
                     if self.config.get("diarization_enabled", True):
                         speaker = self.diarizer.identify_participant(segment.audio, segment.duration_s)
@@ -82,13 +82,36 @@ class MeetingManager:
                         speaker = "Uczestnik"
 
                 # 2. Transkrypcja fragmentu mowy za pomocą modelu Whisper
-                # Używamy transcribe_fast lub transcribe z beam_size=2 dla szybkiego i dokładnego przetwarzania
                 text = self._transcribe_segment(segment.audio)
 
                 if text and text.strip():
+                    norm_text = re.sub(r'[^\w\s]', '', text).lower().strip()
+
+                    # Sprawdzenie czy segment z mikrofonu nie jest echem akustycznym wypowiedzi z głośników (loopback)
+                    if segment.source == "mic":
+                        is_echo = False
+                        now_ts = segment.timestamp
+                        for past_src, past_spk, past_text, past_norm, past_ts in reversed(self.recent_utterances[-8:]):
+                            if past_src == "loopback" and abs((now_ts - past_ts).total_seconds()) < 4.0:
+                                words_mic = set(norm_text.split())
+                                words_loop = set(past_norm.split())
+                                if words_mic and words_loop:
+                                    intersection = words_mic.intersection(words_loop)
+                                    overlap_ratio = len(intersection) / min(len(words_mic), len(words_loop))
+                                    if overlap_ratio >= 0.45 or norm_text in past_norm or past_norm in norm_text:
+                                        logger.info(f"Odrzucono echo akustyczne z mikrofonu: '{text}' (oryginał od {past_spk}: '{past_text}')")
+                                        is_echo = True
+                                        break
+                        if is_echo:
+                            continue
+
                     self.utterance_count += 1
                     logger.info(f"[{segment.timestamp.strftime('%H:%M:%S')}] {speaker}: {text}")
-                    
+
+                    self.recent_utterances.append((segment.source, speaker, text, norm_text, segment.timestamp))
+                    if len(self.recent_utterances) > 30:
+                        self.recent_utterances.pop(0)
+
                     # 3. Dopisanie do Notatnika i pliku
                     self.notepad.append_utterance(speaker, text, segment.timestamp)
 
@@ -103,31 +126,40 @@ class MeetingManager:
                 logger.error(f"Błąd transkrypcji segmentu spotkania: {e}", exc_info=True)
 
     def _transcribe_segment(self, audio) -> str:
-        """Transkrybuje segment audio bez zbędnego narzutu."""
+        """Transkrybuje segment audio."""
         if audio is None or len(audio) < 16000 * 0.25:
             return ""
+
+        # Normalizacja amplitudy (loopback / WebRTC)
+        max_val = float(np.max(np.abs(audio))) if len(audio) > 0 else 0.0
+        if max_val < 0.004:
+            return ""
+        if max_val < 0.7:
+            audio = audio * (0.85 / max_val)
+        else:
+            audio = audio / max_val * 0.95
 
         raw_lang = self.config.get("language", "pl")
         language = None if (not raw_lang or str(raw_lang).lower() in ("auto", "none")) else raw_lang
 
         try:
+            from transcriber import clean_hallucinations, is_valid_segment
             with self.transcriber._lock:
                 prompt = getattr(self.transcriber, "initial_prompt", None)
                 segments, _ = self.transcriber.model.transcribe(
                     audio,
                     language=language,
-                    beam_size=2,  # Optymalny kompromis szybkości i jakości (nie blokuje GPU)
+                    beam_size=3,
                     without_timestamps=True,
                     vad_filter=True,
-                    vad_parameters=dict(min_silence_duration_ms=250, threshold=0.35, speech_pad_ms=200),
-                    no_speech_threshold=0.5,
-                    log_prob_threshold=-0.9,
+                    vad_parameters=dict(min_silence_duration_ms=350, threshold=0.30, speech_pad_ms=200),
+                    no_speech_threshold=0.60,
+                    log_prob_threshold=-1.1,
                     condition_on_previous_text=False,
                     initial_prompt=prompt
                 )
-                texts = [s.text.strip() for s in segments if s.no_speech_prob <= 0.45]
+                texts = [s.text.strip() for s in segments if s.text and is_valid_segment(s, s.text, audio)]
                 raw_text = " ".join(texts).strip()
-                from transcriber import clean_hallucinations
                 return clean_hallucinations(raw_text)
         except Exception as e:
             logger.warning(f"Błąd transkrypcji: {e}")
@@ -162,8 +194,10 @@ class MeetingManager:
         # 4. Zapis podsumowania do Notatnika
         self.notepad.append_summary(end_dt, total_participants, participant_details)
 
-        # 5. Opcjonalne podsumowanie przez LLM (jeśli skonfigurowano API)
-        if self.config.get("meeting_summary_llm", False) and self.config.get("llm_api_key"):
+        # 5. Opcjonalne podsumowanie przez LLM (chmura z kluczem API lub serwer lokalny Ollama/LM Studio)
+        llm_prov = self.config.get("llm_provider", "gemini").lower()
+        is_local_llm = llm_prov in ("ollama", "local", "lmstudio")
+        if self.config.get("meeting_summary_llm", False) and (self.config.get("llm_api_key") or is_local_llm):
             self._generate_llm_meeting_summary()
 
         result = {
@@ -179,7 +213,7 @@ class MeetingManager:
         return result
 
     def _generate_llm_meeting_summary(self):
-        """Generuje krótkie podsumowanie kluczowych wniosków ze spotkania za pomocą LLM."""
+        """Generuje podsumowanie spotkania za pomocą LLM."""
         full_text = self.notepad.get_full_text()
         if not full_text or len(full_text) < 100:
             return
@@ -204,17 +238,19 @@ class MeetingManager:
             if provider == "gemini":
                 primary_model = self.config.get('llm_model', 'gemini-flash-latest')
                 candidate_models = [primary_model]
-                for fb in ("gemini-flash-latest", "gemini-3.1-flash-lite"):
-                    if fb not in candidate_models: candidate_models.append(fb)
+                for fb in ("gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest"):
+                    if fb not in candidate_models:
+                        candidate_models.append(fb)
                 payload = {
                     "contents": [{"role": "user", "parts": [{"text": prompt}]}],
                     "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1000}
                 }
-                with httpx.Client(timeout=8.0) as client:
+                headers = {"x-goog-api-key": api_key}
+                with httpx.Client(timeout=12.0) as client:
                     for model_name in candidate_models:
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
                         try:
-                            resp = client.post(url, json=payload)
+                            resp = client.post(url, headers=headers, json=payload)
                             if resp.status_code == 200:
                                 data = resp.json()
                                 candidates = data.get("candidates", [])
@@ -222,7 +258,13 @@ class MeetingManager:
                                     summary_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                                     if summary_text:
                                         break
-                        except Exception:
+                            elif resp.status_code in (401, 403):
+                                logger.error(f"Błąd autoryzacji Gemini API dla podsumowania (kod {resp.status_code})")
+                                break
+                            else:
+                                logger.warning(f"Gemini API ({model_name}) zwróciło kod {resp.status_code}")
+                        except Exception as req_err:
+                            logger.debug(f"Błąd połączenia Gemini ({model_name}): {req_err}")
                             continue
             else:
                 if provider == "groq":
