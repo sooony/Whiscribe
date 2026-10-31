@@ -226,7 +226,7 @@ from config import load_config, save_config, save_secret_key, CONFIG_FILE, get_a
 from recorder import AudioRecorder
 from transcriber import Transcriber
 from injector import inject_text, sync_text, send_unicode_string, ForwardStreamCommitter
-from overlay import FloatingOverlay, THEMES, draw_svg_mic
+from overlay import FloatingOverlay, THEMES, THEME_MAP, draw_svg_mic
 from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd, is_valid_target_window
 from meeting_manager import MeetingManager
 
@@ -492,7 +492,7 @@ class DictationApp:
         self.recorder = AudioRecorder(sample_rate=16000)
         self._last_toggle_time = 0.0
         self._last_meeting_toggle_time = 0.0
-        theme = self.config.get("theme", "light")
+        theme = self.config.get("theme", "dark")
         self.overlay = FloatingOverlay(theme=theme, always_on_top=self.config.get("always_on_top", True)) if self.config.get("show_overlay", True) else None
         if self.overlay:
             self.overlay.show_live_preview = self.config.get("show_live_preview", False)
@@ -1547,13 +1547,13 @@ class DictationApp:
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
             # 1. Podmenu: Styl widżetu
-            cur_theme = self.config.get("theme", "light")
+            cur_theme = THEME_MAP.get(self.config.get("theme", "dark"), "dark")
             themes = [
-                ("light", "Jasny (Fluent Light)", 301),
-                ("dark", "Ciemny (Fluent Dark)", 302),
-                ("glass_light", "Glass Jasny (Mica Light)", 303),
-                ("glass_dark", "Glass Ciemny (Mica Dark)", 304),
-                ("glass_color", "Glass Kolorowy (Vibrant Glass)", 305),
+                ("dark", "Ciemny (podstawowy)", 301),
+                ("apple", "Apple (macOS)", 302),
+                ("win11", "Windows 11 (Fluent)", 303),
+                ("google", "Google (Material)", 304),
+                ("graphite", "Grafit (OLED + bursztyn)", 305),
             ]
             for t_key, t_label, t_id in themes:
                 chk = MF_CHECKED if cur_theme == t_key else MF_UNCHECKED
@@ -1744,8 +1744,8 @@ class DictationApp:
                 self.config["auto_stop_silence_seconds"] = 0.0
                 save_config(self.config)
             elif cmd in (301, 302, 303, 304, 305):
-                t_map = {301: "light", 302: "dark", 303: "glass_light", 304: "glass_dark", 305: "glass_color"}
-                t_choice = t_map.get(cmd, "light")
+                t_map = {301: "dark", 302: "apple", 303: "win11", 304: "google", 305: "graphite"}
+                t_choice = t_map.get(cmd, "dark")
                 self.config["theme"] = t_choice
                 save_config(self.config)
                 if self.overlay:
@@ -2005,12 +2005,12 @@ class DictationApp:
                     self.overlay.set_theme(t_key)
             return handler
 
+        def theme_checked(t_key):
+            return lambda item: THEME_MAP.get(self.config.get("theme", "dark"), "dark") == t_key
+
         theme_items = [
-            pystray.MenuItem("Jasny (Fluent Light)", set_theme_action("light"), checked=lambda item: self.config.get("theme", "light") == "light"),
-            pystray.MenuItem("Ciemny (Fluent Dark)", set_theme_action("dark"), checked=lambda item: self.config.get("theme", "light") == "dark"),
-            pystray.MenuItem("Glass Jasny (Mica Light)", set_theme_action("glass_light"), checked=lambda item: self.config.get("theme", "light") == "glass_light"),
-            pystray.MenuItem("Glass Ciemny (Mica Dark)", set_theme_action("glass_dark"), checked=lambda item: self.config.get("theme", "light") == "glass_dark"),
-            pystray.MenuItem("Glass Kolorowy (Vibrant Glass)", set_theme_action("glass_color"), checked=lambda item: self.config.get("theme", "light") == "glass_color"),
+            pystray.MenuItem(THEMES[t_key]["name"], set_theme_action(t_key), checked=theme_checked(t_key))
+            for t_key in ("dark", "apple", "win11", "google", "graphite")
         ]
         theme_menu = pystray.Menu(*theme_items)
 

@@ -14,7 +14,7 @@
   "require_text_field": true,
   "stream_realtime": true,
   "auto_stop_silence_seconds": 4.5,
-  "theme": "light",
+  "theme": "dark",
   "restore_clipboard": true,
   "hotkey_meeting": "<ctrl>+<alt>+m",
   "hotkey_meeting_description": "Skrót klawiszowy transkrypcji spotkań",

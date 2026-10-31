@@ -232,41 +232,9 @@ def _safe_dispatch(fn, *args, **kwargs):
 
 
 THEMES = {
-    'light': {
-        'name': 'Jasny (Light Modern)',
-        'panel_bg': (250, 252, 255, 245),
-        'panel_border': (99, 122, 160, 48),
-        'bar_bg': (214, 223, 237, 235),
-        'toggle_active_bg': (186, 202, 228, 255),
-        'toggle_hover_bg': (200, 212, 230, 255),
-        'toggle_active_hover_bg': (176, 194, 222, 255),
-        'btn_hover_bg': (200, 212, 230, 255),
-        'btn_close_hover_bg': (250, 210, 215, 255),
-        'panel_close_hover_bg': (235, 240, 248, 255),
-        'text': (24, 49, 82, 255),
-        'muted': (116, 133, 163, 255),
-        'wave': (127, 142, 170, 240),
-        'accent': (64, 92, 242, 255),
-        'danger': (255, 33, 51, 255),
-        'tab_bg': (220, 232, 255, 250),
-        'mic_standby_bg': (214, 219, 230, 255),
-        'mic_standby_color': (72, 97, 127, 255),
-        'meet_standby_bg': (214, 221, 232, 255),
-        'meet_standby_color': (255, 255, 255, 255),
-        'scroll_thumb': (180, 195, 218, 255),
-        'scroll_track': (238, 242, 248, 255),
-        'shadow_alpha': 20,
-        'glow1': (105, 157, 255, 12),
-        'glow2': (178, 112, 255, 10),
-        'stream_lbl': (70, 90, 125, 255),
-        'stream_lbl_active': (20, 35, 65, 255),
-        'stream_on_text': (24, 55, 160, 255),
-        'stream_off_text': (190, 22, 38, 255),
-        'bar_btn_col': (65, 85, 120, 255),
-        'bar_btn_close_hover': (190, 20, 35, 255)
-    },
     'dark': {
-        'name': 'Ciemny (Dark Modern)',
+        'name': 'Ciemny (podstawowy)',
+        'is_dark': True,
         'panel_bg': (20, 28, 41, 238),
         'panel_border': (151, 173, 216, 42),
         'bar_bg': (18, 24, 36, 235),
@@ -281,6 +249,7 @@ THEMES = {
         'wave': (132, 147, 177, 240),
         'accent': (75, 92, 242, 255),
         'danger': (255, 33, 51, 255),
+        'info': (77, 115, 255, 255),
         'tab_bg': (35, 48, 78, 250),
         'mic_standby_bg': (43, 53, 70, 255),
         'mic_standby_color': (223, 232, 251, 255),
@@ -298,119 +267,170 @@ THEMES = {
         'bar_btn_col': (180, 195, 220, 255),
         'bar_btn_close_hover': (255, 100, 110, 255)
     },
-    'glass_light': {
-        'name': 'Glass Jasny (Mica Light)',
-        'panel_bg': (255, 255, 255, 185),
-        'panel_border': (255, 255, 255, 180),
-        'bar_bg': (206, 218, 236, 215),
-        'toggle_active_bg': (180, 198, 226, 255),
-        'toggle_hover_bg': (194, 208, 230, 255),
-        'toggle_active_hover_bg': (170, 190, 220, 255),
-        'btn_hover_bg': (194, 208, 230, 255),
-        'btn_close_hover_bg': (250, 212, 216, 255),
-        'panel_close_hover_bg': (236, 242, 250, 255),
-        'text': (42, 65, 102, 255),
-        'muted': (113, 132, 165, 255),
-        'wave': (128, 145, 179, 240),
-        'accent': (65, 102, 238, 255),
-        'danger': (255, 33, 51, 255),
-        'tab_bg': (255, 255, 255, 210),
-        'mic_standby_bg': (235, 242, 252, 210),
-        'mic_standby_color': (42, 65, 102, 255),
-        'meet_standby_bg': (235, 242, 252, 210),
-        'meet_standby_color': (65, 102, 238, 240),
-        'scroll_thumb': (170, 188, 215, 255),
-        'scroll_track': (235, 240, 248, 255),
-        'shadow_alpha': 18,
-        'glow1': (150, 190, 255, 22),
-        'glow2': (200, 170, 255, 18),
-        'stream_lbl': (70, 90, 125, 255),
-        'stream_lbl_active': (20, 35, 65, 255),
-        'stream_on_text': (24, 55, 160, 255),
-        'stream_off_text': (190, 22, 38, 255),
-        'bar_btn_col': (65, 85, 120, 255),
-        'bar_btn_close_hover': (190, 20, 35, 255)
-    },
-    'glass_dark': {
-        'name': 'Glass Ciemny (Mica Dark)',
-        'panel_bg': (22, 37, 65, 215),
-        'panel_border': (228, 237, 255, 75),
-        'bar_bg': (18, 28, 48, 215),
-        'toggle_active_bg': (36, 56, 92, 255),
-        'toggle_hover_bg': (28, 42, 70, 255),
-        'toggle_active_hover_bg': (46, 68, 108, 255),
-        'btn_hover_bg': (30, 44, 72, 255),
-        'btn_close_hover_bg': (68, 28, 40, 255),
-        'panel_close_hover_bg': (32, 48, 78, 255),
-        'text': (241, 245, 255, 255),
-        'muted': (173, 191, 223, 255),
-        'wave': (166, 182, 215, 240),
-        'accent': (78, 105, 239, 255),
-        'danger': (255, 33, 51, 255),
-        'tab_bg': (40, 60, 95, 220),
-        'mic_standby_bg': (50, 70, 105, 210),
-        'mic_standby_color': (223, 232, 251, 255),
-        'meet_standby_bg': (50, 70, 105, 210),
-        'meet_standby_color': (255, 255, 255, 230),
-        'scroll_thumb': (90, 115, 155, 255),
-        'scroll_track': (30, 44, 72, 255),
-        'shadow_alpha': 42,
-        'glow1': (105, 157, 255, 22),
-        'glow2': (178, 112, 255, 18),
-        'stream_lbl': (180, 195, 220, 255),
-        'stream_lbl_active': (240, 245, 255, 255),
-        'stream_on_text': (56, 189, 248, 255),
-        'stream_off_text': (255, 85, 95, 255),
-        'bar_btn_col': (180, 195, 220, 255),
-        'bar_btn_close_hover': (255, 100, 110, 255)
-    },
-    'glass_color': {
-        'name': 'Glass Kolorowy (Vibrant Glass)',
-        'panel_bg': (86, 111, 235, 215),
-        'panel_border': (255, 255, 255, 140),
-        'bar_bg': (74, 76, 171, 215),
-        'toggle_active_bg': (105, 115, 225, 255),
-        'toggle_hover_bg': (90, 96, 200, 255),
-        'toggle_active_hover_bg': (120, 130, 240, 255),
-        'btn_hover_bg': (90, 96, 200, 255),
-        'btn_close_hover_bg': (170, 50, 75, 255),
-        'panel_close_hover_bg': (100, 120, 240, 255),
-        'text': (255, 255, 255, 255),
-        'muted': (220, 230, 255, 230),
-        'wave': (240, 245, 255, 230),
-        'accent': (255, 255, 255, 255),
-        'danger': (255, 45, 65, 255),
-        'tab_bg': (255, 255, 255, 65),
-        'mic_standby_bg': (255, 255, 255, 55),
-        'mic_standby_color': (255, 255, 255, 255),
-        'meet_standby_bg': (255, 255, 255, 55),
+    # Neutralne, cieple szarosci i jeden niebieski akcent, jak panele macOS
+    'apple': {
+        'name': 'Apple (macOS)',
+        'is_dark': False,
+        'panel_bg': (248, 247, 244, 242),
+        'panel_border': (60, 60, 67, 38),
+        'bar_bg': (240, 238, 234, 235),
+        'toggle_active_bg': (222, 219, 213, 255),
+        'toggle_hover_bg': (231, 228, 222, 255),
+        'toggle_active_hover_bg': (212, 209, 203, 255),
+        'btn_hover_bg': (231, 228, 222, 255),
+        'btn_close_hover_bg': (255, 214, 216, 255),
+        'panel_close_hover_bg': (236, 236, 241, 255),
+        'text': (29, 29, 31, 255),
+        'muted': (110, 110, 115, 255),
+        'wave': (120, 120, 128, 240),
+        'accent': (0, 113, 227, 255),
+        'danger': (255, 59, 48, 255),
+        'info': (10, 132, 255, 255),
+        'tab_bg': (255, 255, 255, 245),
+        'mic_standby_bg': (229, 226, 220, 255),
+        'mic_standby_color': (58, 58, 62, 255),
+        'meet_standby_bg': (229, 226, 220, 255),
         'meet_standby_color': (255, 255, 255, 255),
-        'scroll_thumb': (160, 180, 255, 255),
-        'scroll_track': (95, 115, 220, 255),
-        'shadow_alpha': 35,
-        'glow1': (105, 175, 255, 35),
-        'glow2': (255, 116, 220, 30),
-        'stream_lbl': (220, 230, 255, 240),
-        'stream_lbl_active': (255, 255, 255, 255),
-        'stream_on_text': (255, 255, 255, 255),
-        'stream_off_text': (255, 120, 135, 255),
-        'bar_btn_col': (230, 238, 255, 235),
+        'scroll_thumb': (191, 188, 182, 255),
+        'scroll_track': (240, 238, 234, 255),
+        'shadow_alpha': 22,
+        'glow1': (0, 113, 227, 10),
+        'glow2': (175, 82, 222, 8),
+        'stream_lbl': (95, 95, 100, 255),
+        'stream_lbl_active': (29, 29, 31, 255),
+        'stream_on_text': (0, 113, 227, 255),
+        'stream_off_text': (215, 45, 38, 255),
+        'bar_btn_col': (90, 90, 96, 255),
+        'bar_btn_close_hover': (215, 45, 38, 255)
+    },
+    # Fluent: chlodna szarosc mica, akcent 0067C0, czerwone tlo krzyzyka jak w systemie
+    'win11': {
+        'name': 'Windows 11 (Fluent)',
+        'is_dark': False,
+        'panel_bg': (243, 243, 243, 243),
+        'panel_border': (117, 117, 117, 44),
+        'bar_bg': (235, 235, 235, 235),
+        'toggle_active_bg': (205, 222, 243, 255),
+        'toggle_hover_bg': (229, 229, 229, 255),
+        'toggle_active_hover_bg': (192, 213, 240, 255),
+        'btn_hover_bg': (229, 229, 229, 255),
+        'btn_close_hover_bg': (232, 17, 35, 255),
+        'panel_close_hover_bg': (237, 237, 237, 255),
+        'text': (26, 26, 26, 255),
+        'muted': (96, 96, 96, 255),
+        'wave': (110, 122, 140, 240),
+        'accent': (0, 103, 192, 255),
+        'danger': (196, 43, 28, 255),
+        'info': (0, 120, 212, 255),
+        'tab_bg': (251, 251, 251, 250),
+        'mic_standby_bg': (225, 225, 225, 255),
+        'mic_standby_color': (32, 32, 32, 255),
+        'meet_standby_bg': (225, 225, 225, 255),
+        'meet_standby_color': (255, 255, 255, 255),
+        'scroll_thumb': (138, 138, 138, 255),
+        'scroll_track': (240, 240, 240, 255),
+        'shadow_alpha': 24,
+        'glow1': (0, 103, 192, 12),
+        'glow2': (120, 180, 255, 8),
+        'stream_lbl': (87, 87, 87, 255),
+        'stream_lbl_active': (26, 26, 26, 255),
+        'stream_on_text': (0, 90, 158, 255),
+        'stream_off_text': (196, 43, 28, 255),
+        'bar_btn_col': (70, 70, 70, 255),
         'bar_btn_close_hover': (255, 255, 255, 255)
+    },
+    # Material: biel, grafitowy tekst i paleta Google
+    'google': {
+        'name': 'Google (Material)',
+        'is_dark': False,
+        'panel_bg': (255, 255, 255, 245),
+        'panel_border': (60, 64, 67, 38),
+        'bar_bg': (241, 243, 244, 238),
+        'toggle_active_bg': (210, 227, 252, 255),
+        'toggle_hover_bg': (232, 240, 254, 255),
+        'toggle_active_hover_bg': (194, 218, 250, 255),
+        'btn_hover_bg': (232, 240, 254, 255),
+        'btn_close_hover_bg': (252, 220, 218, 255),
+        'panel_close_hover_bg': (241, 243, 244, 255),
+        'text': (32, 33, 36, 255),
+        'muted': (95, 99, 104, 255),
+        'wave': (128, 134, 139, 240),
+        'accent': (26, 115, 232, 255),
+        'danger': (234, 67, 53, 255),
+        'info': (26, 115, 232, 255),
+        'tab_bg': (248, 249, 250, 250),
+        'mic_standby_bg': (232, 234, 237, 255),
+        'mic_standby_color': (60, 64, 67, 255),
+        'meet_standby_bg': (230, 244, 234, 255),
+        'meet_standby_color': (255, 255, 255, 255),
+        'scroll_thumb': (189, 193, 198, 255),
+        'scroll_track': (241, 243, 244, 255),
+        'shadow_alpha': 26,
+        'glow1': (66, 133, 244, 12),
+        'glow2': (251, 188, 5, 10),
+        'stream_lbl': (95, 99, 104, 255),
+        'stream_lbl_active': (32, 33, 36, 255),
+        'stream_on_text': (25, 103, 210, 255),
+        'stream_off_text': (217, 48, 37, 255),
+        'bar_btn_col': (95, 99, 104, 255),
+        'bar_btn_close_hover': (217, 48, 37, 255)
+    },
+    # Propozycja czwarta: czern OLED i bursztynowy akcent, bez niebieskiego
+    'graphite': {
+        'name': 'Grafit (OLED + bursztyn)',
+        'is_dark': True,
+        'panel_bg': (14, 14, 15, 240),
+        'panel_border': (255, 255, 255, 34),
+        'bar_bg': (10, 10, 11, 236),
+        'toggle_active_bg': (48, 40, 26, 255),
+        'toggle_hover_bg': (32, 32, 34, 255),
+        'toggle_active_hover_bg': (62, 51, 31, 255),
+        'btn_hover_bg': (34, 34, 36, 255),
+        'btn_close_hover_bg': (70, 24, 24, 255),
+        'panel_close_hover_bg': (34, 34, 36, 255),
+        'text': (242, 242, 240, 255),
+        'muted': (150, 150, 148, 255),
+        'wave': (138, 138, 134, 240),
+        'accent': (255, 176, 32, 255),
+        'danger': (255, 69, 58, 255),
+        'info': (255, 176, 32, 255),
+        'tab_bg': (26, 26, 28, 250),
+        'mic_standby_bg': (40, 40, 42, 255),
+        'mic_standby_color': (240, 240, 236, 255),
+        'meet_standby_bg': (40, 40, 42, 255),
+        'meet_standby_color': (255, 255, 255, 230),
+        'scroll_thumb': (90, 90, 90, 255),
+        'scroll_track': (26, 26, 28, 255),
+        'shadow_alpha': 46,
+        'glow1': (255, 176, 32, 14),
+        'glow2': (255, 120, 40, 10),
+        'stream_lbl': (170, 170, 166, 255),
+        'stream_lbl_active': (246, 246, 244, 255),
+        'stream_on_text': (255, 190, 70, 255),
+        'stream_off_text': (255, 95, 85, 255),
+        'bar_btn_col': (180, 180, 176, 255),
+        'bar_btn_close_hover': (255, 110, 100, 255)
     }
 }
 
+# Stare nazwy motywow z config.json mapowane na obecne piec stylow
 THEME_MAP = {
-    'light': 'light',
     'dark': 'dark',
-    'glass_light': 'glass_light',
-    'glass-light': 'glass_light',
-    'glass_dark': 'glass_dark',
-    'glass-dark': 'glass_dark',
-    'glass_color': 'glass_color',
-    'glass-color': 'glass_color',
-    'minimal': 'light',
-    'cyber_neon': 'glass_dark',
-    'nordic_titanium': 'glass_light'
+    'apple': 'apple',
+    'win11': 'win11',
+    'windows11': 'win11',
+    'google': 'google',
+    'graphite': 'graphite',
+    'light': 'apple',
+    'glass_light': 'apple',
+    'glass-light': 'apple',
+    'glass_dark': 'dark',
+    'glass-dark': 'dark',
+    'glass_color': 'graphite',
+    'glass-color': 'graphite',
+    'minimal': 'apple',
+    'cyber_neon': 'graphite',
+    'nordic_titanium': 'apple'
 }
 
 # Profile wysokosci slupkow audio
@@ -1382,10 +1402,10 @@ class FloatingOverlay:
         if self.mode in ("recording", "transcribing") and self._start_time > 0:
             timer_s = int(t_now - self._start_time)
 
-        is_dark = self.theme in ('dark', 'glass_dark', 'glass_color')
-        is_light = self.theme in ('light', 'glass_light')
-        # Na niebieskim tle motywu kolorowego niebieskie elementy znikały, więc tam są białe
-        blue = (255, 255, 255, 255) if self.theme == 'glass_color' else (77, 115, 255, 255)
+        is_dark = bool(cfg.get('is_dark', False))
+        is_light = not is_dark
+        # Kolor elementów informacyjnych bierze się z motywu, bo nie w każdym stylu jest niebieski
+        blue = cfg.get('info', (77, 115, 255, 255))
         amber = (245, 158, 11, 255)
         thin = max(1, int(1.0 * S))
         ring_w = max(2, int(round(1.6 * S)))  # obwódka głównego przycisku (~1,7 px)
@@ -1423,12 +1443,7 @@ class FloatingOverlay:
                 text(self.px + 28, start_y + idx * line_h, line, cfg['text'], FONT_SEMI_PATH, 9)
 
             rb_x, rb_y, rb_w, rb_h = self.px + 8, self.py + self.ph - 25, self.pw - 16, 19
-            if is_light:
-                btn_fill = (220, 232, 255, 255) if self._hover_target == 'btn_rozumiem' else (205, 220, 250, 255)
-            elif self.theme == 'glass_color':
-                btn_fill = (130, 150, 255, 255) if self._hover_target == 'btn_rozumiem' else (110, 130, 245, 255)
-            else:
-                btn_fill = (45, 60, 90, 255) if self._hover_target == 'btn_rozumiem' else (35, 48, 75, 255)
+            btn_fill = cfg['toggle_active_hover_bg'] if self._hover_target == 'btn_rozumiem' else cfg['toggle_active_bg']
             d.rounded_rectangle([rb_x * S, rb_y * S, (rb_x + rb_w) * S, (rb_y + rb_h) * S], radius=int(6 * S), fill=btn_fill, outline=cfg['panel_border'], width=thin)
             text(rb_x + rb_w / 2, rb_y + rb_h / 2, "Rozumiem", cfg['text'], FONT_SEMI_PATH, 9, anchor="mm")
 
@@ -1468,7 +1483,7 @@ class FloatingOverlay:
         if is_close_hover:
             d.rounded_rectangle([ccx - hb, bar_cy - hb, ccx + hb, bar_cy + hb], radius=int(4 * S), fill=cfg.get('btn_close_hover_bg', (250, 210, 215, 255)))
         csz = 3.0 * S
-        close_hover_fallback = (190, 20, 35, 255) if is_light else ((255, 255, 255, 255) if self.theme == 'glass_color' else (255, 100, 110, 255))
+        close_hover_fallback = (190, 20, 35, 255) if is_light else (255, 100, 110, 255)
         close_col = cfg.get('bar_btn_close_hover', close_hover_fallback) if is_close_hover else bar_icon_col
         d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=stroke)
         d.line([(ccx - csz, bar_cy + csz), (ccx + csz, bar_cy - csz)], fill=close_col, width=stroke)
@@ -1650,7 +1665,7 @@ class FloatingOverlay:
         if self.mode == "recording":
             dot_col = cfg['danger']
             status_lbl = "Nagrywanie"
-            status_col = cfg['text'] if self.theme == 'glass_color' else cfg['danger']
+            status_col = cfg['danger']
         elif self.mode == "transcribing":
             dot_col = blue
             status_lbl = "Transkrypcja"
