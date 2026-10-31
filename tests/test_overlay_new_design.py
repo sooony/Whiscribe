@@ -8,11 +8,11 @@ class TestOverlayNewDesign(unittest.TestCase):
         self.assertTrue(ov.is_alive())
         self.assertIsNotNone(ov.hwnd)
         # Pionowa karta: nagłówek + pastylki + jeden główny przycisk (bez osobnego przycisku spotkania)
-        self.assertEqual(ov.cw, 250)
         self.assertEqual(ov.mh, ov.ch - ov.bh)
         self.assertLessEqual(ov.cy0 + ov.ch, ov.dh)
-        # Na ekranie okno jest o ponad 30% mniejsze niż układ projektu
-        self.assertLessEqual(ov.h, ov.dh * 0.7)
+        # Kompaktowa karta: wąska i bez marginesu na cień
+        self.assertLessEqual(ov.cw, 150)
+        self.assertLessEqual(ov.w, ov.cw + 6)
         self.assertEqual(ov._get_target(ov.mic_cx, ov.mic_cy), 'btn_mic')
 
         # Domyślnie streaming jest wyłączony
