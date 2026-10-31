@@ -263,8 +263,17 @@ def test_llm_budget_grows_with_text_but_is_capped():
 
 def test_deprecated_gemini_model_is_migrated():
     from config import migrate_config
-    assert migrate_config({"llm_provider": "gemini", "llm_model": "gemini-2.0-flash"})["llm_model"] == "gemini-flash-latest"
+    assert migrate_config({"llm_provider": "gemini", "llm_model": "gemini-2.0-flash"})["llm_model"] == "gemini-flash-lite-latest"
     assert migrate_config({"llm_provider": "ollama", "llm_model": "llama3.2"})["llm_model"] == "llama3.2"
+
+
+def test_old_default_flash_latest_moves_to_lite_once():
+    from config import migrate_config
+    cfg = migrate_config({"llm_provider": "gemini", "llm_model": "gemini-flash-latest"})
+    assert cfg["llm_model"] == "gemini-flash-lite-latest"
+    # Świadomy wybór pełnego modelu po migracji (config_rev zapisany) zostaje
+    cfg["llm_model"] = "gemini-flash-latest"
+    assert migrate_config(cfg)["llm_model"] == "gemini-flash-latest"
 
 
 # --- bufor streamingu ---------------------------------------------------------

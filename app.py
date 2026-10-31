@@ -1775,7 +1775,7 @@ class DictationApp:
         self.config["llm_provider"] = provider
         if provider == "gemini":
             if not self.config.get("llm_model") or "llama" in self.config.get("llm_model", ""):
-                self.config["llm_model"] = "gemini-flash-latest"
+                self.config["llm_model"] = "gemini-flash-lite-latest"
         elif provider == "ollama":
             if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
                 self.config["llm_model"] = "llama3.2"

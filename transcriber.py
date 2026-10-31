@@ -10,8 +10,9 @@ from config import get_app_dir, DEPRECATED_GEMINI_MODELS
 
 logger = logging.getLogger("Transcriber")
 
-# Kolejność zapasowa: najpierw lekki model (zwykle < 1-2 s), pełne modele flash bywają przeciążone (503/timeout)
-GEMINI_FALLBACK_MODELS = ("gemini-flash-lite-latest", "gemini-3.5-flash", "gemini-flash-latest")
+# Kolejność zapasowa: same lekkie modele (zwykle < 1 s); pełne modele flash "myślą"
+# i bywają przeciążone (503/timeout po 25 s), więc nie nadają się do korekty dyktowania.
+GEMINI_FALLBACK_MODELS = ("gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
 # Model, który się przyciął lub był przeciążony, idzie na koniec kolejki na tyle sekund
 LLM_SLOW_MODEL_COOLDOWN_S = 300.0
 
@@ -457,7 +458,7 @@ class Transcriber:
 
             if provider == "gemini":
                 # Google Gemini API
-                primary_model = self.config.get('llm_model', 'gemini-flash-latest')
+                primary_model = self.config.get('llm_model', 'gemini-flash-lite-latest')
                 candidate_models = [] if primary_model in DEPRECATED_GEMINI_MODELS else [primary_model]
                 for fallback_m in GEMINI_FALLBACK_MODELS:
                     if fallback_m not in candidate_models:
@@ -488,7 +489,7 @@ class Transcriber:
                 headers = {"x-goog-api-key": api_key}
                 with httpx.Client() as client:
                     for model_name in candidate_models:
-                        timeout = _request_timeout(deadline, max(8.0, budget * 0.5))
+                        timeout = _request_timeout(deadline, max(6.0, budget * 0.3))
                         if timeout is None:
                             logger.warning("Korekta Gemini przekroczyła łączny limit czasu – pomijam kolejne modele.")
                             break

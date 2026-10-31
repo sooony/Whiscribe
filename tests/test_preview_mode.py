@@ -161,4 +161,4 @@ def test_gemini_model_is_not_a_dead_alias():
     i cichy powrót do surowej transkrypcji.
     """
     from config import DEFAULT_CONFIG
-    assert DEFAULT_CONFIG["llm_model"] == "gemini-flash-latest"
+    assert DEFAULT_CONFIG["llm_model"] == "gemini-flash-lite-latest"

@@ -1,3 +1,4 @@
+import math
 import sounddevice as sd
 import numpy as np
 import threading
@@ -5,6 +6,11 @@ import time
 import logging
 
 logger = logging.getLogger("AudioRecorder")
+
+# Zakres dynamiki fali w widżecie (dB RMS): ok. -56 dB to mowa z daleka / półgłosem,
+# -14 dB to głośna mowa tuż przy mikrofonie. Skala logarytmiczna, tak jak słyszy ucho.
+VOLUME_DB_FLOOR = -56.0
+VOLUME_DB_CEIL = -14.0
 
 class AudioRecorder:
     def __init__(self, sample_rate: int = 16000):
@@ -45,12 +51,18 @@ class AudioRecorder:
             self._last_voice_time = time.time()
 
     def get_volume_level(self) -> float:
-        """Zwraca znormalizowany poziom głośności (0.0 - 1.0) do animacji fali."""
+        """
+        Zwraca poziom głośności (0.0 - 1.0) do animacji fali.
+        Wcześniej skala liniowa x28 nasycała się już przy zwykłej mowie, przez co fala
+        była zawsze pełna; teraz cichsza/odległa mowa daje małą falę, a głośna – pełną.
+        """
         if not self.is_recording:
             return 0.0
-        effective_vol = max(0.0, self.current_volume - self.noise_floor)
-        vol = max(0.0, min(1.0, effective_vol * 28.0))
-        return vol
+        effective_vol = self.current_volume - self.noise_floor
+        if effective_vol <= 1e-6:
+            return 0.0
+        db = 20.0 * math.log10(effective_vol)
+        return max(0.0, min(1.0, (db - VOLUME_DB_FLOOR) / (VOLUME_DB_CEIL - VOLUME_DB_FLOOR)))
 
     def start(self):
         with self._lock:

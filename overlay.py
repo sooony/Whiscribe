@@ -1657,7 +1657,9 @@ class FloatingOverlay:
 
         base_h = 4.0 * scale
         max_h = 23.0 * scale
-        vol_boost = min(1.0, self._smooth_vol * 1.84)
+        # Dyktowanie: poziom z mikrofonu jest już w skali dB 0-1, bez dodatkowego wzmocnienia
+        # (to ono sprawiało, że fala zawsze była pełna). Tryb spotkania bez zmian.
+        vol_boost = self._smooth_vol if self.mode == "recording" else min(1.0, self._smooth_vol * 1.84)
 
         for i, h_vals in enumerate(BAR_HEIGHTS):
             bx_cur = start_bx + i * (bar_w + bar_gap)
