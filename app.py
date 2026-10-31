@@ -1437,8 +1437,9 @@ class DictationApp:
 
         # Streaming i korekta AI mogą być włączone jednocześnie — wchodzą wtedy w tryb podglądu:
         # transkrypcja leci na żywo do widżetu, a do okna docelowego trafia raz skorygowana całość.
-        if new_val and self._llm_active() and self.overlay:
-            self.overlay.show_balloon("info", "Podgląd na żywo + korekta AI: tekst zostanie wklejony po korekcie")
+        # Bez dymka: stan widać na przyciskach widżetu.
+        if new_val and self._llm_active():
+            logger.info("Streaming włączony przy aktywnej korekcie AI - tryb podglądu w widżecie.")
 
         save_config(self.config)
         if self.overlay:
@@ -1823,8 +1824,6 @@ class DictationApp:
         }
         name = prov_labels.get(provider, provider)
         logger.info(f"Zmieniono silnik korekty AI na: {name}")
-        if self.overlay:
-            self.overlay.show_balloon("info", f"Dostawca AI: {name}")
 
     def toggle_llm_correction(self):
         """Włącza lub wyłącza korektę AI bez nadpisywania skonfigurowanego dostawcy."""
@@ -1857,11 +1856,6 @@ class DictationApp:
         prov_name = {"gemini": "Gemini", "ollama": "Ollama", "local": "LM Studio", "groq": "Groq", "openai": "OpenAI"}.get(self.config.get("llm_provider", "gemini").lower(), "AI")
         state_str = "włączona" if self.config["use_llm"] else "wyłączona"
         logger.info(f"Korekta językowa ({prov_name}): {state_str}")
-        if self.overlay:
-            if self.config["use_llm"] and self.config.get("stream_realtime", False):
-                self.overlay.show_balloon("info", f"Korekta {prov_name} ON — podgląd na żywo, wklejenie po korekcie")
-            else:
-                self.overlay.show_balloon("info", f"Korekta {prov_name}: {state_str}")
 
     toggle_gemini_correction = toggle_llm_correction
 
