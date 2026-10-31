@@ -673,7 +673,7 @@ class FloatingOverlay:
         self._max_visible_lines = 4
 
         # Przyciski "Stream" i "Korekta" (sam napis; włączony = podświetlone tło)
-        self.chip_font_px = 11
+        self.chip_font_px = 10
         self.chip_h = 18
         self.chip_pad = 9
         self.chip_min_ai_w = 62
@@ -732,7 +732,7 @@ class FloatingOverlay:
 
         # Główny przycisk: mikrofon (dyktowanie) albo ludziki (transkrypcja rozmowy) – wg trybu z menu
         self.mic_cx = self.cx0 + self.cw / 2
-        self.mic_cy = self.my + 58
+        self.mic_cy = self.my + 61
         self.mic_rad = 20
         self.widget_mode = "dictation"
         self._session_kind = "dictation"
@@ -740,7 +740,7 @@ class FloatingOverlay:
         # Fala amplitudy leży pod głównym przyciskiem (wspólny środek) i wystaje po bokach
         self.wave_cy = self.mic_cy
         self.wave_span = 22
-        self.wave_max_h = 20
+        self.wave_max_h = 26
         self.status_cy = self.my + 100
         self._chrome_cache = None
 
@@ -838,7 +838,7 @@ class FloatingOverlay:
 
     def _measure_chips(self):
         """Szerokości przycisków "Stream" i "Korekta" w pikselach okna."""
-        fnt = get_cached_font(FONT_REG_PATH, self.chip_font_px)
+        fnt = get_cached_font(FONT_SEMI_PATH, self.chip_font_px)
 
         def text_w(txt):
             return fnt.getlength(txt) if fnt is not None else len(txt) * 5.0
@@ -1387,6 +1387,7 @@ class FloatingOverlay:
         blue = (255, 255, 255, 255) if self.theme == 'glass_color' else (77, 115, 255, 255)
         amber = (245, 158, 11, 255)
         thin = max(1, int(1.0 * S))
+        ring_w = max(2, int(round(1.6 * S)))  # obwódka głównego przycisku (~1,7 px)
 
         # ========================================================
         # 1. DYMEK (błąd / informacja) nad kartą
@@ -1410,7 +1411,7 @@ class FloatingOverlay:
                 d.line([(icx, icy - 1.0 * S), (icx, icy + 3.4 * S)], fill=(255, 255, 255, 255), width=max(1, int(1.5 * S)))
                 raw_msg = getattr(self, '_balloon_text', '') or getattr(self, '_balloon_message', '') or "Informacja"
 
-            fnt_msg = font(FONT_REG_PATH, 9)
+            fnt_msg = font(FONT_SEMI_PATH, 9)
             lines = []
             for part in raw_msg.split('\n'):
                 lines.extend(_wrap_text_lines(part, self.pw - 36, d, fnt_msg) or [''])
@@ -1418,7 +1419,7 @@ class FloatingOverlay:
             line_h = 12
             start_y = max(self.py + 9, self.py + 17 - (len(lines) - 1) * line_h / 2)
             for idx, line in enumerate(lines):
-                text(self.px + 28, start_y + idx * line_h, line, cfg['text'], FONT_REG_PATH, 9)
+                text(self.px + 28, start_y + idx * line_h, line, cfg['text'], FONT_SEMI_PATH, 9)
 
             rb_x, rb_y, rb_w, rb_h = self.px + 8, self.py + self.ph - 25, self.pw - 16, 19
             if is_light:
@@ -1487,7 +1488,7 @@ class FloatingOverlay:
                 txt_col = cfg['text'] if hover else chip_off_col
             if fill is not None:
                 d.rounded_rectangle([x1, y1, x2, y2], radius=int(7 * S), fill=fill)
-            text(x + w / 2, y + h / 2, label, txt_col, FONT_REG_PATH, self.chip_font_px, anchor="mm")
+            text(x + w / 2, y + h / 2, label, txt_col, FONT_SEMI_PATH, self.chip_font_px, anchor="mm")
 
         draw_chip(self.stream_btn_x, self.stream_btn_y, self.stream_btn_w, self.stream_btn_h, "Stream",
                   self.stream_realtime, self._hover_target == 'btn_toggle_stream')
@@ -1518,8 +1519,6 @@ class FloatingOverlay:
             wave_base = blue
         else:
             wave_base = cfg['wave']
-        # Na ciemnych motywach jaśniejszy odcień koloru stanu; na jasnych pełny kolor, żeby nie zginął na bieli
-        wave_col = wave_base if is_light else _mix(wave_base, (255, 255, 255), 0.32)
         speaking = self.mode in ("recording", "transcribing") and vol_boost >= 0.03
 
         if speaking:
@@ -1549,10 +1548,14 @@ class FloatingOverlay:
             vert = np.clip(1.0 - np.abs(ys)[:, None] / np.maximum(hh, 0.01)[None, :], 0.0, 1.0) ** 0.75
             fade = (1.0 - tx) ** 0.7                                            # mocniej przy przycisku
             strength = 0.55 + 0.45 * min(1.0, vol_boost * 1.4)                  # mocniej przy głośnej mowie
-            alpha = vert * (0.45 + 0.55 * fade)[None, :] * strength * (wave_col[3] / 255.0)
+            alpha = vert * (0.45 + 0.55 * fade)[None, :] * strength * (wave_base[3] / 255.0)
 
+            # Kolor: pełny kolor stanu przy przycisku, ku końcom przechodzi w biel
+            to_white = np.clip(tx, 0.0, 1.0) ** 1.1 * 0.9
             arr = np.zeros((lh, lw, 4), dtype=np.uint8)
-            arr[:, :, 0], arr[:, :, 1], arr[:, :, 2] = wave_col[0], wave_col[1], wave_col[2]
+            for ch_i in range(3):
+                col = wave_base[ch_i] * (1.0 - to_white) + 255.0 * to_white
+                arr[:, :, ch_i] = np.broadcast_to(col.astype(np.uint8)[None, :], (lh, lw))
             arr[:, :, 3] = (alpha * 255.0).astype(np.uint8)
             wave_img = Image.fromarray(arr, 'RGBA').filter(ImageFilter.GaussianBlur(radius=0.7 * S))
             img.alpha_composite(wave_img, (int(self.mic_cx * S) - lw // 2, int(self.wave_cy * S) - lh // 2))
@@ -1608,17 +1611,17 @@ class FloatingOverlay:
                 ang = (t_now * 300.0) % 360.0
                 d.arc([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], start=ang, end=ang + 100, fill=ring_col, width=max(2, int(1.5 * S)))
             else:
-                d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], outline=ring_soft, width=thin)
+                d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], outline=ring_soft, width=ring_w)
         else:
             btn_fill = cfg['mic_standby_bg']
-            ring_col = cfg['accent'] if is_mic_hover else _mix(cfg['muted'], panel, 0.3)
+            ring_col = cfg['accent'] if is_mic_hover else _mix(cfg['muted'], panel, 0.45)
             icon_col = cfg.get('mic_standby_color', (223, 232, 251, 255))
-            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill, outline=ring_col, width=thin)
+            d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill, outline=ring_col, width=ring_w)
 
         if show_people:
-            draw_people_icon(img, mic_x, mic_y, sz=int(18 * S), color=icon_col)
+            draw_people_icon(img, mic_x, mic_y, sz=int(20 * S), color=icon_col)
         else:
-            draw_svg_mic(img, mic_x, mic_y, sz=int(15 * S), color=icon_col)
+            draw_svg_mic(img, mic_x, mic_y, sz=int(16.5 * S), color=icon_col)
         d = ImageDraw.Draw(img)
 
         # --- Status: [kropka] [stan] [czas] ---
