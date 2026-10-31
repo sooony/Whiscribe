@@ -675,9 +675,10 @@ class FloatingOverlay:
         # Przyciski "Stream" i "Korekta" (sam napis; włączony = podświetlone tło)
         self.chip_font_px = 10
         self.chip_h = 18
-        self.chip_pad = 9
+        self.chip_pad = 8
+        self.chip_led = 9   # dioda (5 px) + odstęp przed napisem
         self.chip_min_ai_w = 62
-        self.chip_gap = 6
+        self.chip_gap = 5
         self.stream_realtime = False
         self.on_stream_toggle_callback = None
         self.ai_enabled = False
@@ -843,7 +844,7 @@ class FloatingOverlay:
         def text_w(txt):
             return fnt.getlength(txt) if fnt is not None else len(txt) * 5.0
 
-        base = 2 * self.chip_pad
+        base = 2 * self.chip_pad + self.chip_led
         return [base + text_w("Stream"), max(self.chip_min_ai_w, base + text_w("Korekta"))]
 
     def _layout_chips(self, chip_ws):
@@ -1472,23 +1473,32 @@ class FloatingOverlay:
         d.line([(ccx - csz, bar_cy - csz), (ccx + csz, bar_cy + csz)], fill=close_col, width=stroke)
         d.line([(ccx - csz, bar_cy + csz), (ccx + csz, bar_cy - csz)], fill=close_col, width=stroke)
 
-        # --- Przyciski "Stream" i "Korekta": włączony = czerwone tło i napis ---
+        # --- Przyciski "Stream" i "Korekta": pigułka z diodą. Włączony = czerwona dioda z poświatą,
+        # czerwona obwódka i lekko czerwone tło; wyłączony = sama cienka obwódka i wygaszona dioda ---
         panel = cfg['panel_bg']
-        chip_on_col = cfg['text'] if self.theme == 'glass_color' else cfg['danger']
         chip_off_col = _mix(cfg.get('bar_btn_col', cfg['muted']), panel, 0.6)
+        chip_on_txt = cfg['danger'] if is_light else cfg['text']
 
         def draw_chip(x, y, w, h, label, enabled, hover):
             x1, y1 = int(x * S), int(y * S)
             x2, y2 = int((x + w) * S), int((y + h) * S)
+            r = (y2 - y1) // 2
             if enabled:
-                fill = _mix(cfg['danger'], panel, 0.26 if hover else 0.17)
-                txt_col = chip_on_col
+                fill = _mix(cfg['danger'], panel, 0.24 if hover else 0.15)
+                edge = _mix(cfg['danger'], panel, 0.75 if hover else 0.55)
+                led, halo = cfg['danger'], _mix(cfg['danger'], fill, 0.35)
+                txt_col = chip_on_txt
             else:
-                fill = cfg.get('toggle_hover_bg') if hover else None
+                fill = cfg.get('toggle_hover_bg') if hover else panel
+                edge = _mix(cfg['muted'], panel, 0.45 if hover else 0.3)
+                led, halo = _mix(cfg['muted'], panel, 0.55), None
                 txt_col = cfg['text'] if hover else chip_off_col
-            if fill is not None:
-                d.rounded_rectangle([x1, y1, x2, y2], radius=int(7 * S), fill=fill)
-            text(x + w / 2, y + h / 2, label, txt_col, FONT_SEMI_PATH, self.chip_font_px, anchor="mm")
+            d.rounded_rectangle([x1, y1, x2, y2], radius=r, fill=fill, outline=edge, width=thin)
+            lx, ly = x1 + self.chip_pad * S + 2.5 * S, (y1 + y2) / 2.0
+            if halo is not None:
+                d.ellipse([lx - 4.5 * S, ly - 4.5 * S, lx + 4.5 * S, ly + 4.5 * S], fill=halo)
+            d.ellipse([lx - 2.5 * S, ly - 2.5 * S, lx + 2.5 * S, ly + 2.5 * S], fill=led)
+            text(x + self.chip_pad + self.chip_led, y + h / 2, label, txt_col, FONT_SEMI_PATH, self.chip_font_px, anchor="lm")
 
         draw_chip(self.stream_btn_x, self.stream_btn_y, self.stream_btn_w, self.stream_btn_h, "Stream",
                   self.stream_realtime, self._hover_target == 'btn_toggle_stream')
@@ -1550,12 +1560,11 @@ class FloatingOverlay:
             strength = 0.55 + 0.45 * min(1.0, vol_boost * 1.4)                  # mocniej przy głośnej mowie
             alpha = vert * (0.45 + 0.55 * fade)[None, :] * strength * (wave_base[3] / 255.0)
 
-            # Kolor: pełny kolor stanu przy przycisku, ku końcom przechodzi w biel
-            to_white = np.clip(tx, 0.0, 1.0) ** 1.1 * 0.9
+            # Kolor: w całości kolor stanu; w środku pionu odrobinę jaśniejszy, żeby fala miała głębię
+            lift = (vert ** 2) * 0.18
             arr = np.zeros((lh, lw, 4), dtype=np.uint8)
             for ch_i in range(3):
-                col = wave_base[ch_i] * (1.0 - to_white) + 255.0 * to_white
-                arr[:, :, ch_i] = np.broadcast_to(col.astype(np.uint8)[None, :], (lh, lw))
+                arr[:, :, ch_i] = (wave_base[ch_i] * (1.0 - lift) + 255.0 * lift).astype(np.uint8)
             arr[:, :, 3] = (alpha * 255.0).astype(np.uint8)
             wave_img = Image.fromarray(arr, 'RGBA').filter(ImageFilter.GaussianBlur(radius=0.7 * S))
             img.alpha_composite(wave_img, (int(self.mic_cx * S) - lw // 2, int(self.wave_cy * S) - lh // 2))
@@ -1607,9 +1616,12 @@ class FloatingOverlay:
 
             d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill)
             if self.mode == "processing":
-                d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], outline=_mix(ring_col, panel, 0.3), width=thin)
-                ang = (t_now * 300.0) % 360.0
-                d.arc([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], start=ang, end=ang + 100, fill=ring_col, width=max(2, int(1.5 * S)))
+                breath = 0.5 - 0.5 * math.cos(t_now * 2.0 * math.pi / 1.6)
+                glow, half = _glow_sprite(b_rad + int(2 * S), ring_col[:3] + (int(25 + 55 * breath),), int(5 * S))
+                img.alpha_composite(glow, (mic_x - half, mic_y - half))
+                d = ImageDraw.Draw(img)
+                d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill,
+                          outline=_mix(ring_col, panel, 0.35 + 0.45 * breath), width=ring_w)
             else:
                 d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], outline=ring_soft, width=ring_w)
         else:
@@ -1618,7 +1630,17 @@ class FloatingOverlay:
             icon_col = cfg.get('mic_standby_color', (223, 232, 251, 255))
             d.ellipse([mic_x - b_rad, mic_y - b_rad, mic_x + b_rad, mic_y + b_rad], fill=btn_fill, outline=ring_col, width=ring_w)
 
-        if show_people:
+        if self.mode == "processing":
+            # Trzy kropki unoszące się po kolei, jak "pisze..."
+            for k in range(3):
+                ph = (t_now / 1.1 - k * 0.16) % 1.0
+                lift_k = math.sin(ph * 2.0 * math.pi) if ph < 0.5 else 0.0
+                dx = (k - 1) * 6.5 * S
+                dy = -2.6 * S * lift_k
+                dr = (1.9 + 0.5 * lift_k) * S
+                col = _mix(icon_col, panel, 0.55 + 0.45 * lift_k)
+                d.ellipse([mic_x + dx - dr, mic_y + dy - dr, mic_x + dx + dr, mic_y + dy + dr], fill=col)
+        elif show_people:
             draw_people_icon(img, mic_x, mic_y, sz=int(20 * S), color=icon_col)
         else:
             draw_svg_mic(img, mic_x, mic_y, sz=int(16.5 * S), color=icon_col)
@@ -1635,7 +1657,7 @@ class FloatingOverlay:
             status_col = blue
         elif self.mode == "processing":
             dot_col = amber
-            status_lbl = "Przetwarzanie..."
+            status_lbl = "Przetwarzanie"
             status_col = amber
         else:
             dot_col = cfg['muted']
@@ -1651,7 +1673,13 @@ class FloatingOverlay:
         total_line_w = dot_d + 4 + lbl_w + 6 + tim_w
         line_x = self.cx0 + self.cw / 2 - total_line_w / 2.0
 
-        d.ellipse([line_x * S, (self.status_cy - dot_d / 2) * S, (line_x + dot_d) * S, (self.status_cy + dot_d / 2) * S], fill=dot_col)
+        dcx, dcy = (line_x + dot_d / 2) * S, self.status_cy * S
+        if self.mode == "recording":
+            pulse = 0.5 - 0.5 * math.cos(t_now * 2.0 * math.pi / 1.5)
+            hr = (dot_d / 2 + 1.0 + 1.6 * pulse) * S
+            d.ellipse([dcx - hr, dcy - hr, dcx + hr, dcy + hr], fill=_mix(dot_col, panel, 0.12 + 0.18 * pulse))
+            dot_col = _mix(dot_col, panel, 0.7 + 0.3 * pulse)
+        d.ellipse([dcx - dot_d / 2 * S, dcy - dot_d / 2 * S, dcx + dot_d / 2 * S, dcy + dot_d / 2 * S], fill=dot_col)
         text(line_x + dot_d + 4, self.status_cy, status_lbl, status_col, FONT_SEMI_PATH, 10)
         text(line_x + dot_d + 4 + lbl_w + 6, self.status_cy, timer_str, _mix(cfg['text'], panel, 0.85), FONT_SEMI_PATH, 10)
 
