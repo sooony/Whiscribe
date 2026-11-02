@@ -1688,6 +1688,9 @@ class DictationApp:
             chk_clip = MF_CHECKED if self.config.get("restore_clipboard", True) else MF_UNCHECKED
             user32.AppendMenuW(h_menu, MF_STRING | chk_clip, 107, "Czyść schowek po wklejeniu")
 
+            chk_enter = MF_CHECKED if self.config.get("auto_enter_after_dictation", False) else MF_UNCHECKED
+            user32.AppendMenuW(h_menu, MF_STRING | chk_enter, 108, "Zatwierdź Enterem po zakończeniu dyktowania")
+
             chk_autostart = MF_CHECKED if is_autostart_enabled() else MF_UNCHECKED
             user32.AppendMenuW(h_menu, MF_STRING | chk_autostart, 106, "Uruchamiaj z systemem Windows (Autostart)")
 
@@ -1752,6 +1755,8 @@ class DictationApp:
                 self.toggle_autostart()
             elif cmd == 107:
                 self.toggle_restore_clipboard()
+            elif cmd == 108:
+                self.toggle_auto_enter()
             elif cmd == 201:
                 self.config["auto_stop_silence_seconds"] = 3.0
                 save_config(self.config)
