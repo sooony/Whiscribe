@@ -1,5 +1,6 @@
 import os
 import re
+import queue
 import threading
 import time
 import numpy as np
@@ -15,6 +16,10 @@ logger = logging.getLogger("Transcriber")
 GEMINI_FALLBACK_MODELS = ("gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
 # Model, który się przyciął lub był przeciążony, idzie na koniec kolejki na tyle sekund
 LLM_SLOW_MODEL_COOLDOWN_S = 300.0
+# Po tylu sekundach milczenia pierwszego modelu dosyłamy pozostałe równolegle.
+# Przy pytaniu po kolei każdy zawieszony model wypalał cały swój limit (12-14 s),
+# więc jedno dyktowanie czekało 30 s, żeby na końcu dostać surowy tekst Whispera.
+GEMINI_HEDGE_AFTER_S = 2.0
 
 
 def llm_time_budget(text: str, is_local: bool) -> float:
@@ -440,6 +445,140 @@ class Transcriber:
 
         return True
 
+    def _order_gemini_models(self, models: list) -> list:
+        """
+        Kolejność pytania: najpierw model, który ostatnio poprawnie odpowiedział, potem te,
+        które najdawniej się wysypały. Samo "przeciążony na koniec" nie działało, bo gdy
+        wszystkie trzy modele były oznaczone, kolejność nie zmieniała się wcale i ten
+        zawieszony dostawał pierwszeństwo przy każdym kolejnym dyktowaniu.
+        """
+        slow = getattr(self, "_slow_llm_models", None)
+        if slow is None:
+            slow = self._slow_llm_models = {}
+        last_good = getattr(self, "_last_good_llm_model", None)
+        now = time.monotonic()
+
+        def klucz(model_name):
+            if model_name == last_good and slow.get(model_name, 0.0) <= now:
+                return (0, 0.0)
+            return (1, slow.get(model_name, 0.0))
+
+        return sorted(models, key=klucz)
+
+    def _gemini_attempt(self, model_name: str, payload: dict, headers: dict, timeout):
+        """
+        Jedno zapytanie do modelu. Zwraca (status, wartość) i niczego nie loguje ani nie
+        zmienia w obiekcie, bo leci z osobnego wątku – stan zmienia tylko wątek główny.
+        """
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, headers=headers, json=payload, timeout=timeout)
+        if resp.status_code == 200:
+            data = resp.json()
+            candidates = data.get("candidates", [])
+            if not candidates:
+                return 'empty', f"brak kandydatów: {str(data.get('promptFeedback', ''))[:200]}"
+            parts = candidates[0].get("content", {}).get("parts", [])
+            # Modele "myślące" mogą zwrócić kilka części – pomijamy części z myśleniem
+            cleaned = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+            if cleaned:
+                return 'ok', cleaned
+            return 'empty', f"finishReason={candidates[0].get('finishReason')}"
+        if resp.status_code in (401, 403):
+            return 'auth', resp.status_code
+        if resp.status_code == 404:
+            return '404', resp.status_code
+        return 'http', (resp.status_code, resp.text[:200])
+
+    def _gemini_correct_hedged(self, models: list, payload: dict, headers: dict, deadline: float, budget: float):
+        """
+        Pyta pierwszy model, a jeśli ten milczy dłużej niż GEMINI_HEDGE_AFTER_S albo odpada
+        od razu, dosyła pozostałe równolegle i bierze pierwszą dobrą odpowiedź. W normalnym
+        przypadku (odpowiedź w ~1 s) leci dokładnie jedno zapytanie, jak dotąd.
+        Zwraca poprawiony tekst albo None.
+        """
+        slow = getattr(self, "_slow_llm_models", None)
+        if slow is None:
+            slow = self._slow_llm_models = {}
+        # 12 s na próbę: w szczytach Gemini odpowiada po 7-10 s, przy krótszym limicie
+        # korekta odpadała, mimo że model zdążyłby odpowiedzieć.
+        attempt_cap = max(12.0, budget * 0.4)
+        wyniki = queue.Queue()
+
+        def probuj(model_name, timeout):
+            try:
+                status, wartosc = self._gemini_attempt(model_name, payload, headers, timeout)
+            except Exception as err:
+                status, wartosc = 'conn', err
+            wyniki.put((model_name, status, wartosc))
+
+        def odpal(model_name) -> bool:
+            timeout = _request_timeout(deadline, attempt_cap)
+            if timeout is None:
+                return False
+            threading.Thread(target=probuj, args=(model_name, timeout), daemon=True,
+                             name=f"gemini-{model_name}").start()
+            return True
+
+        oczekujace = list(models)
+        if not oczekujace or not odpal(oczekujace.pop(0)):
+            logger.warning("Korekta Gemini: budżet czasu wyczerpany przed pierwszym zapytaniem.")
+            return None
+        pierwszy = models[0]
+        uruchomione = 1
+        odpowiedzi = 0
+        rozeslane = False
+
+        def rozeslij(powod: str):
+            nonlocal rozeslane
+            rozeslane = True
+            logger.info(f"Korekta Gemini: {powod} – pytam równolegle {', '.join(oczekujace)}.")
+            dosylane = 0
+            for m in oczekujace:
+                if odpal(m):
+                    dosylane += 1
+            oczekujace.clear()
+            return dosylane
+
+        while odpowiedzi < uruchomione:
+            pozostalo = deadline - time.monotonic()
+            if pozostalo <= 0:
+                logger.warning("Korekta Gemini przekroczyła łączny limit czasu.")
+                break
+            czekaj = pozostalo if rozeslane else min(pozostalo, GEMINI_HEDGE_AFTER_S)
+            try:
+                model_name, status, wartosc = wyniki.get(timeout=czekaj)
+            except queue.Empty:
+                if not rozeslane and oczekujace:
+                    uruchomione += rozeslij(f"{pierwszy} milczy ponad {GEMINI_HEDGE_AFTER_S:.0f} s")
+                continue
+
+            odpowiedzi += 1
+            if status == 'ok':
+                self._last_good_llm_model = model_name
+                return wartosc
+            if status == 'auth':
+                logger.error(f"Błąd autoryzacji Gemini API (kod {wartosc}): Niepoprawny klucz API!")
+                break
+            if status == '404':
+                self._dead_llm_models.add(model_name)
+                logger.warning(f"Model Gemini {model_name} jest niedostępny (404) – pomijam go do końca sesji.")
+            elif status == 'empty':
+                logger.warning(f"Gemini ({model_name}) zwrócił pustą odpowiedź ({wartosc}).")
+            elif status == 'http':
+                kod, tresc = wartosc
+                if kod == 429 or kod >= 500:
+                    slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
+                logger.warning(f"Gemini API ({model_name}) zwróciło kod {kod}: {tresc}")
+            else:
+                slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
+                logger.warning(f"Błąd połączenia z modelem {model_name}: {type(wartosc).__name__}: {wartosc}")
+
+            if oczekujace and not rozeslane:
+                uruchomione += rozeslij(f"{model_name} odpadł")
+
+        return None
+
     def _post_process_with_llm(self, text: str) -> str:
         """Opcjonalna korekta językowa przez LLM (Gemini, Groq, OpenAI lub lokalną Ollama/LM Studio)."""
         provider = self.config.get("llm_provider", "gemini").lower()
@@ -464,11 +603,7 @@ class Transcriber:
                     if fallback_m not in candidate_models:
                         candidate_models.append(fallback_m)
                 candidate_models = [m for m in candidate_models if m not in self._dead_llm_models] or list(GEMINI_FALLBACK_MODELS)
-                slow = getattr(self, "_slow_llm_models", None)
-                if slow is None:
-                    slow = self._slow_llm_models = {}
-                now = time.monotonic()
-                candidate_models.sort(key=lambda m: slow.get(m, 0.0) > now)  # stabilnie: przeciążone na koniec
+                candidate_models = self._order_gemini_models(candidate_models)
 
                 payload = {
                     "contents": [
@@ -487,45 +622,11 @@ class Transcriber:
                     }
                 }
                 headers = {"x-goog-api-key": api_key}
-                with httpx.Client() as client:
-                    for model_name in candidate_models:
-                        # 12 s na próbę: w szczytach Gemini odpowiada po 7-10 s, przy krótszym
-                        # limicie odpadały wszystkie trzy modele i wklejał się surowy tekst.
-                        timeout = _request_timeout(deadline, max(12.0, budget * 0.4))
-                        if timeout is None:
-                            logger.warning("Korekta Gemini przekroczyła łączny limit czasu – pomijam kolejne modele.")
-                            break
-                        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
-                        try:
-                            resp = client.post(url, headers=headers, json=payload, timeout=timeout)
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                candidates = data.get("candidates", [])
-                                if candidates:
-                                    parts = candidates[0].get("content", {}).get("parts", [])
-                                    # Modele "myślące" mogą zwrócić kilka części – pomijamy części z myśleniem
-                                    cleaned = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
-                                    if cleaned:
-                                        self.last_llm_status = 'ok'
-                                        return cleaned
-                                    logger.warning(f"Gemini ({model_name}) zwrócił pustą odpowiedź (finishReason={candidates[0].get('finishReason')}).")
-                                else:
-                                    logger.warning(f"Gemini ({model_name}) nie zwrócił kandydatów: {str(data.get('promptFeedback', ''))[:200]}")
-                            elif resp.status_code in (401, 403):
-                                logger.error(f"Błąd autoryzacji Gemini API (kod {resp.status_code}): Niepoprawny klucz API!")
-                                break
-                            elif resp.status_code == 404:
-                                self._dead_llm_models.add(model_name)
-                                logger.warning(f"Model Gemini {model_name} jest niedostępny (404) – pomijam go do końca sesji.")
-                            else:
-                                if resp.status_code == 429 or resp.status_code >= 500:
-                                    slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
-                                logger.warning(f"Gemini API ({model_name}) zwróciło kod {resp.status_code}: {resp.text[:200]}")
-                        except Exception as req_err:
-                            slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
-                            logger.warning(f"Błąd połączenia z modelem {model_name}: {type(req_err).__name__}: {req_err}")
-                            continue
-            
+                poprawiony = self._gemini_correct_hedged(candidate_models, payload, headers, deadline, budget)
+                if poprawiony:
+                    self.last_llm_status = 'ok'
+                    return poprawiony
+
             elif provider in ("groq", "openai", "ollama", "local", "lmstudio"):
                 # OpenAI-compatible API (Chmura lub 100% lokalna Ollama / LM Studio)
                 if provider == "groq":

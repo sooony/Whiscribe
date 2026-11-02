@@ -9,7 +9,7 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.2.17"
+APP_VERSION = "2.2.18"
 __version__ = APP_VERSION
 APP_RELEASE_DATE = "02.11.2026"
 GITHUB_URL = "https://github.com/sooony/Whiscribe"

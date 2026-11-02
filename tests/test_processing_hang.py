@@ -192,7 +192,37 @@ def test_llm_correction_respects_total_budget(monkeypatch):
     assert time.monotonic() - t0 < 3.0
     assert out == "jakiś tekst"
     assert t.last_llm_status == "failed"
-    assert len(calls) == 2, "po wyczerpaniu budżetu nie powinno być kolejnych prób"
+    assert len(calls) == len(set(calls)), "po wyczerpaniu budżetu nie powinno być kolejnej rundy prób"
+
+
+def test_zawieszony_model_nie_blokuje_korekty(monkeypatch):
+    """Model, który milczy, ma być dosłany kolegami, a nie wypalać cały swój limit."""
+    def handler(request):
+        if "gemini-flash-latest" in request.url.path:
+            time.sleep(1.0)
+            return httpx.Response(503, json={"error": "wisi"})
+        return _gemini_ok("Ok.")
+
+    tr, t = _transcriber(monkeypatch, handler)
+    monkeypatch.setattr(tr, "GEMINI_HEDGE_AFTER_S", 0.3)
+
+    t0 = time.monotonic()
+    assert t._post_process_with_llm("ok") == "Ok."
+    assert time.monotonic() - t0 < 0.9, "czekaliśmy na zawieszony model zamiast dosłać pozostałe"
+
+
+def test_model_ktory_ostatnio_zadzialal_jest_pytany_pierwszy(monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        return _gemini_ok("Ok.")
+
+    _, t = _transcriber(monkeypatch, handler)
+    t._last_good_llm_model = "gemini-3.1-flash-lite"
+
+    assert t._post_process_with_llm("ok") == "Ok."
+    assert len(calls) == 1 and "gemini-3.1-flash-lite" in calls[0]
 
 
 def test_dead_model_is_skipped_next_time(monkeypatch):
