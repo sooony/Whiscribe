@@ -40,6 +40,20 @@ def send_unicode_string(text: str):
         return
     kb.type(text)
 
+def send_enter():
+    """
+    Zatwierdza wpisany tekst klawiszem Enter (wysyła wiadomość w czacie, zatwierdza pole).
+    Modyfikatory ze skrótu (Ctrl + Alt + D) muszą być zwolnione, bo inaczej aplikacja
+    docelowa dostaje Ctrl + Enter albo Alt + Enter, czyli zupełnie co innego.
+    """
+    for mod in (Key.ctrl, Key.ctrl_l, Key.ctrl_r, Key.alt, Key.alt_l, Key.alt_r, Key.shift, Key.shift_l, Key.shift_r):
+        try:
+            kb.release(mod)
+        except Exception:
+            pass
+    kb.tap(Key.enter)
+
+
 def normalize_word(w: str) -> str:
     """Usuwa znaki interpunkcyjne do bezpiecznego porównywania tożsamości słów."""
     import re

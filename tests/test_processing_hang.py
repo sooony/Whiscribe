@@ -256,8 +256,8 @@ def test_thinking_parts_are_skipped(monkeypatch):
 
 def test_llm_budget_grows_with_text_but_is_capped():
     from transcriber import llm_time_budget
-    assert llm_time_budget("a" * 100, False) == pytest.approx(20.5)
-    assert llm_time_budget("a" * 100000, False) == 45.0
+    assert llm_time_budget("a" * 100, False) == pytest.approx(30.5)
+    assert llm_time_budget("a" * 100000, False) == 60.0
     assert llm_time_budget("a" * 100000, True) == 90.0
 
 

@@ -25,7 +25,7 @@ def llm_time_budget(text: str, is_local: bool) -> float:
     n = len(text or "")
     if is_local:
         return max(30.0, min(90.0, 30.0 + n / 80.0))
-    return max(20.0, min(45.0, 20.0 + n / 200.0))
+    return max(30.0, min(60.0, 30.0 + n / 200.0))
 
 
 def _request_timeout(deadline: float, max_attempt_s: float = None):
@@ -489,7 +489,9 @@ class Transcriber:
                 headers = {"x-goog-api-key": api_key}
                 with httpx.Client() as client:
                     for model_name in candidate_models:
-                        timeout = _request_timeout(deadline, max(6.0, budget * 0.3))
+                        # 12 s na próbę: w szczytach Gemini odpowiada po 7-10 s, przy krótszym
+                        # limicie odpadały wszystkie trzy modele i wklejał się surowy tekst.
+                        timeout = _request_timeout(deadline, max(12.0, budget * 0.4))
                         if timeout is None:
                             logger.warning("Korekta Gemini przekroczyła łączny limit czasu – pomijam kolejne modele.")
                             break

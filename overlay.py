@@ -17,6 +17,10 @@ user32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
 user32.DefWindowProcW.restype = LRESULT
 WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
 
+# Ile sekund stoi dymek z komunikatem. Krótszy czas był nie do przeczytania:
+# komunikat pojawiał się i gasł, zanim dało się go zauważyć.
+BALLOON_DEFAULT_S = 10.0
+
 class BLENDFUNCTION(ctypes.Structure):
     _fields_ = [
         ('BlendOp', ctypes.c_byte),
@@ -1755,7 +1759,10 @@ class FloatingOverlay:
             self.mode = "idle"
             self._start_time = 0.0
             self.clear_transcript()
-            self._balloon_type = None
+            # Dymek przeżywa koniec przetwarzania: komunikat (np. o nieudanej korekcie AI)
+            # pokazywał się i gasł w tej samej chwili, bo show_idle leci zaraz po nim.
+            if self._balloon_until > 0 and time.time() >= self._balloon_until:
+                self._balloon_type = None
             self._dirty = True
         if self.always_on_top or (not self.is_minimized() and self._visible):
             self.show()
@@ -1777,8 +1784,12 @@ class FloatingOverlay:
             self._dirty = True
         self.show()
 
-    def show_balloon(self, kind: str = "info", text: str = "", duration_s: float = 4.0):
-        """Wyświetla dymek powiadomienia (info lub error) z określonym tekstem."""
+    def show_balloon(self, kind: str = "info", text: str = "", duration_s: float = BALLOON_DEFAULT_S):
+        """
+        Wyświetla dymek powiadomienia (info lub error) z określonym tekstem.
+        Dymek stoi BALLOON_DEFAULT_S sekund albo do kliknięcia "Rozumiem";
+        duration_s <= 0 oznacza "tylko do kliknięcia".
+        """
         with self._lock:
             self._balloon_type = kind
             self._balloon_text = text
@@ -1786,7 +1797,7 @@ class FloatingOverlay:
             self._dirty = True
         self.show()
 
-    def show_error_balloon(self, duration_s=7.0):
+    def show_error_balloon(self, duration_s=BALLOON_DEFAULT_S):
         self.show_balloon("error", "", duration_s=duration_s)
 
     def hide_balloon(self):

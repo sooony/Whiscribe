@@ -225,7 +225,7 @@ from pynput import keyboard
 from config import load_config, save_config, save_secret_key, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION, APP_RELEASE_DATE, GITHUB_URL
 from recorder import AudioRecorder
 from transcriber import Transcriber
-from injector import inject_text, sync_text, send_unicode_string, ForwardStreamCommitter
+from injector import inject_text, sync_text, send_unicode_string, send_enter, ForwardStreamCommitter
 from overlay import FloatingOverlay, THEMES, THEME_MAP, draw_svg_mic
 from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd, is_valid_target_window
 from meeting_manager import MeetingManager
@@ -1081,6 +1081,8 @@ class DictationApp:
                         if self.buffered_untyped_text:
                             send_unicode_string(self.buffered_untyped_text)
                             self.buffered_untyped_text = ""
+
+                    self._send_auto_enter()
                 else:
                     logger.warning(f"Streaming: nie udało się przywrócić fokusu do okna docelowego. Wstrzymano wpisywanie.")
                     if final_tail and self.overlay:
@@ -1139,6 +1141,7 @@ class DictationApp:
 
                     if focus_ok:
                         inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", True))
+                        self._send_auto_enter()
                     else:
                         logger.warning(f"Nie udało się przywrócić fokusu do okna docelowego (HWND={self.target_hwnd:#x}, aktywne={user32.GetForegroundWindow():#x}). Wstrzymano wklejanie dla ochrony danych.")
                         if self.overlay:
@@ -1417,6 +1420,27 @@ class DictationApp:
         self.config["sound_feedback"] = not self.config.get("sound_feedback", True)
         save_config(self.config)
         logger.info(f"Dźwięki powiadomień: {'Włączone' if self.config['sound_feedback'] else 'Wyłączone'}")
+
+    def _send_auto_enter(self):
+        """Zatwierdza wklejony tekst Enterem, jeśli użytkownik włączył taką opcję."""
+        if not self.config.get("auto_enter_after_dictation", False):
+            return
+        try:
+            # Krótka przerwa, bo aplikacja docelowa (czat, przeglądarka) potrzebuje chwili
+            # na przyjęcie wklejonego tekstu – Enter wysłany za wcześnie wysyła puste pole.
+            time.sleep(0.15)
+            send_enter()
+            logger.info("Auto-Enter: zatwierdzono wpisany tekst.")
+        except Exception as e:
+            logger.warning(f"Auto-Enter nie zadziałał: {e}")
+
+    def toggle_auto_enter(self):
+        self.config["auto_enter_after_dictation"] = not self.config.get("auto_enter_after_dictation", False)
+        save_config(self.config)
+        logger.info(f"Enter po dyktowaniu: {'Włączony' if self.config['auto_enter_after_dictation'] else 'Wyłączony'}")
+        if self.overlay:
+            stan = "włączony" if self.config["auto_enter_after_dictation"] else "wyłączony"
+            self.overlay.show_balloon("info", f"Enter po zakończeniu dyktowania: {stan}")
 
     def toggle_require_text_field(self):
         self.config["require_text_field"] = not self.config.get("require_text_field", True)
@@ -2127,6 +2151,11 @@ class DictationApp:
                 "Wymagaj aktywnego pola tekstowego",
                 self.toggle_require_text_field,
                 checked=lambda item: self.config.get("require_text_field", True)
+            ),
+            pystray.MenuItem(
+                "Zatwierdź Enterem po zakończeniu dyktowania",
+                lambda icon=None, item=None: self.toggle_auto_enter(),
+                checked=lambda item: self.config.get("auto_enter_after_dictation", False)
             ),
             pystray.MenuItem(
                 "Czyść schowek po wklejeniu",

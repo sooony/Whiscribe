@@ -9,9 +9,9 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.2.15"
+APP_VERSION = "2.2.16"
 __version__ = APP_VERSION
-APP_RELEASE_DATE = "31.10.2026"
+APP_RELEASE_DATE = "02.11.2026"
 GITHUB_URL = "https://github.com/sooony/Whiscribe"
 
 CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
@@ -36,6 +36,7 @@ DEFAULT_CONFIG = {
     "max_recording_seconds": 1200,  # Twardy limit jednego dyktowania (s); 0 = bez limitu
     "theme": "dark",  # Styl widzetu: dark (podstawowy), apple, win11, google, graphite
     "restore_clipboard": True,
+    "auto_enter_after_dictation": False,  # Po wklejeniu tekstu wyślij Enter (zatwierdza wiadomość w czacie)
     "hotkey_meeting": "<ctrl>+<alt>+m",
     "hotkey_meeting_description": "Skrót klawiszowy transkrypcji spotkań",
     "open_notepad_on_meeting": False,
