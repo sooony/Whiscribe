@@ -151,6 +151,9 @@ class TestV2Features(unittest.TestCase):
         )
         icon = pystray.Icon("TestWhiscribe", Image.new("RGB", (16, 16)), "Test", menu)
         icon.run_detached()
+        # Sprzatanie w finally: watek pystray nie jest demonem, wiec ikona zostawiona po
+        # nieudanej asercji trzyma caly proces pytest przy zyciu razem z jego zasobami.
+        self.addCleanup(icon.stop)
         time.sleep(0.2)
 
         icon.update_menu()
@@ -194,8 +197,6 @@ class TestV2Features(unittest.TestCase):
         mock._show_settings_menu(200, 200)
         self.assertEqual(ctypes.GetLastError(), 0, "Menu nie może zwracać błędu Win32 (np. ERROR_INVALID_PARAMETER 87)")
         t.join()
-
-        icon.stop()
 
     def test_always_on_top_feature(self):
         """Weryfikacja dynamicznego włączania i wyłączania trybu 'Zawsze na wierzchu'."""

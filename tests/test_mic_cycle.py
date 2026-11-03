@@ -83,9 +83,27 @@ class TestMicCycle(unittest.TestCase):
 
         overlay.close()
 
+    @staticmethod
+    def _oddaj_zasoby(dict_app):
+        """Oddaje mikrofon i zamyka widzet, cokolwiek wydarzylo sie w tescie.
+
+        Bez tego nieudana asercja zostawiala otwarty strumien audio i watki widzetu,
+        a proces pytest wisial z ikona "mikrofon w uzyciu" w zasobniku Windows.
+        """
+        dict_app._running = False
+        for akcja in (
+            lambda: dict_app.recorder.stop(),
+            lambda: dict_app.overlay.close(),
+        ):
+            try:
+                akcja()
+            except Exception:
+                pass
+
     def test_app_lifecycle_recording_and_stop(self):
         # Instantiate DictationApp
         dict_app = app.DictationApp()
+        self.addCleanup(self._oddaj_zasoby, dict_app)
         dict_app.config["require_text_field"] = False
         dict_app.config["sound_feedback"] = False
         self.assertEqual(dict_app.state, "idle")
@@ -141,8 +159,7 @@ class TestMicCycle(unittest.TestCase):
         self.assertEqual(dict_app.overlay.mode, "idle")
         self.assertEqual(dict_app.overlay._start_time, 0.0)
 
-        # Cleanup
-        dict_app._running = False
+        # Reszta sprzatania leci przez addCleanup, takze gdy ktoras asercja padnie
         if dict_app.overlay:
             dict_app.overlay.close()
 
