@@ -94,10 +94,11 @@ def _sprawdz_zapis(glowny, sciezka: str):
     """
     Sprawdza, czy główny plik logu faktycznie przyjmuje zapis.
 
-    Bez tego cichy log umie być cichy zbyt dosłownie: u Filipa główny plik nie dostał
-    ani jednej linii, a ostrzeżenia szły do pliku błędów, więc z samej aplikacji nic
-    tego nie zgłaszało. Diagnoza idzie do pozostałych handlerów, czyli tam, gdzie
-    zapis działa.
+    Pierwszy wiersz w logu mówi, gdzie ten log jest, a gdy zapis nie działa, diagnoza
+    (poziomy, stan strumienia, lista handlerów) idzie do pozostałych handlerów, czyli
+    do pliku błędów. Bez tego nieudany zapis do głównego pliku nie zgłasza się nigdzie:
+    rozmiar pliku i próba zmiany nazwy nie są na Windows dowodem, bo dla pliku otwartego
+    do zapisu metadane katalogu bywają nieodświeżone.
     """
     log = logging.getLogger("whiscribe.logi")
     if glowny is None:
@@ -158,9 +159,10 @@ def setup_logging(level_name: str = "normal") -> dict:
     formatter = logging.Formatter(LOG_FORMAT)
     handlers = []
 
-    # Bez delay: plik otwiera się już tutaj, więc błąd otwarcia widać od razu, a nie
-    # dopiero przy pierwszym rekordzie, gdzie BaseRotatingHandler.emit zjada go przez
-    # handleError i log zostaje pusty bez słowa wyjaśnienia.
+    # Bez delay: plik otwiera się już tutaj, więc błąd otwarcia widać od razu. Przy
+    # delay=True pierwszy zapis jest też pierwszą próbą otwarcia, a jej błąd
+    # BaseRotatingHandler.emit zjada przez handleError i log zostaje pusty bez słowa
+    # wyjaśnienia. Koszt jest zerowy, bo log i tak dostaje linię startu.
     glowny = None
     try:
         glowny = RotacjaOdpornaNaBlokade(

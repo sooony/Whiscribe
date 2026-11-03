@@ -11,7 +11,8 @@ i wklejał tekst, który przestał być aktualny. Każdy test pilnuje jednego og
 2. Świeży wynik wchodzi normalnie, bez zmiany dotychczasowego zachowania.
 3. Porzucenie zadania w trakcie przywracania fokusu nie kończy się drugim wklejeniem.
 4. Gdy wszystkie modele Gemini świeżo padały, próba jest krótsza.
-5. Główny plik logu przyjmuje zapis, a gdy nie przyjmuje, aplikacja to zgłasza.
+5. Główny plik logu potwierdza zapis pierwszym wierszem, a gdy zapis nie działa,
+   aplikacja zgłasza to z diagnozą do pliku błędów.
 """
 import logging
 import os
@@ -177,7 +178,7 @@ class TestKorektaOdpuszczaPoAwarii(unittest.TestCase):
 
 
 class TestGlownyLogPrzyjmujeZapis(unittest.TestCase):
-    """U Filipa główny log nie dostał ani jednej linii, a ostrzeżenia szły do pliku błędów."""
+    """Nieudany zapis do głównego logu nie zgłaszał się nigdzie, bo błąd otwarcia ginie w handleError."""
 
     def setUp(self):
         # setup_logging() robi basicConfig(force=True), które zamyka i usuwa handlery roota.
