@@ -166,6 +166,7 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
   "theme": "dark",
   "paste_memory_size": 1,
   "max_paste_delay_seconds": 8.0,
+  "gemini_hedge_after_seconds": 1.0,
   "log_level": "normal",
   "use_llm": false,
   "llm_provider": "gemini",
@@ -183,6 +184,7 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 - `use_llm`: aktywuje opcjonalną korektę stylistyczną i interpunkcyjną.
 - `paste_memory_size`: liczba ostatnich dyktowań trzymanych w pamięci wklejek (domyślnie 1).
 - `max_paste_delay_seconds`: po ilu sekundach od zatrzymania nagrania wynik przestaje być wklejany automatycznie (domyślnie 8). Korekta AI potrafi trwać kilkanaście sekund, gdy modele są przeciążone, a tekst wklejony po takim czasie wpada w środek tego, co właśnie piszesz. Taki spóźniony tekst trafia do pamięci wklejek i czeka na `Ctrl+Alt+V`. Limit rośnie z długością nagrania (35 procent czasu mowy), bo na dłuższe dyktowanie czeka się świadomie, i jest 2,5 raza hojniejszy, gdy korekta AI się udała: tekst poprawiony po dziesięciu sekundach jest tego wart, a surowy po piętnastu, bo modele padły, już nie. `0` wyłącza kontrolę i przywraca wklejanie zawsze.
+- `gemini_hedge_after_seconds`: po ilu sekundach milczenia pierwszego modelu Gemini pytane są równolegle pozostałe (domyślnie 1). Z pomiarów na żywej aplikacji pierwszy pytany model regularnie milczy dłużej, a wynik daje model dosłany, więc dłuższe czekanie było czystym kosztem: jedno dyktowanie skróciło się z 3,0 do około 1,5 sekundy. Krótszy próg oznacza częściej trzy zapytania zamiast jednego, więc przy ciasnych limitach API warto go podnieść.
 - `hotkey_restore_paste`: skrót przywracania ostatniej wklejki (domyślnie `<ctrl>+<alt>+v`).
 - `log_level`: `normal` (domyślnie) albo `diag`. Tryb `diag` zapisuje do logu także treść dyktowania, więc włącza się go tylko na czas diagnozy.
 

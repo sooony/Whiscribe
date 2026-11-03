@@ -62,7 +62,7 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.2.21"
+APP_VERSION = "2.2.22"
 __version__ = APP_VERSION
 APP_RELEASE_DATE = "03.11.2026"
 GITHUB_URL = "https://github.com/sooony/Whiscribe"
@@ -88,6 +88,8 @@ DEFAULT_CONFIG = {
     "widget_mode": "dictation",  # Główny przycisk widżetu: "dictation" (mikrofon) albo "meeting" (rozmowa)
     "max_recording_seconds": 1200,  # Twardy limit jednego dyktowania (s); 0 = bez limitu
     "max_paste_delay_seconds": 8.0,  # Po ilu s od zatrzymania wynik nie jest juz wklejany, tylko odkladany do pamieci wklejek; 0 = zawsze wklejaj
+    "gemini_hedge_after_seconds": 1.0,  # Po ilu s milczenia pierwszego modelu Gemini pytac rownolegle pozostale
+
     "theme": "dark",  # Styl widzetu: dark (podstawowy), apple, win11, google, graphite
     "restore_clipboard": True,
     "log_level": "normal",  # "normal" (INFO) albo "diag" (DEBUG, także treść dyktowania w logu); nadpisywane zmienną WHISCRIBE_LOG_LEVEL

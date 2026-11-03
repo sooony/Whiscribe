@@ -207,6 +207,67 @@ class TestKorektaOdpuszczaPoAwarii(unittest.TestCase):
         self.assertGreaterEqual(limity[0], 12.0)
 
 
+class TestProgCzekaniaNaGemini(unittest.TestCase):
+    """Pomiary: pierwszy pytany model milczal ponad 2 s w obu dyktowaniach kontrolnych.
+
+    Dyktowanie 3 trwalo 3,01 s, z czego 2,52 s to czekanie na model, ktory nie
+    odpowiedzial; doslany dal wynik po 0,49 s. Prog musi byc krotki i konfigurowalny.
+    """
+
+    def _transcriber(self, prog=None):
+        import transcriber as tr_mod
+
+        tr = object.__new__(tr_mod.Transcriber)
+        tr.config = {"llm_provider": "gemini", "llm_api_key": "x", "llm_model": "m1"}
+        if prog is not None:
+            tr.config["gemini_hedge_after_seconds"] = prog
+        tr.last_llm_status = None
+        tr.last_llm_duration = 0.0
+        tr._dead_llm_models = set()
+        tr._slow_llm_models = {}
+        return tr, tr_mod
+
+    def test_domyslny_prog_jest_krotszy_niz_dwie_sekundy(self):
+        import transcriber as tr_mod
+
+        self.assertLess(tr_mod.GEMINI_HEDGE_AFTER_S, 2.0,
+                        "czekanie 2 s na pierwszy model bylo czystym kosztem w pomiarach")
+        self.assertGreaterEqual(tr_mod.GEMINI_HEDGE_AFTER_S, 0.5,
+                                "zbyt krotki prog to trzy zapytania przy kazdym dyktowaniu")
+
+    def test_prog_mozna_zmienic_w_configu(self):
+        tr, tr_mod = self._transcriber(prog=0.4)
+        czekania = []
+
+        class FakeQueue:
+            """Pierwsze get() to cisza pierwszego modelu, drugie zwraca wynik doslanego."""
+
+            def __init__(self):
+                self._wywolania = 0
+
+            def get(self, timeout=None):
+                czekania.append(timeout)
+                self._wywolania += 1
+                if self._wywolania == 1:
+                    raise tr_mod.queue.Empty
+                return ("m2", "ok", "poprawiony tekst")
+
+        with patch.object(tr_mod.queue, "Queue", return_value=FakeQueue()),              patch.object(tr_mod, "_request_timeout", return_value=5.0),              patch.object(tr_mod.threading, "Thread", MagicMock()),              patch.object(tr_mod, "logger"):
+            wynik = tr._gemini_correct_hedged(["m1", "m2"], {}, {}, time.monotonic() + 30.0, 30.0)
+
+        self.assertEqual(wynik, "poprawiony tekst")
+
+        self.assertTrue(czekania, "nie policzono czasu czekania")
+        self.assertAlmostEqual(czekania[0], 0.4, places=2,
+                               msg="prog z configu nie zostal uzyty")
+
+    def test_bledna_wartosc_progu_nie_wywraca_korekty(self):
+        tr, tr_mod = self._transcriber(prog="szybko")
+        with patch.object(tr_mod, "_request_timeout", return_value=None),              patch.object(tr_mod, "logger"):
+            # Nie moze rzucic: zly config nie ma prawa zabrac uzytkownikowi dyktowania
+            tr._gemini_correct_hedged(["m1"], {}, {}, time.monotonic() + 1.0, 1.0)
+
+
 class TestGlownyLogPrzyjmujeZapis(unittest.TestCase):
     """Nieudany zapis do głównego logu nie zgłaszał się nigdzie, bo błąd otwarcia ginie w handleError."""
 

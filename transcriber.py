@@ -19,7 +19,11 @@ LLM_SLOW_MODEL_COOLDOWN_S = 300.0
 # Po tylu sekundach milczenia pierwszego modelu dosyłamy pozostałe równolegle.
 # Przy pytaniu po kolei każdy zawieszony model wypalał cały swój limit (12-14 s),
 # więc jedno dyktowanie czekało 30 s, żeby na końcu dostać surowy tekst Whispera.
-GEMINI_HEDGE_AFTER_S = 2.0
+# Ile czekac na pierwszy model, zanim doslemy pozostale rownolegle. Pomiary na zywej
+# aplikacji: pierwszy pytany model regularnie milczy dluzej niz 2 s, a wynik daje model
+# doslany, wiec dlugie czekanie bylo czystym kosztem. Prog jest w configu, bo krotszy
+# oznacza czesciej trzy zapytania zamiast jednego, a to dotyka limitow API.
+GEMINI_HEDGE_AFTER_S = 1.0
 # Limit na probe, gdy wszystkie modele swiezo sie wysypaly: lepiej wkleic surowy
 # tekst po 4 s niz skorygowany po kilkunastu, gdy uzytkownik dawno robi cos innego.
 GEMINI_PROBA_PO_AWARII_S = 4.0
@@ -179,6 +183,7 @@ class Transcriber:
         self._dead_llm_models = set()
         # Modele chwilowo przeciążone: {nazwa: time.monotonic() do kiedy omijać}
         self._slow_llm_models = {}
+        self.last_llm_duration = 0.0
         self._init_model()
 
     def _init_model(self):
@@ -401,6 +406,7 @@ class Transcriber:
 
         if use_llm and (api_key or is_local_llm):
             self.last_llm_status = None
+            self.last_llm_duration = 0.0
             cleaned_text = self._post_process_with_llm(raw_text)
             if not cleaned_text:
                 return raw_text
@@ -534,6 +540,11 @@ class Transcriber:
             logger.warning("Korekta Gemini: budżet czasu wyczerpany przed pierwszym zapytaniem.")
             return None
         pierwszy = models[0]
+        try:
+            prog_hedge = float(self.config.get("gemini_hedge_after_seconds", GEMINI_HEDGE_AFTER_S))
+        except (TypeError, ValueError):
+            prog_hedge = GEMINI_HEDGE_AFTER_S
+        prog_hedge = max(0.2, min(10.0, prog_hedge))
         uruchomione = 1
         odpowiedzi = 0
         rozeslane = False
@@ -554,12 +565,12 @@ class Transcriber:
             if pozostalo <= 0:
                 logger.warning("Korekta Gemini przekroczyła łączny limit czasu.")
                 break
-            czekaj = pozostalo if rozeslane else min(pozostalo, GEMINI_HEDGE_AFTER_S)
+            czekaj = pozostalo if rozeslane else min(pozostalo, prog_hedge)
             try:
                 model_name, status, wartosc = wyniki.get(timeout=czekaj)
             except queue.Empty:
                 if not rozeslane and oczekujace:
-                    uruchomione += rozeslij(f"{pierwszy} milczy ponad {GEMINI_HEDGE_AFTER_S:.0f} s")
+                    uruchomione += rozeslij(f"{pierwszy} milczy ponad {prog_hedge:.1f} s")
                 continue
 
             odpowiedzi += 1
@@ -603,6 +614,7 @@ class Transcriber:
             # zamiast wisieć w "przetwarzaniu" przez kolejne próby i modele zapasowe.
             budget = llm_time_budget(text, is_local)
             deadline = time.monotonic() + budget
+            t_korekta = time.monotonic()
 
             if provider == "gemini":
                 # Google Gemini API
@@ -634,6 +646,7 @@ class Transcriber:
                 poprawiony = self._gemini_correct_hedged(candidate_models, payload, headers, deadline, budget)
                 if poprawiony:
                     self.last_llm_status = 'ok'
+                    self.last_llm_duration = time.monotonic() - t_korekta
                     return poprawiony
 
             elif provider in ("groq", "openai", "ollama", "local", "lmstudio"):
@@ -699,5 +712,6 @@ class Transcriber:
             logger.warning(f"Błąd korekty LLM ({provider}): {e}. Zwracam surowy tekst.")
 
         self.last_llm_status = 'failed'
+        self.last_llm_duration = time.monotonic() - t_korekta
         logger.warning("Korekta LLM nie powiodła się – zwracam surową transkrypcję Whispera.")
         return text

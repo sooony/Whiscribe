@@ -1135,7 +1135,12 @@ class DictationApp:
         if not korekta_nieudana:
             prog *= 2.5
         prog = max(prog, audio_s * 0.35)
-        start = getattr(self, "_processing_started", 0.0) or 0.0
+        # Kazda z tych wartosci moze byc czymkolwiek, gdy stan aplikacji jest nietypowy,
+        # a wyjatek tutaj leci do except w finalizacji i gubi caly podyktowany tekst.
+        try:
+            start = float(getattr(self, "_processing_started", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
         if start <= 0:
             return 0.0
         minelo = time.time() - start
@@ -1249,7 +1254,16 @@ class DictationApp:
                 # Transkrypcja batch po zatrzymaniu nagrywania
                 final_text = self.transcriber.transcribe(audio_data)
                 duration = time.time() - t0
-                logger.info(f"Finalny czas: {duration:.2f}s | Długość tekstu: {len(final_text)} znaków")
+                # float(), bo ta linia jest w bloku, ktorego wyjatek gubi caly podyktowany
+                # tekst: log nie ma prawa przewrocic finalizacji, cokolwiek tu przyjdzie.
+                try:
+                    czas_korekty = float(getattr(self.transcriber, "last_llm_duration", 0.0) or 0.0)
+                except (TypeError, ValueError):
+                    czas_korekty = 0.0
+                # Rozbicie, bo przy wolnej korekcie z samej sumy nie widać, co trwało:
+                # Whisper na GPU to ułamek sekundy, a odpowiedź modelu bywa kilkanaście
+                logger.info(f"Finalny czas: {duration:.2f}s (mowa->tekst {max(0.0, duration - czas_korekty):.2f}s, "
+                            f"korekta AI {czas_korekty:.2f}s) | Długość tekstu: {len(final_text)} znaków")
                 logger.debug(f"Tekst transkrypcji: '{final_text}'")
 
                 if not self._is_current_job(job):

@@ -17,6 +17,7 @@
   "widget_mode": "dictation",
   "max_recording_seconds": 1200,
   "max_paste_delay_seconds": 8.0,
+  "gemini_hedge_after_seconds": 1.0,
   "theme": "dark",
   "restore_clipboard": true,
   "log_level": "normal",
