@@ -1113,15 +1113,18 @@ class DictationApp:
         except (TypeError, AttributeError):
             return 0.0
 
-    def _wynik_za_stary(self, audio_s: float = 0.0) -> float:
+    def _wynik_za_stary(self, audio_s: float = 0.0, korekta_nieudana: bool = False) -> float:
         """
         Ile sekund minęło ponad dopuszczalne opóźnienie wklejenia (0.0 = tekst świeży).
 
         Finalizacja z korektą AI potrafi trwać kilkanaście sekund, gdy modele padają
         (503, ReadTimeout). Tekst wklejony po takim czasie trafia w zupełnie inny
-        kontekst, bo użytkownik dawno pisze coś innego w tym samym oknie. Limit rośnie
-        z długością nagrania, bo dłuższe dyktowanie wolno finalizować dłużej, a kto
-        dyktował minutę, ten na wynik czeka.
+        kontekst, bo użytkownik dawno pisze coś innego w tym samym oknie.
+
+        Limit rośnie z długością nagrania (kto dyktował minutę, ten na wynik czeka)
+        i jest hojniejszy, gdy korekta się udała. Z pomiarów: finalizacja 9,67 s z
+        udaną korektą to tekst, na który użytkownik czekał i który jest poprawiony,
+        a 15,31 s z nieudaną korektą to czekanie, które niczego nie dało.
         """
         try:
             prog = float(self.config.get("max_paste_delay_seconds", 8.0) or 0.0)
@@ -1129,6 +1132,8 @@ class DictationApp:
             prog = 8.0
         if prog <= 0:
             return 0.0                      # 0 albo brak = stare zachowanie, zawsze wklejaj
+        if not korekta_nieudana:
+            prog *= 2.5
         prog = max(prog, audio_s * 0.35)
         start = getattr(self, "_processing_started", 0.0) or 0.0
         if start <= 0:
@@ -1274,7 +1279,8 @@ class DictationApp:
                     # Wynik, ktory przyszedl po czasie, nie wchodzi do okna: uzytkownik
                     # dawno pisze cos innego, a tekst sprzed kilkunastu sekund wpadlby
                     # w srodek jego pracy. Odklada sie do pamieci wklejek.
-                    spoznienie = self._wynik_za_stary(self._dlugosc_audio_s(audio_data))
+                    korekta_nieudana = bool(self._llm_active() and llm_status in ("failed", "rejected", "timeout"))
+                    spoznienie = self._wynik_za_stary(self._dlugosc_audio_s(audio_data), korekta_nieudana)
                     if spoznienie:
                         self._odloz_spozniony(final_text, spoznienie, "Transkrypcja")
                         return

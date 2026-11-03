@@ -182,7 +182,7 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 - `auto_stop_silence_seconds`: czas ciszy w sekundach, po którym nagranie zostaje automatycznie zakończone i przetworzone.
 - `use_llm`: aktywuje opcjonalną korektę stylistyczną i interpunkcyjną.
 - `paste_memory_size`: liczba ostatnich dyktowań trzymanych w pamięci wklejek (domyślnie 1).
-- `max_paste_delay_seconds`: po ilu sekundach od zatrzymania nagrania wynik przestaje być wklejany automatycznie (domyślnie 8). Korekta AI potrafi trwać kilkanaście sekund, gdy modele są przeciążone, a tekst wklejony po takim czasie wpada w środek tego, co właśnie piszesz. Taki spóźniony tekst trafia do pamięci wklejek i czeka na `Ctrl+Alt+V`. Limit rośnie z długością nagrania (35 procent czasu mowy), bo na dłuższe dyktowanie czeka się świadomie. `0` wyłącza kontrolę i przywraca wklejanie zawsze.
+- `max_paste_delay_seconds`: po ilu sekundach od zatrzymania nagrania wynik przestaje być wklejany automatycznie (domyślnie 8). Korekta AI potrafi trwać kilkanaście sekund, gdy modele są przeciążone, a tekst wklejony po takim czasie wpada w środek tego, co właśnie piszesz. Taki spóźniony tekst trafia do pamięci wklejek i czeka na `Ctrl+Alt+V`. Limit rośnie z długością nagrania (35 procent czasu mowy), bo na dłuższe dyktowanie czeka się świadomie, i jest 2,5 raza hojniejszy, gdy korekta AI się udała: tekst poprawiony po dziesięciu sekundach jest tego wart, a surowy po piętnastu, bo modele padły, już nie. `0` wyłącza kontrolę i przywraca wklejanie zawsze.
 - `hotkey_restore_paste`: skrót przywracania ostatniej wklejki (domyślnie `<ctrl>+<alt>+v`).
 - `log_level`: `normal` (domyślnie) albo `diag`. Tryb `diag` zapisuje do logu także treść dyktowania, więc włącza się go tylko na czas diagnozy.
 

@@ -35,7 +35,7 @@ class TestSpoznionyWynikNieWchodziDoOkna(unittest.TestCase):
 
     def test_wynik_po_progu_jest_uznany_za_spozniony(self):
         app, _ = self._app(prog=8.0, minelo=14.0)
-        self.assertGreater(app._wynik_za_stary(), 0.0,
+        self.assertGreater(app._wynik_za_stary(korekta_nieudana=True), 0.0,
                            "wynik po 14 s przy progu 8 s musi być uznany za spóźniony")
 
     def test_swiezy_wynik_przechodzi(self):
@@ -45,10 +45,40 @@ class TestSpoznionyWynikNieWchodziDoOkna(unittest.TestCase):
     def test_prog_rosnie_z_dlugoscia_nagrania(self):
         # 60 s mowy: finalizacja wolno potrwać dłużej, bo użytkownik na nią czeka
         app, _ = self._app(prog=8.0, minelo=15.0)
-        self.assertEqual(app._wynik_za_stary(audio_s=60.0), 0.0,
+        self.assertEqual(app._wynik_za_stary(audio_s=60.0, korekta_nieudana=True), 0.0,
                          "przy minucie nagrania 15 s finalizacji to normalny czas")
-        self.assertGreater(app._wynik_za_stary(audio_s=5.0), 0.0,
+        self.assertGreater(app._wynik_za_stary(audio_s=5.0, korekta_nieudana=True), 0.0,
                            "przy 5 s nagrania 15 s finalizacji to już spóźnienie")
+
+    def test_przypadki_z_logu_filipa(self):
+        """Pieciu dyktowan z 3.11.2026 nie wolno rozstrzygac inaczej, niz Filip by chcial.
+
+        Odczytane z jego logu: (czas finalizacji, czy korekta sie udala). Tekst z udana
+        korekta po 9,67 s to tekst, na ktory czekal i ktory byl poprawiony, wiec musi
+        wejsc. Ten po 15,31 s z padnieta korekta wchodzil mu w srodek innej pracy.
+        """
+        przypadki = [
+            (3.36, True, False),      # korekta OK -> wklejony
+            (7.87, True, False),
+            (9.67, True, False),
+            (15.31, False, True),     # korekta padla -> odlozony
+        ]
+        for minelo, korekta_ok, ma_byc_odlozony in przypadki:
+            app, _ = self._app(prog=8.0, minelo=minelo)
+            spoznienie = app._wynik_za_stary(korekta_nieudana=not korekta_ok)
+            if ma_byc_odlozony:
+                self.assertGreater(spoznienie, 0.0,
+                                   f"{minelo}s z nieudana korekta musi byc odlozone")
+            else:
+                self.assertEqual(spoznienie, 0.0,
+                                 f"{minelo}s z udana korekta musi wejsc do okna")
+
+    def test_udana_korekta_ma_hojniejszy_prog(self):
+        app, _ = self._app(prog=8.0, minelo=12.0)
+        self.assertEqual(app._wynik_za_stary(korekta_nieudana=False), 0.0,
+                         "gdy korekta sie udala, 12 s to czas, ktory uzytkownik przeczekal swiadomie")
+        self.assertGreater(app._wynik_za_stary(korekta_nieudana=True), 0.0,
+                           "gdy korekta padla, 12 s czekania niczego nie dalo")
 
     def test_zero_w_configu_przywraca_stare_zachowanie(self):
         app, _ = self._app(prog=0, minelo=600.0)
