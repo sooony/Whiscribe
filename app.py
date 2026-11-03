@@ -645,7 +645,18 @@ class DictationApp:
 
             # Zabezpieczenie przed pisaniem do obcego okna podczas przełączania okien (Alt+Tab, kliknięcie poza target)
             # oraz przed pisaniem w ułamku sekundy, gdy użytkownik trzyma wciśnięty przycisk myszy (drag suwaka/scroll, zaznaczanie tekstu)
-            target_inactive = bool(self.target_hwnd and user32.IsWindow(self.target_hwnd) and cur_fg != self.target_hwnd and cur_fg != overlay_hwnd)
+            #
+            if not self.target_hwnd:
+                # Celu nie zapamiętano (np. wyłączone "Wymagaj aktywnego pola tekstowego"):
+                # zachowanie jak dotąd, piszemy tam, gdzie użytkownik stoi.
+                target_inactive = False
+            elif not user32.IsWindow(self.target_hwnd):
+                # Okno docelowe zamknięto w trakcie dyktowania. Dotąd warunek wymagał
+                # IsWindow(target), więc blokada się NIE włączała i reszta zdania lądowała
+                # w dowolnym oknie, które zostało na wierzchu (terminal, cudzy komunikator).
+                target_inactive = True
+            else:
+                target_inactive = cur_fg not in (self.target_hwnd, overlay_hwnd)
             mouse_busy = is_mouse_down()
 
             if target_inactive or mouse_busy:
@@ -856,10 +867,32 @@ class DictationApp:
             # Tytuł okna to nazwy dokumentów, klientów i tematy maili. Do diagnozy wystarczy
             # nazwa procesu i HWND, więc tytuł zostaje tylko na DEBUG.
             logger.info(f"Zablokowano okno docelowe transkrypcji: HWND={self.target_hwnd:#x} ({self.target_proc})")
-            logger.debug(f"Tytuł okna docelowego: '{get_window_title(self.target_hwnd)}'")
+            # isEnabledFor, bo f-string policzyłby się zawsze: get_window_title to wywołanie
+            # Win32 przy każdym starcie dyktowania, a komunikat i tak poszedłby do kosza.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Tytuł okna docelowego: '{get_window_title(self.target_hwnd)}'")
 
         self.buffered_untyped_text = ""
-        self.recorder.start()
+        try:
+            self.recorder.start()
+        except Exception as e:
+            # Bez tego wyjątek (zajęty mikrofon, odłączone urządzenie, błąd sterownika)
+            # zostawiał stan "recording" na zawsze: widżet pokazywał nagrywanie, skrót
+            # przestawał działać jak start, a wychodził z tego dopiero auto-stop po ciszy.
+            logger.error(f"Nie udało się uruchomić mikrofonu: {e}", exc_info=True)
+            with self._lock:
+                self.state = "idle"
+            self._play_error_chime()
+            if self.tray_icon:
+                self._set_tray_icon("idle")
+            if self.overlay:
+                self.overlay.show_idle()
+                self.overlay.show_balloon(
+                    "error",
+                    "Nie udało się uruchomić mikrofonu. Sprawdź, czy nie zajęła go inna aplikacja",
+                    duration_s=0
+                )
+            return
         self._recording_start_time = time.time()
 
         logger.info("Rozpoczęto dyktowanie...")
@@ -1089,6 +1122,11 @@ class DictationApp:
                                 break
                             time.sleep(0.02)
                     focus_ok = (user32.GetForegroundWindow() == self.target_hwnd)
+                elif getattr(self, 'target_hwnd', 0):
+                    # Okno docelowe zniknelo w trakcie dyktowania. Bez tego warunku funkcja
+                    # szla dalej z focus_ok=True i opróżniała bufor do obcego okna.
+                    logger.warning("Okno docelowe zniknęło w trakcie dyktowania – nie wpisuję końcówki.")
+                    focus_ok = False
 
                 if focus_ok:
                     # Opróżnij zaległy bufor jeśli cokolwiek zostało podczas przełączania okien
@@ -1169,13 +1207,13 @@ class DictationApp:
                                     break
                                 time.sleep(0.02)
                         focus_ok = (user32.GetForegroundWindow() == self.target_hwnd)
+                    elif getattr(self, 'target_hwnd', 0):
+                        logger.warning("Okno docelowe zniknęło w trakcie dyktowania – nie wklejam.")
+                        focus_ok = False
 
                     if focus_ok:
                         wynik = inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", True))
-                        self.paste_memory.oznacz(
-                            wpis, STATUS_WPISANY if wynik == WYNIK_WPISANY else STATUS_WKLEJONY
-                        )
-                        self._odswiez_pamiec_w_widzecie()
+                        self._oznacz_wklejke(wpis, STATUS_WPISANY if wynik == WYNIK_WPISANY else STATUS_WKLEJONY)
                         self._send_auto_enter()
                     else:
                         # GetForegroundWindow ma restype HWND, czyli zwraca None przy braku okna
@@ -1183,8 +1221,7 @@ class DictationApp:
                         # rzucało TypeError i gubiło cały tekst dokładnie w tej gałęzi.
                         fg = user32.GetForegroundWindow() or 0
                         logger.warning(f"Nie udało się przywrócić fokusu do okna docelowego (HWND={self.target_hwnd:#x}, aktywne={fg:#x}). Wstrzymano wklejanie dla ochrony danych.")
-                        self.paste_memory.oznacz(wpis, STATUS_BRAK_FOKUSU)
-                        self._odswiez_pamiec_w_widzecie()
+                        self._oznacz_wklejke(wpis, STATUS_BRAK_FOKUSU)
                         if self.overlay:
                             self.overlay.show_balloon(
                                 "info",
@@ -1423,9 +1460,22 @@ class DictationApp:
             return None
         wpis = self.paste_memory.dodaj(text, status=status, proc=self.target_proc)
         if wpis is not None:
-            logger.info(f"Pamięć wklejek: zapisano {wpis.znakow} znaków (status: {wpis.status})")
+            if status == STATUS_W_TOKU:
+                # Status jeszcze nieznany: linia z finalnym wynikiem leci z _oznacz_wklejke,
+                # żeby log nie zostawiał wątpliwości, czy tekst wszedł.
+                logger.debug(f"Pamięć wklejek: odłożono {wpis.znakow} znaków przed próbą wklejenia")
+            else:
+                logger.info(f"Pamięć wklejek: {wpis.znakow} znaków, {wpis.status}")
         self._odswiez_pamiec_w_widzecie()
         return wpis
+
+    def _oznacz_wklejke(self, wpis, status: str):
+        """Dopisuje finalny status po próbie wklejenia i odświeża sygnał w widżecie."""
+        if wpis is None:
+            return
+        self.paste_memory.oznacz(wpis, status)
+        logger.info(f"Pamięć wklejek: {wpis.znakow} znaków, {status}")
+        self._odswiez_pamiec_w_widzecie()
 
     def _odswiez_pamiec_w_widzecie(self):
         """Pokazuje w widżecie, czy jest co przywracać (pigułka w linii statusu)."""
@@ -1495,9 +1545,9 @@ class DictationApp:
                 wynik = inject_text(wpis.text, restore_clipboard=self.config.get("restore_clipboard", True))
             # Bez auto-Entera: przywracanie to naprawa, a ponowne wysłanie wiadomości
             # jest jedyną rzeczą w tym przepływie, której nie da się cofnąć.
-            if wynik == WYNIK_WKLEJONY or wynik == WYNIK_WPISANY:
+            if wynik in (WYNIK_WKLEJONY, WYNIK_WPISANY):
                 self.paste_memory.oznacz(wpis, STATUS_WPISANY if wynik == WYNIK_WPISANY else STATUS_WKLEJONY)
-                logger.info(f"Przywrócono wklejkę ({wpis.znakow} znaków) do {get_proc_name_from_hwnd(hwnd)}")
+                logger.info(f"Przywrócono wklejkę ({wpis.znakow} znaków, {wpis.status}) do {get_proc_name_from_hwnd(hwnd)}")
                 self._odswiez_pamiec_w_widzecie()
             else:
                 logger.warning("Przywracanie wklejki: nie było czego wkleić")

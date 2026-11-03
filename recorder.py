@@ -74,14 +74,22 @@ class AudioRecorder:
             self.current_volume = 0.0
             self.noise_floor = 0.002
 
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype='float32',
-            callback=self._audio_callback,
-            blocksize=int(self.sample_rate * 0.05)  # bloki 50ms
-        )
-        self._stream.start()
+        try:
+            self._stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=1,
+                dtype='float32',
+                callback=self._audio_callback,
+                blocksize=int(self.sample_rate * 0.05)  # bloki 50ms
+            )
+            self._stream.start()
+        except Exception:
+            # Mikrofon zajęty przez inną aplikację, właśnie odłączony albo błąd sterownika.
+            # Flaga is_recording musi wrócić, inaczej rekorder udaje, że nagrywa.
+            with self._lock:
+                self.is_recording = False
+            self._stream = None
+            raise
 
     @staticmethod
     def trim_silence(audio: np.ndarray, sample_rate: int = 16000, keep_lead_s: float = 0.20, keep_tail_s: float = 0.35) -> np.ndarray:

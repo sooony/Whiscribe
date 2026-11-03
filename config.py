@@ -1,6 +1,59 @@
 import json
 import os
 import sys
+import tempfile
+import threading
+import time
+
+# Jeden lock na zapis ustawień w całym procesie (patrz save_config i save_secret_key).
+# RLock, bo save_config woła save_secret_key i zwykły Lock zrobiłby z tego zakleszczenie,
+# gdyby kiedyś kolejność tych wywołań się zmieniła.
+_save_lock = threading.RLock()
+
+
+def zapisz_json_atomowo(path: str, data: dict):
+    """Zapisuje JSON tak, żeby czytający nigdy nie zobaczył obciętego pliku.
+
+    Dotąd pliki ustawień otwierano w trybie "w" (czyli obcinano) bez synchronizacji,
+    a save_config wołają równolegle menu kontekstowe, przełączniki w zasobniku i okienka
+    dialogowe. Dwa kliknięcia naraz albo zamknięcie aplikacji w trakcie zapisu dawały
+    obcięty JSON, a wtedy load_config cicho wracał do ustawień domyślnych.
+
+    Na Windows os.replace zawodzi z WinError 5, gdy plik docelowy trzyma ktoś inny
+    (OneDrive, antywirus, otwarty podgląd), dlatego podmianę ponawiamy, a gdy się nie
+    udaje, zapisujemy w miejscu. Lepiej wrócić do starego ryzyka niż zgubić ustawienie.
+    """
+    katalog = os.path.dirname(path) or "."
+    with _save_lock:
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=katalog, prefix=".tmp-", suffix=".json", delete=False
+            ) as f:
+                tmp_path = f.name
+                json.dump(data, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+
+            for proba in range(6):
+                try:
+                    os.replace(tmp_path, path)
+                    tmp_path = None
+                    return
+                except OSError:
+                    if proba == 5:
+                        break
+                    time.sleep(0.03)
+
+            # Plik docelowy jest zablokowany: zapis w miejscu, żeby ustawienie nie przepadło
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
 def get_app_dir() -> str:
     """Zwraca katalog główny aplikacji (dla środowiska deweloperskiego oraz spakowanej wersji Portable .EXE)."""
@@ -113,10 +166,11 @@ def save_secret_key(api_key: str) -> bool:
     sec_path = get_secrets_path()
     try:
         os.makedirs(os.path.dirname(sec_path), exist_ok=True)
-        data = load_secrets()
-        data["llm_api_key"] = api_key
-        with open(sec_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        # Obcięty secrets.json to utrata klucza API, więc zapis atomowy jak dla config.json
+        with _save_lock:
+            data = load_secrets()
+            data["llm_api_key"] = api_key
+            zapisz_json_atomowo(sec_path, data)
         return True
     except Exception as e:
         print(f"Błąd zapisu secrets.json: {e}")
@@ -210,8 +264,7 @@ def save_config(config: dict):
                 # świadome: okienko klucza API z pustym polem woła save_secret_key("").
                 cfg_to_save["llm_api_key"] = ""
 
-        with open(cfg_file, "w", encoding="utf-8") as f:
-            json.dump(cfg_to_save, f, indent=2, ensure_ascii=False)
+        zapisz_json_atomowo(cfg_file, cfg_to_save)
     except Exception as e:
         print(f"Błąd zapisu {cfg_file}: {e}")
 

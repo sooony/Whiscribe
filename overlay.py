@@ -596,6 +596,23 @@ def _create_taskbar_icon():
     except Exception:
         return None
 
+def _taskbar_add_tab(p_tb, hwnd: int) -> bool:
+    """Zgłasza okno do paska zadań na JUŻ utworzonym interfejsie ITaskbarList.
+
+    Dotąd każde przywrócenie widżetu tworzyło nowy obiekt COM przez CoCreateInstance,
+    bez Release i bez CoUninitialize, i to z wątku wywołującego. Przy wielogodzinnej
+    pracy z częstym minimalizowaniem zostawały nieuwolnione interfejsy.
+    """
+    if not p_tb or not getattr(p_tb, "value", None) or not hwnd or not user32.IsWindow(hwnd):
+        return False
+    try:
+        vtable = ctypes.cast(p_tb, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        AddTab = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.HWND)(vtable[4])
+        return AddTab(p_tb, hwnd) == 0
+    except Exception:
+        return False
+
+
 def _add_hwnd_to_taskbar(hwnd: int):
     """Rejestruje okno w ITaskbarList."""
     if not hwnd or not user32.IsWindow(hwnd):
@@ -694,6 +711,10 @@ class FloatingOverlay:
         self._paste_unpasted = False
         self._paste_pill_box = None
         self.on_restore_paste_callback = None
+
+        # Przywrócenie z paska zadań zleca wątkowi UI zgłoszenie okna do ITaskbarList
+        self._tb_interface = None
+        self._pending_taskbar_add = False
 
         # Przyciski "Stream" i "Korekta" (sam napis; włączony = podświetlone tło)
         self.chip_font_px = 10
@@ -1289,6 +1310,15 @@ class FloatingOverlay:
 
                 now = time.time()
 
+                # Przywrócenie z paska zadań: zgłoszenie okna do ITaskbarList robimy tutaj,
+                # czyli na wątku, który ten interfejs utworzył (COM jest przywiązany do
+                # apartamentu), i na już istniejącym wskaźniku, bez tworzenia nowego obiektu.
+                if getattr(self, '_pending_taskbar_add', False):
+                    self._pending_taskbar_add = False
+                    if self._tb_interface is None or not _taskbar_add_tab(self._tb_interface, self.hwnd):
+                        self._tb_interface = _add_hwnd_to_taskbar(self.hwnd)
+                    self._dirty = True
+
                 # Topmost Keep-Alive: gwarantuje, że widżet nigdy nie zostaje przykryty ani zminimalizowany (poza celową minimalizacją użytkownika)
                 if self.always_on_top and self._visible and self.hwnd and not getattr(self, '_user_minimized', False) and not user32.IsIconic(self.hwnd) and not getattr(self, 'is_menu_open', False):
                     cur_fg = user32.GetForegroundWindow()
@@ -1423,7 +1453,11 @@ class FloatingOverlay:
                 ex = 2.6 * S
                 d.line([(icx - ex, icy - ex), (icx + ex, icy + ex)], fill=(255, 255, 255, 255), width=max(1, int(1.4 * S)))
                 d.line([(icx - ex, icy + ex), (icx + ex, icy - ex)], fill=(255, 255, 255, 255), width=max(1, int(1.4 * S)))
-                raw_msg = "Aby używać wpisywania głosowego, zaznacz pole tekstowe i spróbuj ponownie."
+                # Własny tekst, jeśli wywołujący go podał (np. nieudany start mikrofonu);
+                # inaczej dotychczasowy komunikat o braku pola tekstowego, bo show_error_balloon()
+                # woła się bez tekstu.
+                raw_msg = (getattr(self, '_balloon_text', '') or
+                           "Aby używać wpisywania głosowego, zaznacz pole tekstowe i spróbuj ponownie.")
             else:
                 d.ellipse([icx - ir, icy - ir, icx + ir, icy + ir], fill=(0, 120, 215, 255))
                 dr = 1.0 * S
@@ -1854,16 +1888,22 @@ class FloatingOverlay:
             user32.ShowWindow(self.hwnd, 6)  # SW_MINIMIZE
 
     def restore(self):
-        """Przywraca okno widżetu z dolnego paska zadań na ekran."""
+        """Przywraca okno widżetu z dolnego paska zadań na ekran.
+
+        Rysowania tu NIE MA i mieć nie może. restore() leci z wątku IPC, z wątku menu
+        i z wątku skrótu, a _render_frame pisze przez memmove do wspólnego DIB-a i woła
+        UpdateLayeredWindow na tym samym mem_dc, co wątek UI. Dwa wątki rysujące naraz
+        do jednej bitmapy to od pociętej klatki po twardą wywrotkę w gdi32. Wystarczy
+        oznaczyć klatkę jako brudną: wątek UI odrysuje ją w ciągu 30-50 ms.
+        """
         self._user_minimized = False
         self._visible = True
+        self._pending_taskbar_add = True
         self._dirty = True
         if self.hwnd:
             user32.ShowWindow(self.hwnd, 9)  # SW_RESTORE
             hwnd_insert = -1 if self.always_on_top else -2
             user32.SetWindowPos(self.hwnd, hwnd_insert, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
-            _add_hwnd_to_taskbar(self.hwnd)
-            self._render_frame(time.time())
 
     def is_minimized(self) -> bool:
         if getattr(self, '_user_minimized', False):
