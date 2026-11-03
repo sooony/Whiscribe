@@ -118,7 +118,10 @@ class TestInjectTextWynik(unittest.TestCase):
         import injector
 
         wpisane = []
-        with patch.object(injector.pyperclip, "copy", side_effect=RuntimeError("schowek zajęty")), \
+        # Schowek zablokowany oznacza oba zapisy: sesję Win32 (główna ścieżka, z wykluczeniem
+        # z Win+V) i pyperclip (ścieżka awaryjna). Dopiero wtedy tekst idzie znak po znaku.
+        with patch.object(injector, "_zapisz_schowek_z_wykluczeniem", return_value=False), \
+             patch.object(injector.pyperclip, "copy", side_effect=RuntimeError("schowek zajęty")), \
              patch.object(injector.pyperclip, "paste", return_value=""), \
              patch.object(injector, "send_unicode_string", side_effect=lambda t: wpisane.append(t)), \
              patch.object(injector, "zwolnij_modyfikatory", return_value=True):
@@ -131,7 +134,8 @@ class TestInjectTextWynik(unittest.TestCase):
         from injector import inject_text, WYNIK_WKLEJONY
         import injector
 
-        with patch.object(injector.pyperclip, "copy"), \
+        with patch.object(injector, "_zapisz_schowek_z_wykluczeniem", return_value=True), \
+             patch.object(injector.pyperclip, "copy"), \
              patch.object(injector.pyperclip, "paste", return_value="stara zawartość"), \
              patch.object(injector, "zwolnij_modyfikatory", return_value=True), \
              patch.object(injector.kb, "tap"), \

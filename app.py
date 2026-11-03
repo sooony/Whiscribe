@@ -232,6 +232,7 @@ from paste_memory import (PasteMemory, STATUS_WKLEJONY, STATUS_WPISANY, STATUS_W
 from overlay import FloatingOverlay, THEMES, THEME_MAP, draw_svg_mic
 from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd, is_valid_target_window
 from meeting_manager import MeetingManager
+from win32_desktop import przypnij_watek_do_pulpitu
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -481,6 +482,11 @@ PROCESSING_ABANDON_AFTER_S = 15.0
 
 
 class DictationApp:
+    # Jedno okienko tkinter naraz: dwa interpretery Tcl w dwoch watkach daemon to w paczce
+    # PyInstallera typowe zrodlo twardego wyjscia procesu. Lock jest na klasie, bo aplikacja
+    # ma jedna instancje, a okienka odpalaja sie z watkow menu.
+    _tk_dialog_lock = threading.Lock()
+
     # pystray nie jest bezpieczny wątkowo: dwa równoległe przypisania ikony zwalniają ten sam
     # uchwyt (DestroyIcon) i drugie rzuca OSError. Wszystkie zmiany ikony idą przez ten lock.
     _tray_icon_lock = threading.Lock()
@@ -685,20 +691,31 @@ class DictationApp:
 
     def _tray_anim_worker(self):
         """Animuje ikonę w pasku menu/zadań (obszarze powiadomień) podczas nagrywania lub spotkania."""
+        # pystray przy każdej podmianie ikony robi plik tymczasowy, zapis ICO, LoadImage
+        # i DestroyIcon. Przy klatce co 0,08 s to 12 plików na sekundę przez całe dyktowanie
+        # (stąd historyczne OSError 1401). Krok licznika klatek rośnie proporcjonalnie do
+        # odstępu, więc pulsowanie wygląda tak samo jak wcześniej.
+        ODSTEP_NAGRYWANIE, KROK_NAGRYWANIE = 0.2, 2
+        ODSTEP_PRZETWARZANIE, KROK_PRZETWARZANIE = 0.5, 5
         frame = 0
         while self._running:
-            if self.tray_icon and self.state in ("recording", "meeting_recording", "processing"):
+            cur_state = self.state if self.tray_icon else "idle"
+            if cur_state in ("recording", "meeting_recording"):
                 try:
-                    vol = self.recorder.get_volume_level() if self.state == "recording" else (
+                    vol = self.recorder.get_volume_level() if cur_state == "recording" else (
                         self.meeting_manager.recorder.get_total_volume() if hasattr(self, "meeting_manager") and self.meeting_manager else 0.0
                     )
                 except Exception:
                     vol = 0.0
-                cur_state = self.state
-                st = "recording" if cur_state == "recording" else ("meeting" if cur_state == "meeting_recording" else "processing")
+                st = "recording" if cur_state == "recording" else "meeting"
                 self._set_tray_icon(st, expect_state=cur_state, frame_idx=frame, vol=vol)
-                frame += 1
-                time.sleep(0.08)
+                frame += KROK_NAGRYWANIE
+                time.sleep(ODSTEP_NAGRYWANIE)
+            elif cur_state == "processing":
+                # Przetwarzanie nie reaguje na głos, więc sama kropka pulsuje rzadziej
+                self._set_tray_icon("processing", expect_state=cur_state, frame_idx=frame, vol=0.0)
+                frame += KROK_PRZETWARZANIE
+                time.sleep(ODSTEP_PRZETWARZANIE)
             else:
                 time.sleep(0.18)
 
@@ -1184,8 +1201,9 @@ class DictationApp:
                 # Jeśli korekta była oczekiwana, ale się nie udała, użytkownik musi o tym wiedzieć –
                 # inaczej dostaje surowy tekst Whispera i nie ma pojęcia, że AI nie zadziałało.
                 llm_status = getattr(self.transcriber, "last_llm_status", None)
-                if self._llm_active() and llm_status in ("failed", "rejected") and self.overlay:
+                if self._llm_active() and llm_status in ("failed", "rejected", "timeout") and self.overlay:
                     powod = ("model odrzucił wynik korekty" if llm_status == "rejected"
+                             else "zabrakło czasu" if llm_status == "timeout"
                              else "silnik AI niedostępny")
                     logger.warning(f"Korekta AI nieudana ({powod}) – wklejono surową transkrypcję.")
                     self.overlay.show_balloon("info", f"Korekta AI nieudana ({powod}) — tekst surowy")
@@ -1298,14 +1316,38 @@ class DictationApp:
 
     def _watchdog_hotkey(self):
         """Monitoruje żywotność globalnych skrótów klawiszowych (np. po Ctrl+Alt+Delete lub ekranie blokady Windows)."""
+        # Odstęp rośnie po każdej nieudanej próbie: zajęty hook albo powrót z ekranu blokady
+        # potrafi nie puścić nasłuchu przez minuty, a próba co 3 s zalewała log i mnożyła wątki.
+        odstep = 3.0
+        nieudane = 0
         while self._running:
-            time.sleep(3.0)
-            if self._running and (self.hotkey_listener is None or not self.hotkey_listener.is_alive()):
+            time.sleep(odstep)
+            if not self._running:
+                break
+            if self.hotkey_listener is not None and self.hotkey_listener.is_alive():
+                if nieudane:
+                    logger.info("Nasłuch skrótów znów działa.")
+                odstep, nieudane = 3.0, 0
+                continue
+
+            # Pierwsza próba na głośno, kolejne na DEBUG, żeby log nie rósł co kilka sekund
+            if nieudane == 0:
                 logger.warning("Wykryto wyłączenie wątku nasłuchiwacza skrótów (np. po Winlogon/Ctrl+Alt+Del). Wznawianie nasłuchu...")
-                try:
-                    self.setup_hotkey()
-                except Exception as e:
+            else:
+                logger.debug(f"Nasłuch skrótów nadal nie działa (próba {nieudane + 1}, następna za {odstep:.0f} s).")
+            try:
+                self.setup_hotkey()
+            except Exception as e:
+                if nieudane == 0:
                     logger.error(f"Błąd ponownego uruchomienia skrótów: {e}")
+                else:
+                    logger.debug(f"Błąd ponownego uruchomienia skrótów (próba {nieudane + 1}): {e}")
+
+            if self.hotkey_listener is not None and self.hotkey_listener.is_alive():
+                odstep, nieudane = 3.0, 0
+            else:
+                nieudane += 1
+                odstep = min(60.0, 3.0 * (2 ** min(nieudane, 5)))
 
     def _monitor_silence(self):
         """Automatyczne zatrzymanie po ciszy oraz śledzenie ostatniego aktywnego okna roboczego."""
@@ -1592,12 +1634,7 @@ class DictationApp:
             self.restore_last_paste()
 
     def setup_hotkey(self):
-        try:
-            h_def = ctypes.windll.user32.OpenDesktopW("Default", 0, False, 0x01FF)
-            if h_def:
-                ctypes.windll.user32.SetThreadDesktop(h_def)
-        except Exception:
-            pass
+        przypnij_watek_do_pulpitu()
 
         if self.hotkey_listener is not None:
             try:
@@ -1756,6 +1793,25 @@ class DictationApp:
         time.sleep(0.05)
         os._exit(0)
 
+    def _zwolnij_uchwyty_menu(self):
+        """Zwalnia uchwyty menu kontekstowego: glowne kaskadowo, niedolaczone podmenu osobno."""
+        u = ctypes.windll.user32
+        h_glowne = getattr(self, "_menu_glowne", None)
+        podmenu = getattr(self, "_menu_podmenu", []) or []
+        dolaczone = getattr(self, "_menu_dolaczone", set()) or set()
+        self._menu_glowne, self._menu_podmenu, self._menu_dolaczone = None, [], set()
+        if h_glowne:
+            try:
+                u.DestroyMenu(h_glowne)
+            except Exception as e:
+                logger.debug(f"DestroyMenu glownego menu nieudane: {e}")
+        for h in podmenu:
+            if h and h not in dolaczone:
+                try:
+                    u.DestroyMenu(h)
+                except Exception as e:
+                    logger.debug(f"DestroyMenu podmenu nieudane: {e}")
+
     def _show_settings_menu(self, screen_x, screen_y):
         """Wyświetla pełne menu kontekstowe Whiscribe w warstwie Zawsze na wierzchu."""
         logger.info(f"Otwieranie menu kontekstowego na pozycji ({screen_x}, {screen_y})")
@@ -1782,6 +1838,7 @@ class DictationApp:
             align_h = 0x0008  # TPM_RIGHTALIGN
             flags = align_h | align_v | 0x0100  # TPM_RETURNCMD
 
+            MF_POPUP = 0x0010
             h_menu = user32.CreatePopupMenu()
             h_theme_sub = user32.CreatePopupMenu()
             h_sound_sub = user32.CreatePopupMenu()
@@ -1789,10 +1846,20 @@ class DictationApp:
             h_sound_stop_sub = user32.CreatePopupMenu()
             h_silence_sub = user32.CreatePopupMenu()
             h_ai_sub = user32.CreatePopupMenu()
+            # DestroyMenu(h_menu) niszczy kaskadowo tylko te podmenu, ktore zdazyly sie
+            # dolaczyc przez MF_POPUP. Pozostale trzeba zwolnic samemu, inaczej blad w
+            # budowaniu menu zostawia uchwyty przy kazdym otwarciu.
+            self._menu_glowne = h_menu
+            self._menu_podmenu = [h_theme_sub, h_sound_sub, h_sound_start_sub,
+                                  h_sound_stop_sub, h_silence_sub, h_ai_sub]
+            self._menu_dolaczone = set()
+
+            def dolacz_podmenu(h_rodzic, h_pod, etykieta):
+                if user32.AppendMenuW(h_rodzic, MF_POPUP, h_pod, etykieta):
+                    self._menu_dolaczone.add(h_pod)
 
             MF_STRING = 0x0000
             MF_SEPARATOR = 0x0800
-            MF_POPUP = 0x0010
             MF_CHECKED = 0x0008
             MF_UNCHECKED = 0x0000
 
@@ -1817,7 +1884,7 @@ class DictationApp:
             for t_key, t_label, t_id in themes:
                 chk = MF_CHECKED if cur_theme == t_key else MF_UNCHECKED
                 user32.AppendMenuW(h_theme_sub, MF_STRING | chk, t_id, t_label)
-            user32.AppendMenuW(h_menu, MF_POPUP, h_theme_sub, "Styl widżetu")
+            dolacz_podmenu(h_menu, h_theme_sub, "Styl widżetu")
 
             # 2. Podmenu: Dźwięki i powiadomienia
             sound_enabled = self.config.get("sound_feedback", True)
@@ -1836,7 +1903,7 @@ class DictationApp:
             for p_id, p_label, cmd_id in start_presets:
                 chk = MF_CHECKED if cur_start == p_id else MF_UNCHECKED
                 user32.AppendMenuW(h_sound_start_sub, MF_STRING | chk, cmd_id, p_label)
-            user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_start_sub, "Dźwięk włączenia (Start)")
+            dolacz_podmenu(h_sound_sub, h_sound_start_sub, "Dźwięk włączenia (Start)")
 
             cur_stop = int(self.config.get("sound_stop_preset", 1))
             stop_presets = [
@@ -1849,8 +1916,8 @@ class DictationApp:
             for p_id, p_label, cmd_id in stop_presets:
                 chk = MF_CHECKED if cur_stop == p_id else MF_UNCHECKED
                 user32.AppendMenuW(h_sound_stop_sub, MF_STRING | chk, cmd_id, p_label)
-            user32.AppendMenuW(h_sound_sub, MF_POPUP, h_sound_stop_sub, "Dźwięk wyłączenia (Stop)")
-            user32.AppendMenuW(h_menu, MF_POPUP, h_sound_sub, "Dźwięki i powiadomienia")
+            dolacz_podmenu(h_sound_sub, h_sound_stop_sub, "Dźwięk wyłączenia (Stop)")
+            dolacz_podmenu(h_menu, h_sound_sub, "Dźwięki i powiadomienia")
 
             # 3. Podmenu: Automatyczne zatrzymanie ciszy
             cur_silence = float(self.config.get("auto_stop_silence_seconds", 4.5))
@@ -1864,7 +1931,7 @@ class DictationApp:
             for s_val, s_label, s_id in silence_opts:
                 chk = MF_CHECKED if cur_silence == s_val else MF_UNCHECKED
                 user32.AppendMenuW(h_silence_sub, MF_STRING | chk, s_id, s_label)
-            user32.AppendMenuW(h_menu, MF_POPUP, h_silence_sub, "Automatyczne zatrzymanie ciszy")
+            dolacz_podmenu(h_menu, h_silence_sub, "Automatyczne zatrzymanie ciszy")
 
             # 4. Podmenu: Korekta AI (LLM: Gemini / Groq / OpenAI / Ollama / LM Studio)
             cur_provider = self.config.get("llm_provider", "gemini").lower()
@@ -1906,7 +1973,7 @@ class DictationApp:
                 has_key = bool(self.config.get("llm_api_key", "").strip())
                 key_label = "Status: Klucz API skonfigurowany" if has_key else "Status: Brak klucza API"
             user32.AppendMenuW(h_ai_sub, MF_STRING | 0x0002, 703, key_label)
-            user32.AppendMenuW(h_menu, MF_POPUP, h_ai_sub, f"Korekta AI ({active_prov_name})")
+            dolacz_podmenu(h_menu, h_ai_sub, f"Korekta AI ({active_prov_name})")
 
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
@@ -1981,7 +2048,6 @@ class DictationApp:
                 user32.PostMessageW(hwnd_owner, 0, 0, 0)
             finally:
                 user32.DestroyWindow(hwnd_owner)
-                user32.DestroyMenu(h_menu)
 
             if cmd == 101:
                 self.toggle_streaming_mode()
@@ -2064,6 +2130,7 @@ class DictationApp:
             elif cmd == 402:
                 self.exit_app()
         finally:
+            self._zwolnij_uchwyty_menu()
             self._menu_open = False
             if self.overlay:
                 self.overlay.is_menu_open = False
@@ -2141,26 +2208,57 @@ class DictationApp:
 
     toggle_gemini_correction = toggle_llm_correction
 
+    def _zapytaj_w_okienku(self, nazwa, pytanie):
+        """
+        Odpala okno tkinter: jedno naraz i z gwarantowanym `destroy()`.
+
+        `pytanie(root)` zwraca odpowiedź użytkownika. Wynik to ("ok", odpowiedź),
+        ("zajete", None) gdy inne okno jest już otwarte, albo ("blad", None).
+        Wcześniej `root.destroy()` stało tylko na ścieżce szczęśliwej, więc wyjątek
+        z okienka zostawiał żywy interpreter Tcl w wątku daemon.
+        """
+        if not self._tk_dialog_lock.acquire(blocking=False):
+            logger.info(f"Pomijam okno '{nazwa}' – inne okno dialogowe jest już otwarte.")
+            return "zajete", None
+        root = None
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            return "ok", pytanie(root)
+        except Exception as e:
+            logger.error(f"Błąd okna '{nazwa}': {e}", exc_info=True)
+            return "blad", None
+        finally:
+            if root is not None:
+                try:
+                    root.destroy()
+                except Exception as e:
+                    logger.debug(f"Nie udało się zamknąć okna '{nazwa}': {e}")
+            self._tk_dialog_lock.release()
+
     def prompt_and_set_llm_api_key(self):
         """Wyświetla okno wprowadzania klucza API dla bieżącego dostawcy chmurowego."""
         def _dialog():
             try:
-                import tkinter as tk
-                from tkinter import simpledialog
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
                 curr_prov = self.config.get("llm_provider", "gemini").lower()
                 prov_name = {"gemini": "Google Gemini", "groq": "Groq", "openai": "OpenAI"}.get(curr_prov, curr_prov.upper())
                 has_key = bool(self.config.get("llm_api_key", "").strip())
-                # Pole zawsze puste: wklejony klucz nie dokleja się do starego, a klucz nie jest pokazywany
-                new_key = simpledialog.askstring(
-                    f"Klucz API — {prov_name}",
-                    f"Wklej klucz API dla {prov_name}"
-                    + (" (puste pole = bez zmian):" if has_key else ":"),
-                    parent=root
-                )
-                root.destroy()
+
+                def _pytaj(root):
+                    from tkinter import simpledialog
+                    # Pole zawsze puste: wklejony klucz nie dokleja się do starego, a klucz nie jest pokazywany
+                    return simpledialog.askstring(
+                        f"Klucz API — {prov_name}",
+                        f"Wklej klucz API dla {prov_name}"
+                        + (" (puste pole = bez zmian):" if has_key else ":"),
+                        parent=root
+                    )
+
+                status, new_key = self._zapytaj_w_okienku(f"Klucz API {prov_name}", _pytaj)
+                if status != "ok":
+                    return
                 cleaned = (new_key or "").strip()
                 if not cleaned:
                     return
@@ -2200,19 +2298,20 @@ class DictationApp:
         """Wyświetla okno do konfiguracji adresu lokalnego serwera API (Ollama/LM Studio)."""
         def _dialog():
             try:
-                import tkinter as tk
-                from tkinter import simpledialog
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
                 curr_ep = self.config.get("llm_endpoint", "http://localhost:11434/v1")
-                new_ep = simpledialog.askstring(
-                    "Adres serwera lokalnego LLM",
-                    "Wprowadź adres URL API (np. http://localhost:11434/v1 dla Ollama lub http://localhost:1234/v1 dla LM Studio):",
-                    initialvalue=curr_ep,
-                    parent=root
-                )
-                root.destroy()
+
+                def _pytaj(root):
+                    from tkinter import simpledialog
+                    return simpledialog.askstring(
+                        "Adres serwera lokalnego LLM",
+                        "Wprowadź adres URL API (np. http://localhost:11434/v1 dla Ollama lub http://localhost:1234/v1 dla LM Studio):",
+                        initialvalue=curr_ep,
+                        parent=root
+                    )
+
+                status, new_ep = self._zapytaj_w_okienku("Adres serwera lokalnego LLM", _pytaj)
+                if status != "ok":
+                    return
                 if new_ep is not None and new_ep.strip():
                     self.config["llm_endpoint"] = new_ep.strip()
                     save_config(self.config)
@@ -2244,34 +2343,40 @@ class DictationApp:
     def show_about_dialog(self):
         """Wyświetla okno dialogowe z informacjami o wersji, dacie wydania i linkiem do repozytorium GitHub."""
         def _dialog():
-            try:
-                import tkinter as tk
+            skroty = ", ".join([
+                f"Dyktowanie ({format_hotkey(self.config.get('hotkey', '<ctrl>+<alt>+d'))})",
+                f"Spotkanie ({format_hotkey(self.config.get('hotkey_meeting', '<ctrl>+<alt>+m'))})",
+                f"Przywracanie wklejki ({format_hotkey(self.config.get('hotkey_restore_paste', '<ctrl>+<alt>+v'))})",
+            ])
+            about_text = (
+                f"Whiscribe — Dyktowanie i Transkrypcja Mowy dla Windows 11\n\n"
+                f"• Wersja: v{APP_VERSION}\n"
+                f"• Data wydania: {APP_RELEASE_DATE}\n"
+                f"• Silnik mowy: OpenAI Whisper (large-v3-turbo / float16 na GPU CUDA)\n"
+                f"• Korekta językowa: Gemini Flash / LLM\n"
+                f"• Skróty: {skroty}\n"
+                f"• Repozytorium: {GITHUB_URL}\n\n"
+                f"Czy chcesz otworzyć repozytorium projektu na GitHubie w przeglądarce?"
+            )
+
+            def _pytaj(root):
                 from tkinter import messagebox
-                root = tk.Tk()
-                root.withdraw()
-                root.attributes("-topmost", True)
-                about_text = (
-                    f"Whiscribe — Dyktowanie i Transkrypcja Mowy dla Windows 11\n\n"
-                    f"• Wersja: v{APP_VERSION}\n"
-                    f"• Data wydania: {APP_RELEASE_DATE}\n"
-                    f"• Silnik mowy: OpenAI Whisper (large-v3-turbo / float16 na GPU CUDA)\n"
-                    f"• Korekta językowa: Gemini Flash / LLM\n"
-                    f"• Skróty: Dyktowanie (Ctrl+Alt+D), Spotkanie (Ctrl+Alt+M)\n"
-                    f"• Repozytorium: {GITHUB_URL}\n\n"
-                    f"Czy chcesz otworzyć repozytorium projektu na GitHubie w przeglądarce?"
-                )
-                res = messagebox.askyesno(
+                return messagebox.askyesno(
                     f"O programie — {APP_NAME} v{APP_VERSION}",
                     about_text,
                     parent=root
                 )
-                root.destroy()
-                if res:
-                    self.open_github_repo()
-            except Exception as e:
-                logger.error(f"Błąd okna dialogowego O programie: {e}")
+
+            status, res = self._zapytaj_w_okienku("O programie", _pytaj)
+            if status == "zajete":
+                return
+            if status == "blad":
+                # Awaryjnie natywne okno Win32, zeby wersja byla do odczytania nawet bez tkintera
                 msg = f"Whiscribe v{APP_VERSION} ({APP_RELEASE_DATE})\n\nGitHub: {GITHUB_URL}"
                 user32.MessageBoxW(0, msg, f"O programie {APP_NAME}", 0x00000040 | 0x00040000)
+                return
+            if res:
+                self.open_github_repo()
 
         threading.Thread(target=_dialog, daemon=True).start()
 
@@ -2464,12 +2569,7 @@ class DictationApp:
 if __name__ == "__main__":
     try:
         import ctypes
-        try:
-            h_def = ctypes.windll.user32.OpenDesktopW("Default", 0, False, 0x01FF)
-            if h_def:
-                ctypes.windll.user32.SetThreadDesktop(h_def)
-        except Exception:
-            pass
+        przypnij_watek_do_pulpitu()
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"Whiscribe.VoiceTyping.{APP_VERSION}")
         except Exception:

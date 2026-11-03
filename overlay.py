@@ -7,6 +7,7 @@ import os
 import tempfile
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from win32_desktop import przypnij_watek_do_pulpitu
 
 user32 = ctypes.windll.user32
 gdi32 = ctypes.windll.gdi32
@@ -554,12 +555,38 @@ def get_people_image(sz, color=(255, 255, 255, 255)):
     _ICON_CACHE[key] = out
     return out
 
+_GLOW_CACHE = {}
+_GLOW_CACHE_MAX = 192
+
 def _glow_sprite(rad, color, blur):
-    """Rozmyta elipsa o promieniu rad (px) na przezroczystym kwadracie; zwraca (obraz, połowa boku)."""
-    half = int(rad + blur * 3 + 2)
+    """
+    Rozmyta elipsa o promieniu rad (px) na przezroczystym kwadracie; zwraca (obraz, połowę boku).
+
+    Wynik jest w cache, bo przy 33 klatkach na sekundę i dwóch wywołaniach na klatkę
+    GaussianBlur na obrazie ok. 250x250 RGBA zjadał CPU dokładnie w stanie przetwarzania,
+    czyli wtedy, gdy trwa wpisywanie tekstu. Klucz jest zaokrąglony, bo promień i alfa
+    zmieniają się płynnie z głośnością i co klatkę byłyby inne.
+    """
+    rad_i = int(round(rad))
+    blur_i = int(round(blur))
+    # Alfa w 16 krokach: różnicy nie widać, a cache ma skończoną liczbę kluczy
+    if len(color) >= 4:
+        kolor_klucz = (color[0], color[1], color[2], (int(color[3]) // 16) * 16)
+    else:
+        kolor_klucz = tuple(color)
+    klucz = (rad_i, kolor_klucz, blur_i)
+    gotowe = _GLOW_CACHE.get(klucz)
+    if gotowe is not None:
+        return gotowe
+
+    half = int(rad_i + blur_i * 3 + 2)
     sp = Image.new('RGBA', (half * 2, half * 2), (0, 0, 0, 0))
-    ImageDraw.Draw(sp).ellipse([half - rad, half - rad, half + rad, half + rad], fill=color)
-    return sp.filter(ImageFilter.GaussianBlur(radius=blur)), half
+    ImageDraw.Draw(sp).ellipse([half - rad_i, half - rad_i, half + rad_i, half + rad_i], fill=kolor_klucz)
+    wynik = (sp.filter(ImageFilter.GaussianBlur(radius=blur_i)), half)
+    if len(_GLOW_CACHE) >= _GLOW_CACHE_MAX:
+        _GLOW_CACHE.clear()
+    _GLOW_CACHE[klucz] = wynik
+    return wynik
 
 def draw_svg_mic(target, cx, cy, sz, color=(255, 255, 255, 255)):
     """Rysuje ikone mikrofonu."""
@@ -1218,12 +1245,7 @@ class FloatingOverlay:
 
     def _run_ui(self):
         try:
-            try:
-                h_def = user32.OpenDesktopW("Default", 0, False, 0x01FF)
-                if h_def:
-                    user32.SetThreadDesktop(h_def)
-            except Exception:
-                pass
+            przypnij_watek_do_pulpitu()
 
             try:
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Whiscribe.VoiceTyping.1.0")

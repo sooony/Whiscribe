@@ -663,7 +663,15 @@ class Transcriber:
                 if provider == "ollama":
                     payload["options"] = {"num_predict": out_tokens}
 
-                with httpx.Client(timeout=_request_timeout(deadline)) as client:
+                limit = _request_timeout(deadline)
+                if limit is None:
+                    # Budzet korekty wyczerpany. Bez tej bramki httpx dostawal timeout=None,
+                    # czyli zadanie bez limitu - na lokalnej Ollamie finalizacja wisiala bez konca.
+                    self.last_llm_status = 'timeout'
+                    logger.warning("Pomijam korektę AI: budżet czasu wyczerpany przed wysłaniem żądania.")
+                    return text
+
+                with httpx.Client(timeout=limit) as client:
                     resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()

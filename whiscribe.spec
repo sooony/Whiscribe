@@ -40,6 +40,7 @@ hiddenimports = [
     'config',
     'logging_setup',
     'paste_memory',
+    'win32_desktop',
     'pyperclip',
     'httpx',
     'httpcore',

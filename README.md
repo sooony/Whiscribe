@@ -199,7 +199,7 @@ Logi nie leżą w katalogu aplikacji, bo budowanie wersji przenośnej czyści ka
 - **Brak telemetrii:** Aplikacja nie gromadzi i nie wysyła żadnych danych telemetrycznych ani informacji diagnostycznych.
 - **Lokalne przetwarzanie głosu:** Sygnał audio z mikrofonu jest przetwarzany bezpośrednio w pamięci RAM i na lokalnej karcie graficznej. Dźwięk nie opuszcza komputera użytkownika.
 - **Bezpieczeństwo kluczy:** Klucze dostępu do opcjonalnych usług zewnętrznych są zapisywane wyłącznie w lokalnym pliku konfiguracyjnym.
-- **Czysty schowek:** Po wklejeniu tekstu schowek jest przywracany do poprzedniego stanu albo czyszczony, a wpis jest oznaczany jako wykluczony z historii schowka Windows (`Win + V`). Ostatnio podyktowany tekst zostaje wyłącznie w pamięci procesu aplikacji (pamięć wklejek) i nie jest zapisywany na dysk.
+- **Czysty schowek:** Po wklejeniu tekstu schowek jest przywracany do poprzedniego stanu albo czyszczony. Tekst i znaczniki wykluczenia z historii schowka Windows (`Win + V`) wchodzą do schowka w jednej operacji, więc menedżer historii nigdy nie widzi wpisu bez znaczników. Jeśli schowek odmówi (zajęty przez inny program), tekst wchodzi awaryjną ścieżką bez wykluczenia i trafia do `Win + V` — w logu jest wtedy wpis na poziomie DEBUG. Ostatnio podyktowany tekst zostaje wyłącznie w pamięci procesu aplikacji (pamięć wklejek) i nie jest zapisywany na dysk.
 - **Logi bez treści:** Logi domyślnie nie zawierają dyktowanej treści, transkrypcji spotkań ani tytułów okien. Zapisuje je tylko świadomie włączony tryb diagnostyczny (`log_level: diag`).
 
 ---

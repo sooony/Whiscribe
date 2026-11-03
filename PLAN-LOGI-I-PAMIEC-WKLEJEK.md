@@ -183,3 +183,35 @@ Klucz API Gemini lezy jawnym tekstem w `%APPDATA%\Whiscribe\secrets.json` (confi
 - `tests/conftest.py` izoluje config.json i APPDATA, ale nie LOCALAPPDATA i nie plik logu. Warte nowych testow: `paste_memory` (ring, limit znakow) jako czysty Python bez Win32, oraz test, ze `inject_text` zwraca poprawny wynik przy zablokowanym schowku.
 - `whiscribe.spec` dla logow nie wymaga zmian (`faulthandler` to stdlib, `crypt32` laduje sie przez `WinDLL` po nazwie). COLLECT dalej czysci `dist`, wiec config.json trzeba odkladac przed kazdym buildem; przeniesienie logu zalatwia polowe tego problemu.
 - Pojemnosc dymka: render lamie tekst do `pw - 36` przy czcionce 9 px i ucina do 3 wierszy, czyli ok. 75 znakow. Dymek nie pokaze przywracanej tresci, tylko komunikat w stylu "Tekst nie zostal wklejony. Ctrl+Alt+V wkleja go do aktywnego okna."
+
+---
+
+## 7. Wynik kroku 5 (3.11.2026, wersja 2.2.20)
+
+Zrobione:
+
+- **Wyciek HDESK.** Trzy miejsca otwieraly wlasny uchwyt pulpitu, w tym `setup_hotkey()`, wolane przez watchdoga co 3 s. Teraz jeden uchwyt na caly proces (`win32_desktop.py`), bo `CloseDesktop` i tak odmawia zamkniecia pulpitu przypisanego do zywego watku. Przy okazji poprawne `argtypes`/`restype`: bez nich ctypes obcinal 64-bitowy uchwyt do 32 bitow.
+- **Watchdog skrotow.** Odstep rosnie 3, 6, 12, 24, 48, 60 s, a ostrzezenie leci raz, nie przy kazdej probie. Dotad zajety hook pynput dawal 1200 prob i 1200 wierszy w logu na godzine, czyli dokladnie to, czego nie chcesz w logach.
+- **Okienka tkinter.** Jedno naraz (lock) i `destroy()` w `finally`. Przy okazji okno "O programie" bierze skroty z configu, wiec nie klamie o Ctrl+Alt+M i pokazuje tez Ctrl+Alt+V.
+- **Animacja ikony w zasobniku.** Z 12 klatek na sekunde na 5 przy nagrywaniu i 2 przy przetwarzaniu, z zachowanym tempem pulsowania (krok licznika klatek rosnie proporcjonalnie do odstepu). Tyle samo mniej plikow tymczasowych, zapisow ICO i `DestroyIcon`.
+- **Cache blasku.** `_glow_sprite` liczyl `GaussianBlur` na obrazie ok. 250x250 dwa razy na klatke. Klucz jest zaokraglony (promien i alfa w 16 krokach), bo plynnie zmieniaja sie z glosnoscia. Pomiar: 44 ms na 120 wywolan bez cache, 3,4 ms z cache, 8 kluczy dla realnej animacji.
+- **Uchwyty menu.** Sprzatanie przenioslo sie do zewnetrznego `finally`, ktore niszczy glowne menu i te podmenu, ktore nie zdazyly sie dolaczyc (dolaczone niszczy kaskadowo rodzic).
+- **Timeout korekty AI.** Sciezka OpenAI/Groq/Ollama podawala `timeout=None` do `httpx`, gdy z budzetu zostalo mniej niz sekunde, czyli zadanie bez limitu. Teraz zwraca surowy tekst ze statusem `timeout`, a dymek mowi "zabraklo czasu".
+- **Watki UIA.** Jeden watek roboczy zamiast nowego na kazde zapytanie. Zawieszona inspekcja blokuje ten jeden watek (kolejne zapytania od razu ida sciezka awaryjna po nazwie procesu), a po 15 s watek jest porzucany i startuje nowy, najwyzej trzy razy. Sprawdzone: 40 zapytan do zawieszonej inspekcji to 1 watek zamiast 40.
+
+Nie bylo do zrobienia:
+
+- **`close()` z `PostMessageW`** (pozycja 15) jest juz w kodzie, prawdopodobnie z wczesniejszej zmiany. Kolejnosc `_running = False` przed odrejestrowaniem skrotow nie szkodzi, bo odrejestrowanie nieistniejacego skrotu tylko zwraca False.
+
+Co sie nie potwierdzilo:
+
+- **Wykluczenie z Win+V (pozycja 5) nie bylo martwe.** Review twierdzilo, ze `SetClipboardData` musi zawiesc, bo wlascicielem schowka jest zniszczone okno pyperclipa. Sprawdzone na zywym systemie: `SetClipboardData` zwraca uchwyt, a `IsClipboardFormatAvailable` potwierdza oba znaczniki w schowku razem z tekstem. Wniosek z dokumentacji Win32 byl falszywy, bo przy NULL jako wlascicielu Windows na to pozwala.
+- Prawdziwy problem byl inny i cichszy: **kolejnosc**. Pyperclip zamykal schowek, Windows rozsylal `WM_CLIPBOARDUPDATE`, i tylko potem dopisywalismy znaczniki, wiec menedzer historii mogl zdazyc przeczytac wpis bez nich. Teraz tekst i oba znaczniki ida w jednej sesji (`OpenClipboard`, `EmptyClipboard`, `SetClipboardData`), a pyperclip zostaje jako sciezka awaryjna. Sprawdzone na tekstach 48 i 5000 znakow: tekst zgodny, oba znaczniki na miejscu.
+- Przy okazji: **historia schowka jest u ciebie wylaczona** (brak `EnableClipboardHistory` w `HKCU\Software\Microsoft\Clipboard`), wiec dzisiaj Win+V i tak nic nie zapisuje. Poprawka ma znaczenie, gdy ja wlaczysz albo przeniesiesz aplikacje na inny komputer.
+- Pozycja 11 mowila tez o `NameError` na `cmd`, gdy `TrackPopupMenuEx` rzuci. W tej strukturze to niemozliwe: metoda nie ma `except`, wiec wyjatek przerywa przeplyw przed `if cmd == ...`. Wyciek uchwytow byl prawdziwy, `NameError` nie.
+
+Co nadal czeka:
+
+- Pozycje 8 i 14 z sekcji 4 (okno wyscigu miedzy sprawdzeniem zadania a wklejeniem, finalizacja czekajaca na GPU streamingu) - obie dotykaja kolejnosci w finalizacji, wiec warte osobnego podejscia z testami na zywej aplikacji.
+- Rzeczy "na polce" bez zmian.
+- Wspolny helper DPAPI dla `secrets.json` nadal poza zakresem.

@@ -4,6 +4,9 @@ import ctypes
 from ctypes import wintypes
 import pyperclip
 from pynput.keyboard import Controller, Key
+import logging
+
+logger = logging.getLogger("whiscribe.injector")
 
 kb = Controller()
 
@@ -299,6 +302,71 @@ def inject_text(text: str, restore_clipboard: bool = True) -> str:
         return _inject_text_locked(text, restore_clipboard)
 
 
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+GMEM_ZEROINIT = 0x0040
+
+
+def _zapisz_schowek_z_wykluczeniem(text: str) -> bool:
+    """
+    Wkłada tekst do schowka razem ze znacznikami wykluczenia z historii Win+V.
+
+    Wszystko w jednej sesji schowka, żeby menedżer historii nigdy nie zobaczył wpisu
+    bez znaczników. Wcześniej tekst wkładał pyperclip, a znaczniki dopisywała druga
+    sesja już po powiadomieniu słuchaczy schowka.
+
+    Zwraca True, gdy tekst znalazł się w schowku.
+    """
+    user32, kernel32 = _cb_user32, _cb_kernel32
+    try:
+        cf_exclude = user32.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")
+        cf_history = user32.RegisterClipboardFormatW("CanIncludeInClipboardHistory")
+    except Exception:
+        cf_exclude = cf_history = 0
+
+    dane = text.encode("utf-16-le") + b"\x00\x00"
+    if not user32.OpenClipboard(None):
+        return False
+    try:
+        if not user32.EmptyClipboard():
+            return False
+
+        h_txt = kernel32.GlobalAlloc(GMEM_MOVEABLE, len(dane))
+        if not h_txt:
+            return False
+        wskaznik = kernel32.GlobalLock(h_txt)
+        if not wskaznik:
+            kernel32.GlobalFree(h_txt)
+            return False
+        try:
+            ctypes.memmove(wskaznik, dane, len(dane))
+        finally:
+            kernel32.GlobalUnlock(h_txt)
+
+        if not user32.SetClipboardData(CF_UNICODETEXT, h_txt):
+            # Schowek nie przyjął bloku, więc własność pamięci zostaje po naszej stronie
+            kernel32.GlobalFree(h_txt)
+            return False
+
+        # Oba znaczniki: starszy (Monitor Processing) i nowszy (Clipboard History).
+        # GMEM_ZEROINIT: blok ma wartosc 0, czyli "nie zapisuj w historii".
+        for cf in (cf_history, cf_exclude):
+            if not cf:
+                continue
+            h_mem = kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, 4)
+            if h_mem and not user32.SetClipboardData(cf, h_mem):
+                kernel32.GlobalFree(h_mem)
+        return True
+    except Exception as e:
+        logger.debug(f"Zapis schowka z wykluczeniem nieudany: {e}")
+        return False
+    finally:
+        try:
+            user32.CloseClipboard()
+        except Exception:
+            pass
+
+
 def _inject_text_locked(text: str, restore_clipboard: bool) -> str:
     text = text.strip() + " "
     old_clipboard = None
@@ -309,45 +377,25 @@ def _inject_text_locked(text: str, restore_clipboard: bool) -> str:
         except Exception:
             time.sleep(0.02)
 
-    # Rejestracja formatów wykluczających ze schowka Windows 10/11 (Win+V / Cloud Clipboard)
-    user32, kernel32 = _cb_user32, _cb_kernel32
-    GMEM_MOVEABLE = 0x0002
-    GMEM_ZEROINIT = 0x0040
-    try:
-        cf_exclude = user32.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")
-        cf_history = user32.RegisterClipboardFormatW("CanIncludeInClipboardHistory")
-    except Exception:
-        cf_exclude = cf_history = 0
-
-    # Kopiowanie do schowka z ponawianiem przy kolizji z menedżerem schowka Windows
+    # Kopiowanie do schowka: tekst i znaczniki wykluczenia z Win+V w jednej sesji,
+    # z ponawianiem przy kolizji z menedżerem schowka Windows.
     copied = False
     for _ in range(5):
-        try:
-            pyperclip.copy(text)
+        if _zapisz_schowek_z_wykluczeniem(text):
             copied = True
             break
-        except Exception:
-            time.sleep(0.02)
+        time.sleep(0.02)
 
-    # Oznaczenie wpisu jako wykluczonego z historii schowka (Win+V)
-    if copied and cf_history:
-        try:
-            if user32.OpenClipboard(None):
-                try:
-                    # GMEM_ZEROINIT: blok ma już wartość 0 (= "nie zapisuj w historii"), nie trzeba go blokować
-                    for cf in (cf_history, cf_exclude):
-                        if not cf:
-                            continue
-                        h_mem = kernel32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, 4)
-                        if h_mem and not user32.SetClipboardData(cf, h_mem):
-                            kernel32.GlobalFree(h_mem)
-                finally:
-                    user32.CloseClipboard()
-        except Exception:
+    if not copied:
+        # Awaryjnie pyperclip: wpis trafi do historii Win+V, ale tekst w ogóle wejdzie
+        for _ in range(3):
             try:
-                user32.CloseClipboard()
+                pyperclip.copy(text)
+                copied = True
+                logger.debug("Schowek zapisany przez pyperclip (bez wykluczenia z Win+V).")
+                break
             except Exception:
-                pass
+                time.sleep(0.02)
 
     if not copied:
         # Fallback: bezpośrednie wpisanie znaków jeśli schowek systemowy jest zablokowany

@@ -178,6 +178,7 @@ class TestV2Features(unittest.TestCase):
             _show_settings_menu = getattr(app.DictationApp, '_show_settings_menu', None)
             _show_fallback_win32_menu = getattr(app.DictationApp, '_show_fallback_win32_menu', None)
             _etykieta_pamieci_wklejek = getattr(app.DictationApp, '_etykieta_pamieci_wklejek', None)
+            _zwolnij_uchwyty_menu = getattr(app.DictationApp, '_zwolnij_uchwyty_menu', None)
 
         mock = MockApp()
         user32 = ctypes.windll.user32
