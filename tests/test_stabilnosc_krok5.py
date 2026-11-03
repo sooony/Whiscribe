@@ -10,6 +10,7 @@ Każdy test pilnuje jednego błędu znalezionego w działającym kodzie:
 7. timeout=None w żądaniu korekty AI przy wyczerpanym budżecie (żądanie bez limitu).
 8. Nowy wątek inspekcji UIA na każde zapytanie, zostający na stałe przy zawieszonym oknie.
 9. Znaczniki wykluczenia z Win+V dopisywane dopiero po opublikowaniu tekstu w schowku.
+10. Watchdog limitu nagrania ubijal swieze dyktowanie (znalezione w logu z zywej pracy).
 """
 import threading
 import time
@@ -402,6 +403,93 @@ class TestPulaWatkowUIA(unittest.TestCase):
                                  f"pula urosła do {wzrost} wątków, limit porzuconych nie działa")
         finally:
             stop.set()
+
+
+class TestLimitNagraniaNieUbijaSwiezegoDyktowania(unittest.TestCase):
+    """Zdarzylo sie na zywo 3.11.2026 o 15:21:37, przy pierwszym dyktowaniu po starcie.
+
+    Stan "recording" wchodzil pod lockiem, a `_recording_start_time` dopiero po otwarciu
+    mikrofonu. `_monitor_silence` chodzi co 0,1 s, wiec trafiajac w to okno widzial stan
+    "recording" z zerowym czasem startu i natychmiast zglaszal "limit 20 min":
+
+        15:21:37,992 W Nagranie osiagnelo limit 20 min - automatyczne zatrzymanie.
+        15:21:37,993 I Rozpoczeto dyktowanie...
+        15:21:38,116 I Zatrzymano nagrywanie, finalizowanie...
+    """
+
+    def _app(self):
+        import app as app_mod
+
+        app = object.__new__(app_mod.DictationApp)
+        app._lock = threading.RLock()
+        app._running = True
+        app.state = "idle"
+        app.overlay = None
+        app.tray_icon = None
+        app.config = {"require_text_field": False, "max_recording_seconds": 1200,
+                      "auto_stop_silence_seconds": 0}
+        app._recording_start_time = 0.0
+        app.last_active_hwnd = 0
+        app.recorder = MagicMock()
+        app.committed_text = ""
+        app.committed_sample_offset = 0
+        app._stream_stop_event = threading.Event()
+        return app, app_mod
+
+    def test_czas_startu_wchodzi_razem_ze_stanem(self):
+        app, app_mod = self._app()
+
+        # Mikrofon startuje wolno: to wlasnie w tym czasie watchdog budzil sie i ubijal nagranie
+        widziane = []
+
+        def wolny_start():
+            widziane.append((app.state, app._recording_start_time))
+            time.sleep(0.15)
+
+        app.recorder.start.side_effect = wolny_start
+
+        with patch.object(app_mod, "is_valid_target_window", return_value=False), \
+             patch.object(app_mod.user32, "GetForegroundWindow", return_value=0), \
+             patch.object(app_mod, "ForwardStreamCommitter", MagicMock()), \
+             patch.object(app_mod, "logger"):
+            app.start_recording()
+
+        stan_w_trakcie, czas_w_trakcie = widziane[0]
+        self.assertEqual(stan_w_trakcie, "recording")
+        self.assertGreater(czas_w_trakcie, 0.0,
+                           "stan recording wszedl przed czasem startu, wiec watchdog limitu "
+                           "widzi zerowy czas i ubija swieze nagranie")
+
+    def test_watchdog_nie_zatrzymuje_nagrania_rozpoczetego_przed_chwila(self):
+        app, app_mod = self._app()
+        zatrzymania = []
+        app.stop_and_transcribe = lambda: zatrzymania.append(1)
+
+        # Watchdog budzi sie dokladnie w chwili, gdy mikrofon jeszcze startuje
+        def wolny_start():
+            app._monitor_silence_jedna_runda = True
+            time.sleep(0.05)
+
+        app.recorder.start.side_effect = wolny_start
+
+        with patch.object(app_mod, "is_valid_target_window", return_value=False), \
+             patch.object(app_mod.user32, "GetForegroundWindow", return_value=0), \
+             patch.object(app_mod, "ForwardStreamCommitter", MagicMock()), \
+             patch.object(app_mod, "logger"):
+            watek = threading.Thread(target=app.start_recording)
+            watek.start()
+
+            # Przez caly start mikrofonu sprawdzamy warunek watchdoga tak jak on
+            koniec = time.time() + 0.3
+            while time.time() < koniec:
+                if (app.state == "recording"
+                        and time.time() - app._recording_start_time >= 1200):
+                    zatrzymania.append("watchdog")
+                time.sleep(0.01)
+            watek.join(timeout=5)
+
+        self.assertEqual(zatrzymania, [],
+                         "watchdog limitu zatrzymal nagranie rozpoczete przed chwila")
 
 
 class TestWykluczenieZHistoriiSchowka(unittest.TestCase):

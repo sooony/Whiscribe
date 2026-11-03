@@ -215,3 +215,22 @@ Co nadal czeka:
 - Pozycje 8 i 14 z sekcji 4 (okno wyscigu miedzy sprawdzeniem zadania a wklejeniem, finalizacja czekajaca na GPU streamingu) - obie dotykaja kolejnosci w finalizacji, wiec warte osobnego podejscia z testami na zywej aplikacji.
 - Rzeczy "na polce" bez zmian.
 - Wspolny helper DPAPI dla `secrets.json` nadal poza zakresem.
+
+### Znalezione po drodze w logu z zywej pracy
+
+Cichy log z 2.2.19 od razu pokazal blad, ktorego review nie znalazlo, bo nie wynika z samego czytania kodu. Plik `whiscribe-errors.log` z twojej sesji 3.11.2026:
+
+```
+15:21:37,992 W Nagranie osiagnelo limit 20 min - automatyczne zatrzymanie.
+15:21:37,993 I Rozpoczeto dyktowanie...
+15:21:38,116 I Zatrzymano nagrywanie, finalizowanie...
+```
+
+To nie bylo zapomniane nagranie. Stan `recording` wchodzil pod lockiem, a `_recording_start_time` dopiero po otwarciu mikrofonu, czyli kilkadziesiat milisekund pozniej. `_monitor_silence` chodzi co 0,1 s i sprawdza "stan recording i czas od startu ponad limit", wiec trafiajac w to okno widzial stan `recording` ze starym czasem startu. Przy pierwszym dyktowaniu po starcie aplikacji ten czas to 0.0 z inicjalizacji, czyli roznica rzedu 56 lat: limit przekroczony natychmiast. Twoje swieze dyktowanie zostalo ubite 124 ms po rozpoczeciu i musialo byc powtorzone (15:21:39).
+
+Trafia to kazde dyktowanie rozpoczete ponad 20 minut po poprzednim, nie tylko pierwsze. Blad jest swiezy, bo `max_recording_seconds` to nowy klucz.
+
+Naprawa: czas startu wchodzi w tym samym bloku z lockiem co stan. Test regresyjny odtwarza wyscig i na starym ukladzie lapie watchdoga 5 razy w ciagu 0,3 s, czyli okno bylo szerokie, a nie teoretyczne.
+
+Wniosek ogolniejszy: pozycje 8 i 14 z sekcji 4 (okno wyscigu w finalizacji, czekanie na GPU streamingu) dotykaja tej samej rodziny bledow, czyli stanu sprawdzanego w jednym momencie i uzywanego w innym. Warto je wziac razem, z testami tego samego rodzaju.
+

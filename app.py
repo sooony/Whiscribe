@@ -871,6 +871,11 @@ class DictationApp:
             if self.state != "idle":
                 return
             self.state = "recording"
+            # Czas startu musi wejsc razem ze stanem: _monitor_silence sprawdza co 0,1 s
+            # "stan recording i czas od startu > limit", a otwarcie mikrofonu zabiera
+            # kilkadziesiat ms. Trafiajac w to okno watchdog widzial stary (przy pierwszym
+            # dyktowaniu zerowy) czas startu i natychmiast ubijal swieze nagranie.
+            self._recording_start_time = time.time()
 
         # Ukryj ewentualny dymek ostrzegawczy
         if self.overlay:
@@ -910,7 +915,6 @@ class DictationApp:
                     duration_s=0
                 )
             return
-        self._recording_start_time = time.time()
 
         logger.info("Rozpoczęto dyktowanie...")
         self.committed_text = ""
