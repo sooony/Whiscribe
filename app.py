@@ -1440,7 +1440,15 @@ class DictationApp:
         except Exception as e:
             logger.debug(f"Nie udało się odświeżyć pigułki pamięci wklejek: {e}")
 
-    def restore_last_paste(self, icon=None, item=None, index: int = 0):
+    def restore_last_paste(self, icon=None, item=None):
+        """Akcja dla menu, zasobnika, skrótu i pigułki w widżecie.
+
+        pystray przyjmuje akcję o najwyżej dwóch parametrach (icon, item) i odrzuca
+        każdą inną przy budowaniu menu, więc wybór wpisu siedzi w osobnej metodzie.
+        """
+        self._restore_paste_at(0)
+
+    def _restore_paste_at(self, index: int = 0):
         """Wkleja zapamiętany tekst do okna aktywnego TERAZ.
 
         Świadomie nie wracamy do zapamiętanego target_hwnd: użytkownik wciska skrót, gdy

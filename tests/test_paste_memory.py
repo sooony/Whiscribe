@@ -142,6 +142,50 @@ class TestInjectTextWynik(unittest.TestCase):
         self.assertEqual(wynik, WYNIK_WKLEJONY)
 
 
+class TestMenuZasobnikaDaSieZbudowac(unittest.TestCase):
+    """Menu zasobnika musi się zbudować na PRAWDZIWYM pystray, nie na atrapie.
+
+    Build 2.2.19 wywrócił się na starcie, bo pystray sprawdza sygnaturę akcji i przyjmuje
+    najwyżej dwa parametry (icon, item), a restore_last_paste miał trzeci (index).
+    Pozostałe testy mockują app.pystray, więc ta walidacja nigdy nie była uruchamiana.
+    """
+
+    def test_run_tray_buduje_menu_z_pozycjami_pamieci_wklejek(self):
+        from app import DictationApp
+
+        mocki = [
+            patch('app.AudioRecorder'), patch('app.Transcriber'), patch('app.FloatingOverlay'),
+            patch('app.keyboard'), patch('app._play_chime_file'),
+            patch('app.create_tray_icon_image'), patch('pystray.Icon'),
+            patch.object(DictationApp, 'setup_hotkey', return_value=None),
+            patch.object(DictationApp, '_monitor_silence', return_value=None),
+            patch.object(DictationApp, '_listen_for_show_event', return_value=None),
+            patch.object(DictationApp, '_watchdog_hotkey', return_value=None),
+            patch.object(DictationApp, '_tray_anim_worker', return_value=None),
+        ]
+        aktywne = [m.start() for m in mocki]
+        self.addCleanup(lambda: [m.stop() for m in mocki])
+        mock_icon_cls = aktywne[6]
+
+        app = DictationApp()
+        app.overlay = None
+        # run_tray kończy się wywołaniem tray_icon.run(), a Icon jest atrapą
+        app.run_tray()
+
+        mock_icon_cls.assert_called_once()
+        menu = mock_icon_cls.call_args.args[3]
+        etykiety = []
+        for pozycja in menu.items:
+            try:
+                etykiety.append(str(pozycja.text))
+            except Exception:
+                etykiety.append("")
+
+        self.assertTrue(any("Przywróć" in e for e in etykiety), etykiety)
+        self.assertTrue(any("Wyczyść pamięć wklejek" in e for e in etykiety), etykiety)
+        self.assertTrue(any("Otwórz folder z logami" in e for e in etykiety), etykiety)
+
+
 class FakeOverlay:
     """Minimalny widżet: tylko to, czego dotyka finalizacja dyktowania."""
 
