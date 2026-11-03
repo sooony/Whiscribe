@@ -493,6 +493,19 @@ class DictationApp:
     def __init__(self):
         self.config = load_config()
         LOG_INFO["level"] = apply_log_level(self.config.get("log_level", "normal"))
+
+        # Pisanie na zywo i korekta AI wykluczaja sie. W starszych configach oba bywaja
+        # wlaczone naraz; wygrywa korekta, bo to ona dzialala w tej kombinacji (streaming
+        # nie wpisywal wtedy nic na zywo), wiec zachowanie zostaje takie samo jak dotad.
+        if self.config.get("stream_realtime", False) and self.config.get("use_llm", False):
+            self.config["stream_realtime"] = False
+            logger.info("Config mial pisanie na żywo i korektę AI naraz – zostawiam korektę, "
+                        "pisanie na żywo wyłączone (to dwa wykluczające się tryby).")
+            try:
+                save_config(self.config)
+            except Exception as e:
+                logger.warning(f"Nie udało się zapisać rozdzielonych trybów: {e}")
+
         log_fingerprint(logger, {
             "wersja": f"{APP_VERSION} ({APP_RELEASE_DATE})",
             "pid": os.getpid(),
@@ -1826,15 +1839,46 @@ class DictationApp:
             self.overlay.set_widget_mode(mode)
         logger.info(f"Tryb przycisku widżetu: {'transkrypcja rozmowy' if mode == 'meeting' else 'dyktowanie do tekstu'}")
 
+    def _rozdziel_tryby(self, wlaczono: str) -> bool:
+        """
+        Pilnuje, zeby pisanie na zywo i korekta AI nigdy nie byly wlaczone naraz.
+
+        To dwa wykluczajace sie sposoby pracy: albo tekst leci do okna w trakcie mowienia
+        (bez korekty, bo poprawiac juz wpisane slowa nie ma jak), albo wchodzi raz, juz
+        poprawiony, po zakonczeniu. Wczesniej dalo sie zaznaczyc oba i wtedy streaming po
+        cichu nie robil nic.
+
+        `wlaczono` to "stream" albo "korekta". Zwraca True, gdy trzeba bylo cos wylaczyc.
+        """
+        if wlaczono == "stream" and self.config.get("use_llm", False):
+            self.config["use_llm"] = False
+            if hasattr(self, "transcriber") and self.transcriber:
+                self.transcriber.config = self.config
+            if self.overlay:
+                self.overlay.ai_enabled = False
+            logger.info("Pisanie na żywo wyklucza korektę AI – korekta wyłączona.")
+            if self.overlay:
+                self.overlay.show_balloon("info", "Pisanie na żywo włączone, korekta AI wyłączona")
+            return True
+
+        if wlaczono == "korekta" and self.config.get("stream_realtime", False):
+            self.config["stream_realtime"] = False
+            if self.overlay:
+                self.overlay.stream_realtime = False
+            logger.info("Korekta AI wyklucza pisanie na żywo – pisanie na żywo wyłączone.")
+            if self.overlay:
+                self.overlay.show_balloon("info", "Korekta AI włączona, pisanie na żywo wyłączone")
+            return True
+
+        return False
+
     def toggle_streaming_mode(self):
         new_val = not self.config.get("stream_realtime", False)
         self.config["stream_realtime"] = new_val
 
-        # Streaming i korekta AI mogą być włączone jednocześnie — wchodzą wtedy w tryb podglądu:
-        # transkrypcja leci na żywo do widżetu, a do okna docelowego trafia raz skorygowana całość.
-        # Bez dymka: stan widać na przyciskach widżetu.
-        if new_val and self._llm_active():
-            logger.info("Streaming włączony przy aktywnej korekcie AI - tryb podglądu w widżecie.")
+        # Dwa wykluczajace sie tryby pracy, wiec wlaczenie tego wylacza korekte
+        if new_val:
+            self._rozdziel_tryby("stream")
 
         save_config(self.config)
         if self.overlay:
@@ -2285,11 +2329,7 @@ class DictationApp:
                 return
 
             self.config["use_llm"] = True
-
-            # Przy włączonym streamingu wchodzimy w tryb podglądu: na żywo widzisz tekst
-            # w widżecie, a do okna docelowego wklejamy raz skorygowaną całość.
-            if self.config.get("stream_realtime", False):
-                logger.info("Korekta AI włączona przy aktywnym streamingu - tryb podglądu w widżecie.")
+            self._rozdziel_tryby("korekta")
         else:
             self.config["use_llm"] = False
 
@@ -2370,6 +2410,7 @@ class DictationApp:
 
                 self.config["llm_api_key"] = cleaned
                 self.config["use_llm"] = True
+                self._rozdziel_tryby("korekta")
                 # Klucz z okienka zawsze trafia wprost do secrets.json. Wcześniej przy kluczu
                 # wczytanym z secrets.json save_config() go nie zapisywał, więc nowy klucz żył
                 # tylko w pamięci, a po restarcie wracał stary.

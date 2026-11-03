@@ -17,6 +17,8 @@ Aplikacja integruje się bezpośrednio z aktywnym polem tekstowym w systemie Win
 ### 2. Dwa tryby wpisywania (streaming włączony lub wyłączony)
 Na belce widżetu znajduje się dedykowany przełącznik trybu wprowadzania tekstu:
 - **Streaming włączony (pisanie na żywo):** Tekst pojawia się w polu edycyjnym w czasie rzeczywistym, słowo po słowie, bezpośrednio w trakcie wypowiedzi. Algorytm dopasowywania sekwencji eliminuje powtórzenia wyrazów.
+
+  Pisanie na żywo i korekta AI wykluczają się: włączenie jednego wyłącza drugie. Tekstu, który już wszedł do cudzego okna, nie da się później poprawić, więc albo słowa lecą na bieżąco bez korekty, albo wchodzą raz, poprawione, po zakończeniu. Wcześniej dawało się zaznaczyć oba naraz i wtedy pisanie na żywo po cichu nic nie robiło.
 - **Streaming wyłączony (zatwierdzanie blokowe):** Wypowiadane jest pełne zdanie lub akapit. Po zwolnieniu skrótu, kliknięciu mikrofonu lub automatycznym wykryciu pauzy ciszy, zoptymalizowany tekst z pełną interpunkcją i wielkimi literami pojawia się w miejscu kursora.
 
 ### 3. Wielowarstwowy filtr eliminacji zniekształceń i halucynacji
@@ -178,7 +180,7 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 
 ### Wybrane parametry:
 - `always_on_top`: utrzymuje widżet na wierzchu ekranu.
-- `stream_realtime`: przełącza pisanie w czasie rzeczywistym w trakcie mówienia.
+- `stream_realtime`: przełącza pisanie w czasie rzeczywistym w trakcie mówienia. Wyklucza się z `use_llm`: jeśli w configu oba są ustawione na `true`, aplikacja przy starcie zostawia korektę i wyłącza pisanie na żywo.
 - `require_text_field`: weryfikuje obecność aktywnego pola tekstowego przed rozpoczęciem wpisywania.
 - `auto_stop_silence_seconds`: czas ciszy w sekundach, po którym nagranie zostaje automatycznie zakończone i przetworzone.
 - `use_llm`: aktywuje opcjonalną korektę stylistyczną i interpunkcyjną.
