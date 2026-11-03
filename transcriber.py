@@ -20,6 +20,9 @@ LLM_SLOW_MODEL_COOLDOWN_S = 300.0
 # Przy pytaniu po kolei każdy zawieszony model wypalał cały swój limit (12-14 s),
 # więc jedno dyktowanie czekało 30 s, żeby na końcu dostać surowy tekst Whispera.
 GEMINI_HEDGE_AFTER_S = 2.0
+# Limit na probe, gdy wszystkie modele swiezo sie wysypaly: lepiej wkleic surowy
+# tekst po 4 s niz skorygowany po kilkunastu, gdy uzytkownik dawno robi cos innego.
+GEMINI_PROBA_PO_AWARII_S = 4.0
 
 
 def llm_time_budget(text: str, is_local: bool) -> float:
@@ -503,6 +506,12 @@ class Transcriber:
         # 12 s na próbę: w szczytach Gemini odpowiada po 7-10 s, przy krótszym limicie
         # korekta odpadała, mimo że model zdążyłby odpowiedzieć.
         attempt_cap = max(12.0, budget * 0.4)
+        # ...ale gdy KAŻDY kandydat wysypał się w ostatnich minutach, czekanie po 12 s na
+        # każdego to kilkanaście sekund na wynik, który i tak wejdzie surowy.
+        teraz = time.monotonic()
+        if models and all(slow.get(m, 0.0) > teraz for m in models):
+            attempt_cap = min(attempt_cap, GEMINI_PROBA_PO_AWARII_S)
+            logger.info(f"Korekta Gemini: wszystkie modele świeżo niedostępne – skracam próbę do {attempt_cap:.0f} s.")
         wyniki = queue.Queue()
 
         def probuj(model_name, timeout):

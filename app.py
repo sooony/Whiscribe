@@ -1101,6 +1101,52 @@ class DictationApp:
             )
         return True
 
+    @staticmethod
+    def _dlugosc_audio_s(audio_data) -> float:
+        """Czas nagrania w sekundach; 0.0 gdy audio nie ma dlugosci.
+
+        Wyjatek w tym miejscu leci do except w finalizacji i gubi caly podyktowany
+        tekst, wiec liczenie dlugosci nie moze zalezec od typu, ktory tu przyszedl.
+        """
+        try:
+            return len(audio_data) / 16000.0
+        except (TypeError, AttributeError):
+            return 0.0
+
+    def _wynik_za_stary(self, audio_s: float = 0.0) -> float:
+        """
+        Ile sekund minęło ponad dopuszczalne opóźnienie wklejenia (0.0 = tekst świeży).
+
+        Finalizacja z korektą AI potrafi trwać kilkanaście sekund, gdy modele padają
+        (503, ReadTimeout). Tekst wklejony po takim czasie trafia w zupełnie inny
+        kontekst, bo użytkownik dawno pisze coś innego w tym samym oknie. Limit rośnie
+        z długością nagrania, bo dłuższe dyktowanie wolno finalizować dłużej, a kto
+        dyktował minutę, ten na wynik czeka.
+        """
+        try:
+            prog = float(self.config.get("max_paste_delay_seconds", 8.0) or 0.0)
+        except (TypeError, ValueError):
+            prog = 8.0
+        if prog <= 0:
+            return 0.0                      # 0 albo brak = stare zachowanie, zawsze wklejaj
+        prog = max(prog, audio_s * 0.35)
+        start = getattr(self, "_processing_started", 0.0) or 0.0
+        if start <= 0:
+            return 0.0
+        minelo = time.time() - start
+        return minelo if minelo > prog else 0.0
+
+    def _odloz_spozniony(self, tekst: str, minelo: float, co: str):
+        """Odkłada spóźniony tekst do pamięci wklejek, zamiast wklejać go w cudzy kontekst."""
+        logger.warning(f"{co} gotowe po {minelo:.0f}s – za późno na wklejenie, tekst idzie do pamięci wklejek.")
+        self._zapamietaj_wklejke(tekst, STATUS_SPOZNIONY)
+        if tekst and self.overlay:
+            self.overlay.show_balloon(
+                "info",
+                f"Tekst był gotowy dopiero po {minelo:.0f}s i nie został wklejony. Ctrl+Alt+V wkleja go do aktywnego okna",
+                duration_s=0
+            )
+
     def _process_audio_worker(self, audio_data, job=None):
         try:
             t0 = time.time()
@@ -1148,6 +1194,18 @@ class DictationApp:
                     # szla dalej z focus_ok=True i opróżniała bufor do obcego okna.
                     logger.warning("Okno docelowe zniknęło w trakcie dyktowania – nie wpisuję końcówki.")
                     focus_ok = False
+
+                spoznienie = self._wynik_za_stary(self._dlugosc_audio_s(audio_data))
+                if focus_ok and spoznienie:
+                    # Koncowka gotowa po czasie: wpisanie jej teraz dokleiloby slowa do
+                    # tekstu, ktory uzytkownik juz zdazyl zmienic albo porzucic.
+                    self._odloz_spozniony(self._streaming_full_text(final_tail), spoznienie, "Końcówka")
+                    return
+
+                if focus_ok and not self._is_current_job(job):
+                    logger.warning("Streaming: zadanie porzucone w trakcie przywracania fokusu – nie wpisuję końcówki.")
+                    self._zapamietaj_wklejke(self._streaming_full_text(final_tail), STATUS_PRZERWANE)
+                    return
 
                 if focus_ok:
                     # Opróżnij zaległy bufor jeśli cokolwiek zostało podczas przełączania okien
@@ -1213,6 +1271,14 @@ class DictationApp:
                     self.overlay.show_balloon("info", f"Korekta AI nieudana ({powod}) — tekst surowy")
 
                 if final_text:
+                    # Wynik, ktory przyszedl po czasie, nie wchodzi do okna: uzytkownik
+                    # dawno pisze cos innego, a tekst sprzed kilkunastu sekund wpadlby
+                    # w srodek jego pracy. Odklada sie do pamieci wklejek.
+                    spoznienie = self._wynik_za_stary(self._dlugosc_audio_s(audio_data))
+                    if spoznienie:
+                        self._odloz_spozniony(final_text, spoznienie, "Transkrypcja")
+                        return
+
                     # Wpis powstaje PRZED próbą wklejenia: tekst, który nie wszedł, jest
                     # dokładnie tym, który trzeba móc odzyskać. Status dopisujemy po próbie.
                     wpis = self._zapamietaj_wklejke(final_text, STATUS_W_TOKU)
@@ -1232,6 +1298,14 @@ class DictationApp:
                     elif getattr(self, 'target_hwnd', 0):
                         logger.warning("Okno docelowe zniknęło w trakcie dyktowania – nie wklejam.")
                         focus_ok = False
+
+                    if focus_ok and not self._is_current_job(job):
+                        # Przywracanie fokusu trwa do 0,3 s, a w tym czasie uzytkownik moze
+                        # porzucic przetwarzanie i zaczac nowe dyktowanie. Bez tej kontroli
+                        # stary watek wklejal tekst do nowej sesji, czyli dwa razy to samo.
+                        logger.warning("Zadanie porzucone w trakcie przywracania fokusu – nie wklejam.")
+                        self._oznacz_wklejke(wpis, STATUS_PRZERWANE)
+                        return
 
                     if focus_ok:
                         wynik = inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", True))

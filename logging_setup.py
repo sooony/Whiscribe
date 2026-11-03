@@ -90,6 +90,41 @@ def get_error_log_path() -> str:
     return os.path.join(get_log_dir(), nazwa)
 
 
+def _sprawdz_zapis(glowny, sciezka: str):
+    """
+    Sprawdza, czy główny plik logu faktycznie przyjmuje zapis.
+
+    Bez tego cichy log umie być cichy zbyt dosłownie: u Filipa główny plik nie dostał
+    ani jednej linii, a ostrzeżenia szły do pliku błędów, więc z samej aplikacji nic
+    tego nie zgłaszało. Diagnoza idzie do pozostałych handlerów, czyli tam, gdzie
+    zapis działa.
+    """
+    log = logging.getLogger("whiscribe.logi")
+    if glowny is None:
+        log.warning(f"Główny plik logu nie powstał ({sciezka}); loguję tylko ostrzeżenia i błędy.")
+        return
+    try:
+        rozmiar_przed = os.path.getsize(sciezka) if os.path.exists(sciezka) else -1
+        log.info(f"Log gotowy: {sciezka}")
+        glowny.flush()
+        rozmiar_po = os.path.getsize(sciezka) if os.path.exists(sciezka) else -1
+    except OSError as e:
+        log.warning(f"Nie udało się sprawdzić zapisu do {sciezka}: {e}")
+        return
+
+    if rozmiar_po <= rozmiar_przed:
+        root = logging.getLogger()
+        opis_handlerow = ", ".join(
+            f"{type(h).__name__}({getattr(h, 'baseFilename', '-')}, poziom={h.level})"
+            for h in root.handlers
+        )
+        log.warning(
+            f"Główny log nie przyjmuje zapisu ({sciezka}, rozmiar {rozmiar_przed} -> {rozmiar_po}). "
+            f"Poziom gałęzi whiscribe={logging.getLogger('whiscribe').level}, root={root.level}, "
+            f"stream={getattr(glowny, 'stream', None)!r}, handlery: {opis_handlerow}"
+        )
+
+
 def setup_logging(level_name: str = "normal") -> dict:
     """Konfiguruje logowanie i zwraca słownik ze ścieżkami oraz ustalonym poziomem.
 
@@ -123,11 +158,13 @@ def setup_logging(level_name: str = "normal") -> dict:
     formatter = logging.Formatter(LOG_FORMAT)
     handlers = []
 
-    # delay=True: sam import app.py (np. przy zbieraniu testów) nie tworzy pliku,
-    # dopóki nic nie zaloguje.
+    # Bez delay: plik otwiera się już tutaj, więc błąd otwarcia widać od razu, a nie
+    # dopiero przy pierwszym rekordzie, gdzie BaseRotatingHandler.emit zjada go przez
+    # handleError i log zostaje pusty bez słowa wyjaśnienia.
+    glowny = None
     try:
         glowny = RotacjaOdpornaNaBlokade(
-            sciezka, maxBytes=1_000_000, backupCount=3, encoding='utf-8', delay=True
+            sciezka, maxBytes=1_000_000, backupCount=3, encoding='utf-8'
         )
         glowny.setFormatter(formatter)
         handlers.append(glowny)
@@ -135,6 +172,7 @@ def setup_logging(level_name: str = "normal") -> dict:
         blad_katalogu = blad_katalogu or e
 
     try:
+        # Tu delay zostaje: nieistniejący plik błędów to informacja sama w sobie
         bledy = RotacjaOdpornaNaBlokade(
             sciezka_bledow, maxBytes=512_000, backupCount=1, encoding='utf-8', delay=True
         )
@@ -160,6 +198,8 @@ def setup_logging(level_name: str = "normal") -> dict:
         logging.getLogger("whiscribe.logi").warning(
             f"Docelowy katalog logów był niedostępny ({blad_katalogu}); loguję do {log_dir}."
         )
+
+    _sprawdz_zapis(glowny, sciezka)
 
     return {
         "dir": log_dir,
