@@ -4,7 +4,7 @@ import logging
 import os
 import threading
 
-logger = logging.getLogger("FocusDetector")
+logger = logging.getLogger("whiscribe.focus")
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
 

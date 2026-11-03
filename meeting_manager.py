@@ -16,7 +16,7 @@ from diarizer import AudioToneDiarizer
 from notepad_manager import NotepadManager
 from config import get_app_dir
 
-logger = logging.getLogger("MeetingManager")
+logger = logging.getLogger("whiscribe.meeting")
 
 class MeetingManager:
     def __init__(self, transcriber, config: dict):
@@ -99,14 +99,18 @@ class MeetingManager:
                                     intersection = words_mic.intersection(words_loop)
                                     overlap_ratio = len(intersection) / min(len(words_mic), len(words_loop))
                                     if overlap_ratio >= 0.45 or norm_text in past_norm or past_norm in norm_text:
-                                        logger.info(f"Odrzucono echo akustyczne z mikrofonu: '{text}' (oryginał od {past_spk}: '{past_text}')")
+                                        # Bez treści: log spotkania nie jest kopią transkryptu, ten leci do pliku.
+                                        logger.info(f"Odrzucono echo akustyczne z mikrofonu ({len(text)} znaków, oryginał od {past_spk}: {len(past_text)} znaków)")
                                         is_echo = True
                                         break
                         if is_echo:
                             continue
 
                     self.utterance_count += 1
-                    logger.info(f"[{segment.timestamp.strftime('%H:%M:%S')}] {speaker}: {text}")
+                    # Treść wypowiedzi tylko na DEBUG: transkrypt i tak zapisujemy do pliku
+                    # spotkania, a log ma służyć diagnozie, nie być drugą kopią rozmowy.
+                    logger.info(f"[{segment.timestamp.strftime('%H:%M:%S')}] {speaker}: {len(text)} znaków")
+                    logger.debug(f"[{segment.timestamp.strftime('%H:%M:%S')}] {speaker}: {text}")
 
                     self.recent_utterances.append((segment.source, speaker, text, norm_text, segment.timestamp))
                     if len(self.recent_utterances) > 30:

@@ -5,7 +5,7 @@ import threading
 import time
 import logging
 
-logger = logging.getLogger("AudioRecorder")
+logger = logging.getLogger("whiscribe.recorder")
 
 # Zakres dynamiki fali w widżecie (dB RMS): ok. -56 dB to mowa z daleka / półgłosem,
 # -14 dB to głośna mowa tuż przy mikrofonie. Skala logarytmiczna, tak jak słyszy ucho.

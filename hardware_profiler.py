@@ -9,7 +9,7 @@ import threading
 import logging
 from config import get_app_dir, save_config
 
-logger = logging.getLogger("HardwareProfiler")
+logger = logging.getLogger("whiscribe.hardware")
 
 MODEL_SPECS = {
     "turbo": {

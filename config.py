@@ -9,9 +9,9 @@ def get_app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 APP_NAME = "Whiscribe"
-APP_VERSION = "2.2.18"
+APP_VERSION = "2.2.19"
 __version__ = APP_VERSION
-APP_RELEASE_DATE = "02.11.2026"
+APP_RELEASE_DATE = "03.11.2026"
 GITHUB_URL = "https://github.com/sooony/Whiscribe"
 
 CONFIG_FILE = os.path.join(get_app_dir(), "config.json")
@@ -36,9 +36,13 @@ DEFAULT_CONFIG = {
     "max_recording_seconds": 1200,  # Twardy limit jednego dyktowania (s); 0 = bez limitu
     "theme": "dark",  # Styl widzetu: dark (podstawowy), apple, win11, google, graphite
     "restore_clipboard": True,
+    "log_level": "normal",  # "normal" (INFO) albo "diag" (DEBUG, także treść dyktowania w logu); nadpisywane zmienną WHISCRIBE_LOG_LEVEL
+    "paste_memory_size": 1,  # Ile ostatnich dyktowań trzyma pamięć wklejek (Ctrl+Alt+V); 2-3 jeśli potrzebny przedostatni
     "auto_enter_after_dictation": False,  # Po wklejeniu tekstu wyślij Enter (zatwierdza wiadomość w czacie)
     "hotkey_meeting": "<ctrl>+<alt>+m",
     "hotkey_meeting_description": "Skrót klawiszowy transkrypcji spotkań",
+    "hotkey_restore_paste": "<ctrl>+<alt>+v",
+    "hotkey_restore_paste_description": "Wkleja ostatnio podyktowany tekst z pamięci wklejek do aktywnego okna",
     "open_notepad_on_meeting": False,
     "meetings_folder": "transkrypcje",
     "diarization_enabled": True,

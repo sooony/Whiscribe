@@ -163,15 +163,21 @@ class TestV2Features(unittest.TestCase):
         self.assertTrue(len(handler_called) > 0 and handler_called[0])
 
         # Test wywołania _show_settings_menu z wątku roboczego z własnym oknem hosta
+        from paste_memory import PasteMemory, STATUS_BRAK_FOKUSU
+
         class MockApp:
             def __init__(self):
                 self.config = {"theme": "dark", "stream_realtime": False, "require_text_field": True}
                 self.state = "idle"
                 self.overlay = None
                 self.tray_icon = icon
+                # Menu pokazuje pozycję przywracania wklejki, więc potrzebuje pamięci
+                self.paste_memory = PasteMemory(1)
+                self.paste_memory.dodaj("zapamiętany tekst z dyktowania", STATUS_BRAK_FOKUSU)
 
             _show_settings_menu = getattr(app.DictationApp, '_show_settings_menu', None)
             _show_fallback_win32_menu = getattr(app.DictationApp, '_show_fallback_win32_menu', None)
+            _etykieta_pamieci_wklejek = getattr(app.DictationApp, '_etykieta_pamieci_wklejek', None)
 
         mock = MockApp()
         user32 = ctypes.windll.user32

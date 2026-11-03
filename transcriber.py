@@ -9,7 +9,7 @@ import httpx
 import logging
 from config import get_app_dir, DEPRECATED_GEMINI_MODELS
 
-logger = logging.getLogger("Transcriber")
+logger = logging.getLogger("whiscribe.transcriber")
 
 # Kolejność zapasowa: same lekkie modele (zwykle < 1 s); pełne modele flash "myślą"
 # i bywają przeciążone (503/timeout po 25 s), więc nie nadają się do korekty dyktowania.

@@ -1,3 +1,4 @@
+import threading
 import time
 import ctypes
 from ctypes import wintypes
@@ -5,6 +6,55 @@ import pyperclip
 from pynput.keyboard import Controller, Key
 
 kb = Controller()
+
+# Wyniki inject_text: bez nich wywołujący nie wie, czy tekst naprawdę wszedł
+WYNIK_WKLEJONY = "pasted"
+WYNIK_WPISANY = "typed"
+WYNIK_PUSTY = "empty"
+
+# Każde wejście do inject_text po kolei: funkcja zapisuje i odtwarza zawartość schowka
+# użytkownika, więc dwa równoległe wklejenia (finalizacja dyktowania i przywrócenie
+# z pamięci wklejek) nadpisywałyby sobie kopię starego schowka.
+_inject_lock = threading.RLock()
+
+_mod_user32 = ctypes.WinDLL("user32", use_last_error=True)
+_mod_user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+_mod_user32.GetAsyncKeyState.restype = ctypes.c_short
+
+VK_SHIFT, VK_CONTROL, VK_MENU = 0x10, 0x11, 0x12
+
+
+def modyfikatory_wcisniete() -> bool:
+    """True, gdy Ctrl, Alt albo Shift jest FIZYCZNIE wciśnięty."""
+    for vk in (VK_CONTROL, VK_MENU, VK_SHIFT):
+        if (_mod_user32.GetAsyncKeyState(vk) & 0x8000) != 0:
+            return True
+    return False
+
+
+def zwolnij_modyfikatory(czekaj_s: float = 0.5) -> bool:
+    """Zwalnia Ctrl, Alt i Shift i czeka na ich fizyczne puszczenie.
+
+    kb.release() nie zmienia stanu fizycznego klawiatury: gdy tekst wkleja się w reakcji
+    na skrót (Ctrl+Alt+D, Ctrl+Alt+V), klawisze są jeszcze wciśnięte i aplikacja docelowa
+    zamiast Ctrl+V widzi Ctrl+Alt+V albo zawieszony Ctrl. Limit jest twardy, bo zawieszony
+    klawisz sprzętowy zablokowałby wklejanie na zawsze.
+
+    Zwraca True, jeśli klawisze faktycznie puszczono w ramach limitu.
+    """
+    for mod in (Key.ctrl, Key.ctrl_l, Key.ctrl_r, Key.alt, Key.alt_l, Key.alt_r,
+                Key.shift, Key.shift_l, Key.shift_r):
+        try:
+            kb.release(mod)
+        except Exception:
+            pass
+
+    deadline = time.time() + max(0.0, czekaj_s)
+    while time.time() < deadline:
+        if not modyfikatory_wcisniete():
+            return True
+        time.sleep(0.01)
+    return not modyfikatory_wcisniete()
 
 # Własne instancje bibliotek z pełnymi sygnaturami: bez argtypes/restype ctypes obcina
 # 64-bitowe uchwyty i wskaźniki do 32 bitów (zapis pod błędny adres = crash procesu).
@@ -230,17 +280,26 @@ def sync_text(old_text: str, new_text: str) -> str:
 
     return new_text
 
-def inject_text(text: str, restore_clipboard: bool = True):
+def inject_text(text: str, restore_clipboard: bool = True) -> str:
     """
     Wkleja tekst do aktywnego okna przez schowek (Ctrl + V).
     Zabezpiecza przed pozostawianiem dyktowanego tekstu w schowku systemowym:
     - Przywraca poprzednią zawartość schowka użytkownika (jeśli istniała).
     - Jeśli schowek był pusty, czyści go całkowicie po wklejeniu.
     - Zapobiega zapisywaniu tymczasowego tekstu w historii schowka Windows 10/11 (Win+V).
+
+    Zwraca WYNIK_WKLEJONY, WYNIK_WPISANY (schowek zablokowany, znaki wpisane po kolei)
+    albo WYNIK_PUSTY. Bez tego wywołujący nie wie, czy tekst naprawdę wszedł, i status
+    w pamięci wklejek byłby zgadywany.
     """
     if not text or not text.strip():
-        return
+        return WYNIK_PUSTY
 
+    with _inject_lock:
+        return _inject_text_locked(text, restore_clipboard)
+
+
+def _inject_text_locked(text: str, restore_clipboard: bool) -> str:
     text = text.strip() + " "
     old_clipboard = None
     for _ in range(3):
@@ -292,18 +351,15 @@ def inject_text(text: str, restore_clipboard: bool = True):
 
     if not copied:
         # Fallback: bezpośrednie wpisanie znaków jeśli schowek systemowy jest zablokowany
+        zwolnij_modyfikatory()
         send_unicode_string(text)
-        return
+        return WYNIK_WPISANY
 
     time.sleep(0.05)
 
-    # Upewnij się, że klawisz Alt nie wisi w systemie (np. po skrócie Ctrl+Alt+D)
-    try:
-        kb.release(Key.alt)
-        kb.release(Key.alt_l)
-        kb.release(Key.alt_r)
-    except Exception:
-        pass
+    # Ctrl, Alt i Shift ze skrótu (Ctrl+Alt+D, Ctrl+Alt+V) muszą być fizycznie puszczone,
+    # inaczej aplikacja docelowa dostaje Ctrl+Alt+V zamiast Ctrl+V.
+    zwolnij_modyfikatory()
 
     # Symuluj Ctrl + V za pomocą pynput
     with kb.pressed(Key.ctrl):
@@ -322,4 +378,6 @@ def inject_text(text: str, restore_clipboard: bool = True):
         # Gdy restore_clipboard jest False, tekst pozostaje w schowku
     except Exception:
         pass
+
+    return WYNIK_WKLEJONY
 

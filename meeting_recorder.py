@@ -21,7 +21,7 @@ import numpy as np
 import scipy.signal
 import pyaudiowpatch as pyaudio
 
-logger = logging.getLogger("MeetingRecorder")
+logger = logging.getLogger("whiscribe.meeting_recorder")
 
 @dataclass
 class MeetingAudioSegment:

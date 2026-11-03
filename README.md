@@ -31,11 +31,22 @@ Moduł inspekcji interfejsu weryfikuje obecność kursora w edytowalnym elemenci
 Rejestracja skrótów na poziomie systemu operacyjnego pozwala na natychmiastowe rozpoczęcie dyktowania z dowolnego miejsca w systemie:
 - Domyślny skrót dyktowania: `Ctrl + Alt + D`.
 - Domyślny skrót trybu spotkania: `Ctrl + Alt + M`.
+- Domyślny skrót przywracania ostatniej wklejki: `Ctrl + Alt + V` (patrz "Pamięć wklejek" niżej).
 - Główny przycisk widżetu działa według trybu wybranego w menu `···`: "Dyktowanie do tekstu" (ikona mikrofonu) albo "Transkrypcja rozmowy" (ikona ludzików).
 - Przyciski "Stream" i "Korekta" pod nagłówkiem włączają pisanie na żywo i korektę AI (włączony ma czerwoną diodę i obwódkę). Płynna fala po bokach głównego przycisku pokazuje głośność mowy i pojawia się tylko wtedy, gdy mówisz. Przy przetwarzaniu w przycisku pulsują trzy kropki.
 - Pełna możliwość modyfikacji kombinacji klawiszy w pliku konfiguracyjnym.
 
-### 6. Architektura systemu: praca offline oraz moduł korekty językowej
+### 6. Pamięć wklejek (odzyskiwanie ostatnio podyktowanego tekstu)
+Po wklejeniu tekstu schowek systemowy jest przywracany do poprzedniego stanu albo czyszczony, żeby dyktowana treść nie zostawała w schowku ani w historii `Win + V`. Dlatego aplikacja trzyma ostatnio podyktowany tekst we własnej pamięci, niezależnej od schowka:
+- `Ctrl + Alt + V` wkleja zapamiętany tekst do okna aktywnego w tej chwili (bez zatwierdzania Enterem).
+- Wpis powstaje w momencie, w którym tekst powstał, a nie po udanym wklejeniu. Dzięki temu da się odzyskać także tekst, który nigdy nie wszedł: po utracie fokusu okna, po spóźnionym wyniku transkrypcji i po przerwanym przetwarzaniu.
+- Gdy jest co przywracać, w linii statusu widżetu pojawia się klikalna pigułka "Przywróć". Bursztynowa oznacza tekst, który nie został wklejony.
+- Ta sama pozycja jest w menu `···` widżetu oraz w menu ikony w zasobniku, razem z "Wyczyść pamięć wklejek".
+- Przywracanie zawsze sprawdza, czy pod kursorem jest pole tekstowe, niezależnie od opcji `require_text_field`. Bez tego `Ctrl + V` nad Eksploratorem plików wklejałby pliki.
+- Pamięć żyje tylko w pamięci procesu i nie jest zapisywana na dysk. Domyślnie trzyma jeden wpis; `paste_memory_size` w konfiguracji pozwala trzymać 2-3, jeśli potrzebny bywa przedostatni tekst.
+- Transkrypcje spotkań nie trafiają do pamięci wklejek, bo mają własny plik w katalogu `transkrypcje`.
+
+### 7. Architektura systemu: praca offline oraz moduł korekty językowej
 
 Whiscribe został zbudowany z naciskiem na prywatność danych użytkownika. Model rozpoznawania mowy działa całkowicie lokalnie.
 
@@ -141,6 +152,7 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 {
   "hotkey": "<ctrl>+<alt>+d",
   "hotkey_meeting": "<ctrl>+<alt>+m",
+  "hotkey_restore_paste": "<ctrl>+<alt>+v",
   "mode": "toggle",
   "model_size": "turbo",
   "device": "cuda",
@@ -152,10 +164,12 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
   "sound_feedback": true,
   "auto_stop_silence_seconds": 4.5,
   "theme": "dark",
+  "paste_memory_size": 1,
+  "log_level": "normal",
   "use_llm": false,
   "llm_provider": "gemini",
   "llm_api_key": "",
-  "llm_model": "gemini-2.0-flash",
+  "llm_model": "gemini-flash-lite-latest",
   "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów."
 }
 ```
@@ -166,6 +180,17 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 - `require_text_field`: weryfikuje obecność aktywnego pola tekstowego przed rozpoczęciem wpisywania.
 - `auto_stop_silence_seconds`: czas ciszy w sekundach, po którym nagranie zostaje automatycznie zakończone i przetworzone.
 - `use_llm`: aktywuje opcjonalną korektę stylistyczną i interpunkcyjną.
+- `paste_memory_size`: liczba ostatnich dyktowań trzymanych w pamięci wklejek (domyślnie 1).
+- `hotkey_restore_paste`: skrót przywracania ostatniej wklejki (domyślnie `<ctrl>+<alt>+v`).
+- `log_level`: `normal` (domyślnie) albo `diag`. Tryb `diag` zapisuje do logu także treść dyktowania, więc włącza się go tylko na czas diagnozy.
+
+### Logi
+Logi nie leżą w katalogu aplikacji, bo budowanie wersji przenośnej czyści katalog `dist` razem z nimi. Trafiają do `%LOCALAPPDATA%\Whiscribe\logs`:
+- `whiscribe.log` (wersja przenośna) albo `whiscribe-dev.log` (uruchomienie z kodu źródłowego): przebieg pracy aplikacji.
+- `whiscribe-errors.log`: tylko ostrzeżenia i błędy, ze śladami wyjątków. Ten plik otwiera się pierwszy po awarii.
+- Katalog można otworzyć pozycją "Otwórz folder z logami" w menu widżetu albo w menu ikony w zasobniku, a zmienić zmienną środowiskową `WHISCRIBE_LOG_DIR`.
+- Logi bibliotek (model Whisper, zapytania HTTP) są wyciszone do poziomu ostrzeżeń: wcześniej stanowiły prawie 70 procent pliku i wypychały z niego własne komunikaty aplikacji.
+- Domyślnie do logu nie trafia ani jedno słowo dyktowania ani transkrypcji spotkania, ani tytuły okien. Treść zapisuje tylko tryb `diag`, włączany świadomie przez `log_level` albo zmienną `WHISCRIBE_LOG_LEVEL=diag`.
 
 ---
 
@@ -174,6 +199,8 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 - **Brak telemetrii:** Aplikacja nie gromadzi i nie wysyła żadnych danych telemetrycznych ani informacji diagnostycznych.
 - **Lokalne przetwarzanie głosu:** Sygnał audio z mikrofonu jest przetwarzany bezpośrednio w pamięci RAM i na lokalnej karcie graficznej. Dźwięk nie opuszcza komputera użytkownika.
 - **Bezpieczeństwo kluczy:** Klucze dostępu do opcjonalnych usług zewnętrznych są zapisywane wyłącznie w lokalnym pliku konfiguracyjnym.
+- **Czysty schowek:** Po wklejeniu tekstu schowek jest przywracany do poprzedniego stanu albo czyszczony, a wpis jest oznaczany jako wykluczony z historii schowka Windows (`Win + V`). Ostatnio podyktowany tekst zostaje wyłącznie w pamięci procesu aplikacji (pamięć wklejek) i nie jest zapisywany na dysk.
+- **Logi bez treści:** Logi domyślnie nie zawierają dyktowanej treści, transkrypcji spotkań ani tytułów okien. Zapisuje je tylko świadomie włączony tryb diagnostyczny (`log_level: diag`).
 
 ---
 

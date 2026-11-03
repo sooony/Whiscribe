@@ -26,31 +26,27 @@ class TestOverlayNewDesign(unittest.TestCase):
         ov.stream_realtime = True
         self.assertTrue(ov.stream_realtime)
 
-        # Test transcript update
-        ov.update_live_text("Bieżący ogon transkrypcji")
-        ov.add_transcript_entry("Zatwierdzone zdanie pierwsze", timestamp_s=2.5)
-        self.assertEqual(len(ov.transcript_lines), 1)
+        # Panel transkrypcji został usunięty (nigdy nie był rysowany, a cztery dymki
+        # obiecywały użytkownikowi, że tekst "jest w widżecie"). Zastąpiła go pamięć wklejek.
+        self.assertFalse(hasattr(ov, "add_transcript_entry"))
+        self.assertFalse(hasattr(ov, "update_live_text"))
+        self.assertFalse(hasattr(ov, "transcript_lines"))
 
-        # Test meeting recording (powinno wyczyścić poprzednią transkrypcję)
+        # Test meeting recording
         ov.show_meeting_recording()
         self.assertEqual(ov.mode, "transcribing")
-        self.assertEqual(len(ov.transcript_lines), 0)
-        ov.add_transcript_entry("Rozmówca: Cześć wszystkim", timestamp_s=10.0)
-        self.assertEqual(len(ov.transcript_lines), 1)
 
         # Test wyłączenia streamingu
         ov.stream_realtime = False
         self.assertFalse(ov.stream_realtime)
 
-        # Test idle (powinno wyczyścić transkrypcję po zakończeniu sesji)
+        # Test idle
         ov.show_idle()
         self.assertEqual(ov.mode, "idle")
-        self.assertEqual(len(ov.transcript_lines), 0)
 
-        # Test ponownego nagrywania (czyszczenie na starcie)
-        ov.add_transcript_entry("Pozostałość")
+        # Test ponownego nagrywania
         ov.show_recording()
-        self.assertEqual(len(ov.transcript_lines), 0)
+        self.assertEqual(ov.mode, "recording")
 
         # Cleanup
         ov.close()

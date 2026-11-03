@@ -38,6 +38,8 @@ hiddenimports = [
     'recorder',
     'transcriber',
     'config',
+    'logging_setup',
+    'paste_memory',
     'pyperclip',
     'httpx',
     'httpcore',

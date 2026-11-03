@@ -12,7 +12,7 @@ import logging
 import ctypes
 from ctypes import wintypes
 
-logger = logging.getLogger("NotepadManager")
+logger = logging.getLogger("whiscribe.notepad")
 
 class NotepadManager:
     def __init__(self, output_dir: str = "transkrypcje"):

@@ -13,7 +13,7 @@ import scipy.signal
 import logging
 import time
 
-logger = logging.getLogger("SpeakerDiarizer")
+logger = logging.getLogger("whiscribe.diarizer")
 
 class SpeakerCluster:
     def __init__(self, speaker_id: str, pitch: float, centroid: float):

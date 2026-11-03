@@ -204,7 +204,7 @@ FONT_BOLD_PATH = os.path.join(WINDIR, 'Fonts', 'segoeuib.ttf')
 FONT_SEMI_PATH = os.path.join(WINDIR, 'Fonts', 'seguisb.ttf')
 
 import logging
-logger = logging.getLogger("Overlay")
+logger = logging.getLogger("whiscribe.overlay")
 
 _FONT_CACHE = {}
 
@@ -685,16 +685,15 @@ class FloatingOverlay:
         # rysowany już w docelowym rozmiarze, żeby był ostry (zmniejszany tekst się rozmywał).
         self.ui = 1.0
         self.margin = 2
-        self.panel_open = False                      # Domyślnie wyłączona transkrypcja!
-        self.show_live_preview = False
         self._smooth_vol = 0.0
 
-        # Przewijanie transkrypcji (Scroll & Drag)
-        self.scroll_line = 0
-        self._user_scrolled = False
-        self._is_scrolling = False
-        self._total_lines_count = 0
-        self._max_visible_lines = 4
+        # Pamięć wklejek: w stanie idle timer pokazuje zawsze 00:00, więc te martwe piksele
+        # w linii statusu zajmuje klikalna pigułka "Przywróć". Nagłówek się nie nadaje:
+        # czwarta ikonka obok ··· — × wchodzi na napis "Whiscribe" i zostaje jej 16 px klikalnych.
+        self._paste_has = False
+        self._paste_unpasted = False
+        self._paste_pill_box = None
+        self.on_restore_paste_callback = None
 
         # Przyciski "Stream" i "Korekta" (sam napis; włączony = podświetlone tło)
         self.chip_font_px = 10
@@ -774,10 +773,7 @@ class FloatingOverlay:
         self._balloon_message = None
         self._balloon_until = 0.0
 
-        # Dane transkrypcji
-        self.transcript_lines = []
         self._start_time = 0.0
-        self.live_tail = ""
         self._dirty = True
 
         # Callbacki
@@ -833,7 +829,19 @@ class FloatingOverlay:
                     self._start_time = time.time()
             self._dirty = True
 
-    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None, on_stream_toggle=None, on_ai_toggle=None):
+    def set_paste_memory(self, ma_wklejke: bool, niewklejony: bool = False):
+        """Steruje pigułką "Przywróć" w linii statusu.
+
+        ma_wklejke: czy w pamięci wklejek jest cokolwiek.
+        niewklejony: czy najnowszy wpis NIE został wklejony (wtedy pigułka jest bursztynowa).
+        """
+        zmiana = (ma_wklejke != self._paste_has) or (niewklejony != self._paste_unpasted)
+        self._paste_has = bool(ma_wklejke)
+        self._paste_unpasted = bool(niewklejony)
+        if zmiana:
+            self._dirty = True
+
+    def set_callbacks(self, on_stop=None, on_close=None, on_toggle=None, on_meeting_toggle=None, on_minimize=None, on_restore=None, on_hotkey=None, on_stream_toggle=None, on_ai_toggle=None, on_restore_paste=None):
         self.on_stop_callback = on_stop
         self.on_close_callback = on_close
         self.on_toggle_callback = on_toggle
@@ -846,6 +854,8 @@ class FloatingOverlay:
             self.on_stream_toggle_callback = on_stream_toggle
         if on_ai_toggle is not None:
             self.on_ai_toggle_callback = on_ai_toggle
+        if on_restore_paste is not None:
+            self.on_restore_paste_callback = on_restore_paste
 
     def set_meeting_volume_getter(self, getter):
         self.loopback_volume_getter = getter
@@ -947,6 +957,14 @@ class FloatingOverlay:
         if d_mic <= (self.mic_rad + 3)**2:
             return 'btn_mic'
 
+        # 5. Pigułka "Przywróć" w linii statusu (tylko w idle, gdy pamięć wklejek niepusta).
+        # Sprawdzana przed przeciąganiem karty, bo inaczej klik trafiałby w 'widget_drag'.
+        box = self._paste_pill_box
+        if box and self.mode == "idle":
+            bx, by, bw, bh = box
+            if (bx <= x <= bx + bw) and (by - 2 <= y <= by + bh + 2):
+                return 'btn_restore_paste'
+
         # Przeciąganie za resztę karty
         return 'widget_drag'
 
@@ -1024,20 +1042,6 @@ class FloatingOverlay:
                     _safe_dispatch(self.on_minimize_callback)
             return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
-        if msg == WM_MOUSEWHEEL:
-            if self.panel_open:
-                delta = (wparam >> 16) & 0xFFFF
-                if delta > 0x7FFF:
-                    delta -= 0x10000
-                steps = 1 if delta > 0 else -1
-                with self._lock:
-                    max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
-                    new_scroll = self.scroll_line - steps
-                    self.scroll_line = max(0, min(max_scroll, new_scroll))
-                    self._user_scrolled = (self.scroll_line < max_scroll)
-                self._dirty = True
-            return 0
-
         if msg == WM_NCHITTEST:
             x, y = self._lparam_xy(lparam)
             pt = wintypes.POINT(x, y)
@@ -1068,15 +1072,6 @@ class FloatingOverlay:
                     hwnd, 0, self.pos_x, self.pos_y, 0, 0,
                     0x0001 | 0x0004 | 0x0010
                 )
-            elif self._is_scrolling:
-                sb_norm_y = self.py + 24
-                sb_norm_h = max(1, self.ph - 32)
-                ratio = max(0.0, min(1.0, (y - sb_norm_y) / float(sb_norm_h)))
-                with self._lock:
-                    max_scroll = max(0, self._total_lines_count - self._max_visible_lines)
-                    self.scroll_line = int(round(ratio * max_scroll))
-                    self._user_scrolled = (self.scroll_line < max_scroll)
-                self._dirty = True
             else:
                 target = self._get_target(x, y)
                 if target != self._hover_target:
@@ -1090,10 +1085,10 @@ class FloatingOverlay:
             return 0
 
         elif msg == WM_SETCURSOR:
-            if self._hover_target in ('btn_mic', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_toggle_ai', 'btn_close', 'btn_minimize', 'btn_rozumiem'):
+            if self._hover_target in ('btn_mic', 'btn_bar_close', 'btn_bar_minimize', 'btn_bar_menu', 'btn_toggle_stream', 'btn_toggle_ai', 'btn_close', 'btn_minimize', 'btn_rozumiem', 'btn_restore_paste'):
                 user32.SetCursor(self._hcursor_hand)
                 return 1
-            elif self._hover_target in ('widget_drag', 'panel_content', 'balloon_body'):
+            elif self._hover_target in ('widget_drag', 'balloon_body'):
                 user32.SetCursor(self._hcursor_move)
                 return 1
             else:
@@ -1109,7 +1104,7 @@ class FloatingOverlay:
             target = self._get_target(x, y)
             self._pressed_btn = target
 
-            if target in ('widget_drag', 'panel_content', 'balloon_body'):
+            if target in ('widget_drag', 'balloon_body'):
                 self._is_dragging = True
                 user32.SetCapture(hwnd)
                 cur_pt = wintypes.POINT()
@@ -1124,11 +1119,6 @@ class FloatingOverlay:
             if self._is_dragging:
                 self._is_dragging = False
                 user32.ReleaseCapture()
-
-            if self._is_scrolling:
-                self._is_scrolling = False
-                user32.ReleaseCapture()
-                self._dirty = True
 
             x, y = self._to_design(*self._lparam_xy(lparam))
             target = self._get_target(x, y)
@@ -1158,6 +1148,11 @@ class FloatingOverlay:
 
                 elif target == 'btn_rozumiem':
                     self.hide_balloon()
+
+                elif target == 'btn_restore_paste':
+                    # _safe_dispatch odpala to w osobnym wątku: inject_text ma w środku
+                    # ok. 0,35 s czekania i sesję schowka, czyli zamroziłoby wątek UI.
+                    _safe_dispatch(self.on_restore_paste_callback)
 
                 elif target == 'btn_bar_menu' or (self._pressed_btn == 'btn_bar_menu' and abs(x - self.bar_menu_cx) <= 15 and (self.by - 2 <= y <= self.by + self.bh + 2)):
                     screen_h = user32.GetSystemMetrics(1)
@@ -1328,7 +1323,7 @@ class FloatingOverlay:
 
         except Exception as e:
             import logging
-            logging.getLogger("Overlay").error(f"Błąd wątku UI overlay: {e}", exc_info=True)
+            logging.getLogger("whiscribe.overlay").error(f"Błąd wątku UI overlay: {e}", exc_info=True)
         finally:
             self._ready_event.set()
             if self.mem_dc and self.old_bmp:
@@ -1689,7 +1684,19 @@ class FloatingOverlay:
         lbl_w = f_lbl.getlength(status_lbl) if f_lbl else len(status_lbl) * 5
         tim_w = f_tim.getlength(timer_str) if f_tim else len(timer_str) * 5
         dot_d = 5
-        total_line_w = dot_d + 4 + lbl_w + 6 + tim_w
+
+        # Pigułka "Przywróć" tylko w idle: w pozostałych stanach timer coś znaczy
+        pokaz_pigulke = (self.mode == "idle" and self._paste_has)
+        pill_lbl = "Przywróć"
+        pill_h = 14.0
+        if pokaz_pigulke:
+            f_pill = font(FONT_SEMI_PATH, 9)
+            pill_txt_w = f_pill.getlength(pill_lbl) if f_pill else len(pill_lbl) * 4.5
+            pill_w = pill_txt_w + 12
+            total_line_w = dot_d + 4 + lbl_w + 6 + pill_w
+        else:
+            pill_w = 0.0
+            total_line_w = dot_d + 4 + lbl_w + 6 + tim_w
         line_x = self.cx0 + self.cw / 2 - total_line_w / 2.0
 
         dcx, dcy = (line_x + dot_d / 2) * S, self.status_cy * S
@@ -1700,7 +1707,24 @@ class FloatingOverlay:
             dot_col = _mix(dot_col, panel, 0.7 + 0.3 * pulse)
         d.ellipse([dcx - dot_d / 2 * S, dcy - dot_d / 2 * S, dcx + dot_d / 2 * S, dcy + dot_d / 2 * S], fill=dot_col)
         text(line_x + dot_d + 4, self.status_cy, status_lbl, status_col, FONT_SEMI_PATH, 10)
-        text(line_x + dot_d + 4 + lbl_w + 6, self.status_cy, timer_str, _mix(cfg['text'], panel, 0.85), FONT_SEMI_PATH, 10)
+
+        if pokaz_pigulke:
+            px0 = line_x + dot_d + 4 + lbl_w + 6
+            py0 = self.status_cy - pill_h / 2.0
+            self._paste_pill_box = (px0, py0, pill_w, pill_h)
+            hover = (self._hover_target == 'btn_restore_paste')
+            baza = amber if self._paste_unpasted else cfg['muted']
+            fill = _mix(baza, cfg['panel_bg'], 0.30 if hover else 0.18)
+            edge = _mix(baza, cfg['panel_bg'], 0.80 if hover else 0.55)
+            txt_col = cfg['text'] if (hover or self._paste_unpasted) else _mix(cfg['text'], cfg['panel_bg'], 0.75)
+            d.rounded_rectangle(
+                [px0 * S, py0 * S, (px0 + pill_w) * S, (py0 + pill_h) * S],
+                radius=int(pill_h / 2 * S), fill=fill, outline=edge, width=thin
+            )
+            text(px0 + pill_w / 2.0, self.status_cy, pill_lbl, txt_col, FONT_SEMI_PATH, 9, anchor="mm")
+        else:
+            self._paste_pill_box = None
+            text(line_x + dot_d + 4 + lbl_w + 6, self.status_cy, timer_str, _mix(cfg['text'], panel, 0.85), FONT_SEMI_PATH, 10)
 
         # ========================================================
         # 3. ZMNIEJSZENIE, OSTRY TEKST I AKTUALIZACJA OKNA WARSTWOWEGO
@@ -1749,7 +1773,6 @@ class FloatingOverlay:
             self.mode = "recording"
             self._session_kind = "dictation"
             self._start_time = time.time()
-            self.clear_transcript()
             self._balloon_type = None
             self._dirty = True
         self.show()
@@ -1758,7 +1781,6 @@ class FloatingOverlay:
         with self._lock:
             self.mode = "idle"
             self._start_time = 0.0
-            self.clear_transcript()
             # Dymek przeżywa koniec przetwarzania: komunikat (np. o nieudanej korekcie AI)
             # pokazywał się i gasł w tej samej chwili, bo show_idle leci zaraz po nim.
             if self._balloon_until > 0 and time.time() >= self._balloon_until:
@@ -1779,7 +1801,6 @@ class FloatingOverlay:
             self.mode = "transcribing"
             self._session_kind = "meeting"
             self._start_time = time.time()
-            self.clear_transcript()
             self._balloon_type = None
             self._dirty = True
         self.show()
@@ -1806,34 +1827,6 @@ class FloatingOverlay:
             self._balloon_text = ""
             self._balloon_until = 0
             self._dirty = True
-
-    def update_live_text(self, text: str):
-        if text:
-            with self._lock:
-                self.live_tail = text.strip()
-                if not self._user_scrolled:
-                    self.scroll_line = 999999
-            self._dirty = True
-
-    def add_transcript_entry(self, text: str, timestamp_s: float = None):
-        if not text:
-            return
-        with self._lock:
-            self.transcript_lines.append({"text": text.strip()})
-            if len(self.transcript_lines) > 100:
-                self.transcript_lines = self.transcript_lines[-100:]
-            self.live_tail = ""
-            if not self._user_scrolled:
-                self.scroll_line = 999999
-            self._dirty = True
-
-    def clear_transcript(self):
-        with self._lock:
-            self.transcript_lines = []
-            self.live_tail = ""
-            self.scroll_line = 0
-            self._user_scrolled = False
-        self._dirty = True
 
     def show(self):
         self._visible = True
@@ -1947,6 +1940,7 @@ class FloatingOverlay:
         self._running = False
         self.unregister_system_hotkey(101)
         self.unregister_system_hotkey(102)
+        self.unregister_system_hotkey(103)
         if self.hwnd and user32.IsWindow(self.hwnd):
             user32.PostMessageW(self.hwnd, 0x0010, 0, 0)
         if self._thread and self._thread.is_alive() and threading.current_thread() != self._thread:

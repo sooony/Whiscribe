@@ -183,7 +183,7 @@ try:
             _f.write(_fn())
         _CHIME_FILES[_name] = _fpath
 except Exception as _e:
-    logging.getLogger("App").debug(f"Błąd zapisu plików dźwiękowych: {_e}")
+    logging.getLogger("whiscribe.app").debug(f"Błąd zapisu plików dźwiękowych: {_e}")
 
 def _play_chime_file(name):
     p = _CHIME_FILES.get(name)
@@ -225,7 +225,10 @@ from pynput import keyboard
 from config import load_config, save_config, save_secret_key, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION, APP_RELEASE_DATE, GITHUB_URL
 from recorder import AudioRecorder
 from transcriber import Transcriber
-from injector import inject_text, sync_text, send_unicode_string, send_enter, ForwardStreamCommitter
+from injector import (inject_text, sync_text, send_unicode_string, send_enter, ForwardStreamCommitter,
+                      WYNIK_WKLEJONY, WYNIK_WPISANY)
+from paste_memory import (PasteMemory, STATUS_WKLEJONY, STATUS_WPISANY, STATUS_W_TOKU,
+                          STATUS_BRAK_FOKUSU, STATUS_SPOZNIONY, STATUS_PRZERWANE)
 from overlay import FloatingOverlay, THEMES, THEME_MAP, draw_svg_mic
 from focus_detector import is_text_field_focused, NON_EDITABLE_WINDOW_CLASSES, get_proc_name_from_hwnd, is_valid_target_window
 from meeting_manager import MeetingManager
@@ -321,19 +324,13 @@ def is_mouse_down() -> bool:
             return True
     return False
 
-from logging.handlers import RotatingFileHandler
-LOG_FILE = os.path.join(get_app_dir(), "app.log")
-handlers = [RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=2, encoding='utf-8')]
-if sys.stdout is not None:
-    handlers.append(logging.StreamHandler(sys.stdout))
+from logging_setup import setup_logging, apply_log_level, log_fingerprint, get_log_dir
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=handlers,
-    force=True
-)
-logger = logging.getLogger("DictationApp")
+# Konfiguracja przy imporcie, czyli przed mutexem pojedynczej instancji i przed
+# wczytaniem configu: błędy startu (kreator sprzętu, odczyt ustawień) muszą trafić do pliku.
+LOG_INFO = setup_logging()
+LOG_FILE = LOG_INFO["path"]
+logger = logging.getLogger("whiscribe.app")
 
 
 def _log_thread_exception(args):
@@ -489,13 +486,33 @@ class DictationApp:
     _tray_icon_lock = threading.Lock()
     def __init__(self):
         self.config = load_config()
+        LOG_INFO["level"] = apply_log_level(self.config.get("log_level", "normal"))
+        log_fingerprint(logger, {
+            "wersja": f"{APP_VERSION} ({APP_RELEASE_DATE})",
+            "pid": os.getpid(),
+            "tryb": "portable" if getattr(sys, "frozen", False) else "dev",
+            "log": LOG_INFO["path"],
+            "poziom": LOG_INFO["level"],
+            "model": f"{self.config.get('model_size')}/{self.config.get('device')}/{self.config.get('compute_type')}",
+            "llm": (f"{self.config.get('llm_provider')}:{self.config.get('llm_model')}"
+                    f" (klucz: {self.config.get('_llm_key_source', 'brak')})"
+                    if self.config.get("use_llm") else "wyłączony"),
+            "stream": self.config.get("stream_realtime"),
+            "schowek_czyszczony": self.config.get("restore_clipboard"),
+            "enter_po_dyktowaniu": self.config.get("auto_enter_after_dictation"),
+        })
+        # Pamięć wklejek zastępuje nigdy nie rysowany panel transkrypcji: to jedyne miejsce,
+        # w którym podyktowany tekst zostaje po wklejeniu (schowek jest czyszczony) i po
+        # nieudanej próbie wklejenia.
+        self.paste_memory = PasteMemory(self.config.get("paste_memory_size", 1))
+        self._restore_in_progress = False
+        self._last_restore_time = 0.0
         self.recorder = AudioRecorder(sample_rate=16000)
         self._last_toggle_time = 0.0
         self._last_meeting_toggle_time = 0.0
         theme = self.config.get("theme", "dark")
         self.overlay = FloatingOverlay(theme=theme, always_on_top=self.config.get("always_on_top", True)) if self.config.get("show_overlay", True) else None
         if self.overlay:
-            self.overlay.show_live_preview = self.config.get("show_live_preview", False)
             self.overlay.stream_realtime = self.config.get("stream_realtime", False)
             self.overlay.ai_enabled = self.config.get("use_llm", False)
             self.overlay.set_widget_mode(self.config.get("widget_mode", "dictation"))
@@ -518,7 +535,8 @@ class DictationApp:
                 on_restore=self._on_overlay_restored,
                 on_hotkey=self._on_system_hotkey,
                 on_stream_toggle=self.toggle_streaming_mode,
-                on_ai_toggle=self.toggle_gemini_correction
+                on_ai_toggle=self.toggle_gemini_correction,
+                on_restore_paste=self.restore_last_paste
             )
             self.overlay.set_settings_handler(self._show_settings_menu)
             self.overlay.show()
@@ -835,8 +853,10 @@ class DictationApp:
         if self.target_hwnd:
             self.last_active_hwnd = self.target_hwnd
             self.target_proc = get_proc_name_from_hwnd(self.target_hwnd)
-            win_title = get_window_title(self.target_hwnd)
-            logger.info(f"Zablokowano okno docelowe transkrypcji: HWND={self.target_hwnd:#x} ({self.target_proc} - '{win_title}')")
+            # Tytuł okna to nazwy dokumentów, klientów i tematy maili. Do diagnozy wystarczy
+            # nazwa procesu i HWND, więc tytuł zostaje tylko na DEBUG.
+            logger.info(f"Zablokowano okno docelowe transkrypcji: HWND={self.target_hwnd:#x} ({self.target_proc})")
+            logger.debug(f"Tytuł okna docelowego: '{get_window_title(self.target_hwnd)}'")
 
         self.buffered_untyped_text = ""
         self.recorder.start()
@@ -932,16 +952,12 @@ class DictationApp:
                 with self._type_lock:
                     for seg_text, _ in completed:
                         self.committer.commit_segment(seg_text)
-                        if self.overlay:
-                            self.overlay.add_transcript_entry(seg_text)
                     self.committed_sample_offset += int(completed[-1][1] * 16000)
 
             # 2. ZAKTUALIZUJ BIEŻĄCY OGON (STABILNE SŁOWA WPISYWANE W PRZÓD)
             if tail_text:
                 with self._type_lock:
                     self.committer.process_hypothesis(tail_text)
-                if self.overlay:
-                    self.overlay.update_live_text(tail_text)
 
     def stop_and_transcribe(self):
         with self._lock:
@@ -1024,7 +1040,11 @@ class DictationApp:
             self._set_tray_icon("idle")
         if self.overlay:
             self.overlay.show_idle()
-            self.overlay.show_balloon("info", "Przetwarzanie przerwane — jeśli tekst dojdzie później, będzie w widżecie")
+            self.overlay.show_balloon(
+                "info",
+                "Przetwarzanie przerwane. Jeśli tekst dojdzie później, odzyskasz go skrótem Ctrl+Alt+V",
+                duration_s=0
+            )
         return True
 
     def _process_audio_worker(self, audio_data, job=None):
@@ -1045,9 +1065,16 @@ class DictationApp:
                         final_tail = self.transcriber.transcribe(trimmed_rem)
 
                 if not self._is_current_job(job):
-                    logger.warning("Streaming: finalizacja porzucona – końcówka trafia tylko do widżetu.")
+                    # Tekst już wpisany przez streaming zostaje w oknie, ale końcówka nie
+                    # weszła nigdzie, więc razem z nim idzie do pamięci wklejek.
+                    logger.warning("Streaming: finalizacja porzucona – końcówka trafia do pamięci wklejek.")
+                    self._zapamietaj_wklejke(self._streaming_full_text(final_tail), STATUS_PRZERWANE)
                     if final_tail and self.overlay:
-                        self.overlay.add_transcript_entry(final_tail)
+                        self.overlay.show_balloon(
+                            "info",
+                            "Końcówka nie została wpisana. Ctrl+Alt+V wkleja cały tekst do aktywnego okna",
+                            duration_s=0
+                        )
                     return
 
                 # 1. Przywróć definitywnie fokus do okna docelowego PRZED wpisaniem końcówki i opróżnieniem bufora
@@ -1072,8 +1099,6 @@ class DictationApp:
 
                         if final_tail:
                             self.committer.finalize(final_tail)
-                            if self.overlay:
-                                self.overlay.add_transcript_entry(final_tail)
                         else:
                             self.committer.finalize()
 
@@ -1083,12 +1108,17 @@ class DictationApp:
                             self.buffered_untyped_text = ""
 
                     self._send_auto_enter()
+                    self._zapamietaj_wklejke(self.committer.typed_text, STATUS_WPISANY)
                 else:
                     logger.warning(f"Streaming: nie udało się przywrócić fokusu do okna docelowego. Wstrzymano wpisywanie.")
-                    if final_tail and self.overlay:
-                        self.overlay.add_transcript_entry(final_tail)
+                    # finalize() tu nie poleciał, więc typed_text nie ma ogona – sklejamy ręcznie.
+                    self._zapamietaj_wklejke(self._streaming_full_text(final_tail), STATUS_BRAK_FOKUSU)
                     if self.overlay:
-                        self.overlay.show_balloon("info", "Fokus okna utracony — końcówka tekstu zachowana w widżecie")
+                        self.overlay.show_balloon(
+                            "info",
+                            "Fokus okna utracony, końcówka nie weszła. Ctrl+Alt+V wkleja cały tekst",
+                            duration_s=0
+                        )
 
                 logger.info(f"Finalizacja streamingu: {time.time() - t0:.2f}s | Wpisano znaków: {len(self.committer.typed_text)}")
                 logger.debug(f"Streaming wpisany tekst: '{self.committer.typed_text.strip()}'")
@@ -1101,12 +1131,16 @@ class DictationApp:
                 logger.debug(f"Tekst transkrypcji: '{final_text}'")
 
                 if not self._is_current_job(job):
-                    # Użytkownik lub watchdog przerwał oczekiwanie – mógł już dyktować do innego okna,
-                    # więc nie wklejamy, tylko zostawiamy tekst w widżecie.
-                    logger.warning(f"Spóźniony wynik po {duration:.0f}s – nie wklejam, tekst zostaje w widżecie.")
+                    # Użytkownik lub watchdog przerwał oczekiwanie – mógł już dyktować do innego
+                    # okna, więc nie wklejamy. Tekst idzie do pamięci wklejek, bo inaczej przepada.
+                    logger.warning(f"Spóźniony wynik po {duration:.0f}s – nie wklejam, tekst idzie do pamięci wklejek.")
+                    self._zapamietaj_wklejke(final_text, STATUS_SPOZNIONY)
                     if final_text and self.overlay:
-                        self.overlay.add_transcript_entry(final_text)
-                        self.overlay.show_balloon("info", "Spóźniony tekst jest w widżecie (nie wklejono)")
+                        self.overlay.show_balloon(
+                            "info",
+                            "Spóźniony tekst nie został wklejony. Ctrl+Alt+V wkleja go do aktywnego okna",
+                            duration_s=0
+                        )
                     return
 
                 # Jeśli korekta była oczekiwana, ale się nie udała, użytkownik musi o tym wiedzieć –
@@ -1119,12 +1153,9 @@ class DictationApp:
                     self.overlay.show_balloon("info", f"Korekta AI nieudana ({powod}) — tekst surowy")
 
                 if final_text:
-                    if self.overlay:
-                        # W trybie podglądu surowe wiersze z nasłuchu zastępujemy skorygowaną całością,
-                        # żeby w panelu nie zostały dwie wersje tego samego tekstu.
-                        if preview_mode:
-                            self.overlay.clear_transcript()
-                        self.overlay.add_transcript_entry(final_text)
+                    # Wpis powstaje PRZED próbą wklejenia: tekst, który nie wszedł, jest
+                    # dokładnie tym, który trzeba móc odzyskać. Status dopisujemy po próbie.
+                    wpis = self._zapamietaj_wklejke(final_text, STATUS_W_TOKU)
 
                     # Przywrocenie fokusu do okna docelowego przed wklejeniem
                     focus_ok = True
@@ -1140,12 +1171,26 @@ class DictationApp:
                         focus_ok = (user32.GetForegroundWindow() == self.target_hwnd)
 
                     if focus_ok:
-                        inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", True))
+                        wynik = inject_text(final_text, restore_clipboard=self.config.get("restore_clipboard", True))
+                        self.paste_memory.oznacz(
+                            wpis, STATUS_WPISANY if wynik == WYNIK_WPISANY else STATUS_WKLEJONY
+                        )
+                        self._odswiez_pamiec_w_widzecie()
                         self._send_auto_enter()
                     else:
-                        logger.warning(f"Nie udało się przywrócić fokusu do okna docelowego (HWND={self.target_hwnd:#x}, aktywne={user32.GetForegroundWindow():#x}). Wstrzymano wklejanie dla ochrony danych.")
+                        # GetForegroundWindow ma restype HWND, czyli zwraca None przy braku okna
+                        # pierwszego planu (ekran blokady, UAC); formatowanie None przez :#x
+                        # rzucało TypeError i gubiło cały tekst dokładnie w tej gałęzi.
+                        fg = user32.GetForegroundWindow() or 0
+                        logger.warning(f"Nie udało się przywrócić fokusu do okna docelowego (HWND={self.target_hwnd:#x}, aktywne={fg:#x}). Wstrzymano wklejanie dla ochrony danych.")
+                        self.paste_memory.oznacz(wpis, STATUS_BRAK_FOKUSU)
+                        self._odswiez_pamiec_w_widzecie()
                         if self.overlay:
-                            self.overlay.show_balloon("info", "Fokus okna utracony — tekst zachowano w widżecie")
+                            self.overlay.show_balloon(
+                                "info",
+                                "Fokus okna utracony, tekst nie został wklejony. Ctrl+Alt+V wkleja go do aktywnego okna",
+                                duration_s=0
+                            )
 
         except Exception as e:
             logger.error(f"Błąd podczas finalizacji: {e}", exc_info=True)
@@ -1209,7 +1254,6 @@ class DictationApp:
         self.committed_text = ""
         self.buffered_untyped_text = ""
         if self.overlay:
-            self.overlay.clear_transcript()
             self.overlay.show_idle()
         if self.tray_icon:
             self._set_tray_icon("idle")
@@ -1288,13 +1332,10 @@ class DictationApp:
 
         self._play_start_chime()
 
-        def _on_meeting_utterance(speaker, text, dt):
-            if self.overlay and text:
-                t_sec = (dt - self.meeting_manager.start_dt).total_seconds() if self.meeting_manager.start_dt else 0
-                self.overlay.add_transcript_entry(f"{speaker}: {text}", timestamp_s=t_sec)
-
         try:
-            self.meeting_manager.start_meeting(on_utterance=_on_meeting_utterance)
+            # Spotkania nie trafiają do pamięci wklejek: mają własny plik transkryptu
+            # (notepad_manager) i inny cykl życia niż jedno dyktowanie.
+            self.meeting_manager.start_meeting()
         except Exception as e:
             logger.error(f"Nie udało się uruchomić spotkania: {e}", exc_info=True)
             self.stop_meeting()
@@ -1361,6 +1402,127 @@ class DictationApp:
         except Exception as e:
             logger.error(f"Błąd otwierania folderu transkrypcji: {e}")
 
+    # ========================================================
+    # PAMIĘĆ WKLEJEK
+    # ========================================================
+    def _streaming_full_text(self, final_tail: str = "") -> str:
+        """Cały tekst sesji streamingu, także gdy finalize() nie poleciał.
+
+        committer.typed_text dostaje ogon dopiero w finalize(), a na gałęzi bez fokusu
+        finalize() nigdy nie jest wołane, więc ogon trzeba dokleić samemu.
+        """
+        wpisany = (getattr(self.committer, "typed_text", "") or "").strip()
+        ogon = (final_tail or "").strip()
+        if ogon and not wpisany.endswith(ogon):
+            return (wpisany + " " + ogon).strip()
+        return wpisany
+
+    def _zapamietaj_wklejke(self, text: str, status: str):
+        """Odkłada tekst w pamięci wklejek i odświeża sygnał w widżecie."""
+        if not text or not text.strip():
+            return None
+        wpis = self.paste_memory.dodaj(text, status=status, proc=self.target_proc)
+        if wpis is not None:
+            logger.info(f"Pamięć wklejek: zapisano {wpis.znakow} znaków (status: {wpis.status})")
+        self._odswiez_pamiec_w_widzecie()
+        return wpis
+
+    def _odswiez_pamiec_w_widzecie(self):
+        """Pokazuje w widżecie, czy jest co przywracać (pigułka w linii statusu)."""
+        if not self.overlay:
+            return
+        ostatni = self.paste_memory.ostatni()
+        try:
+            self.overlay.set_paste_memory(
+                bool(ostatni),
+                niewklejony=bool(ostatni and ostatni.niewklejony)
+            )
+        except Exception as e:
+            logger.debug(f"Nie udało się odświeżyć pigułki pamięci wklejek: {e}")
+
+    def restore_last_paste(self, icon=None, item=None, index: int = 0):
+        """Wkleja zapamiętany tekst do okna aktywnego TERAZ.
+
+        Świadomie nie wracamy do zapamiętanego target_hwnd: użytkownik wciska skrót, gdy
+        już stoi tam, gdzie chce, a ciche przeciąganie fokusu do okna z poprzedniego
+        dyktowania byłoby gorsze niż brak funkcji.
+        """
+        now = time.time()
+        if self._restore_in_progress or (now - self._last_restore_time) < 0.35:
+            # WM_HOTKEY powtarza się przy przytrzymaniu klawisza, a każde zdarzenie idzie
+            # w nowym wątku, czyli bez tego trzymany Ctrl+Alt+V to kolejka wklejeń.
+            return
+        self._last_restore_time = now
+
+        if self.state != "idle":
+            if self.overlay:
+                self.overlay.show_balloon("info", "Najpierw zakończ dyktowanie, potem przywrócę tekst")
+            return
+
+        wpisy = self.paste_memory.lista()
+        if not wpisy or index >= len(wpisy):
+            if self.overlay:
+                self.overlay.show_balloon("info", "Pamięć wklejek jest pusta")
+            return
+        wpis = wpisy[index]
+
+        hwnd = user32.GetForegroundWindow() or 0
+        if self.overlay and hwnd and hwnd == getattr(self.overlay, "hwnd", 0):
+            self.overlay.show_balloon("info", "Kliknij najpierw w pole tekstowe, do którego mam wkleić")
+            return
+
+        # Bramka pola tekstowego jest tu ZAWSZE, niezależnie od opcji "Wymagaj aktywnego
+        # pola tekstowego": zabłąkany Ctrl+V nad Explorerem albo pulpitem wkleja pliki,
+        # czyli akcja naprawcza zrobiłaby destrukcyjny skutek uboczny w cudzym katalogu.
+        is_focused, reason = is_text_field_focused(hwnd)
+        if not is_focused:
+            logger.warning(f"Przywracanie wklejki wstrzymane – brak aktywnego pola tekstowego ({reason})")
+            if self.overlay:
+                self.overlay.show_balloon("info", f"Brak aktywnego pola tekstowego ({reason})")
+            return
+
+        self._restore_in_progress = True
+        try:
+            with self._type_lock:
+                wynik = inject_text(wpis.text, restore_clipboard=self.config.get("restore_clipboard", True))
+            # Bez auto-Entera: przywracanie to naprawa, a ponowne wysłanie wiadomości
+            # jest jedyną rzeczą w tym przepływie, której nie da się cofnąć.
+            if wynik == WYNIK_WKLEJONY or wynik == WYNIK_WPISANY:
+                self.paste_memory.oznacz(wpis, STATUS_WPISANY if wynik == WYNIK_WPISANY else STATUS_WKLEJONY)
+                logger.info(f"Przywrócono wklejkę ({wpis.znakow} znaków) do {get_proc_name_from_hwnd(hwnd)}")
+                self._odswiez_pamiec_w_widzecie()
+            else:
+                logger.warning("Przywracanie wklejki: nie było czego wkleić")
+        except Exception as e:
+            logger.error(f"Błąd przywracania wklejki: {e}", exc_info=True)
+            if self.overlay:
+                self.overlay.show_balloon("error", "Nie udało się wkleić zapamiętanego tekstu")
+        finally:
+            self._restore_in_progress = False
+
+    def clear_paste_memory(self, icon=None, item=None):
+        self.paste_memory.wyczysc()
+        logger.info("Pamięć wklejek wyczyszczona.")
+        self._odswiez_pamiec_w_widzecie()
+        if self.overlay:
+            self.overlay.show_balloon("info", "Pamięć wklejek wyczyszczona")
+
+    def _etykieta_pamieci_wklejek(self) -> str:
+        wpis = self.paste_memory.ostatni()
+        if not wpis:
+            return "Przywróć ostatnią wklejkę (pamięć pusta)"
+        return f"Przywróć wklejkę: {wpis.etykieta()}"
+
+    def open_logs_folder(self, icon=None, item=None):
+        """Otwiera katalog z logami. Logi leżą poza katalogiem aplikacji, więc bez tej
+        pozycji trzeba by ich szukać po omacku."""
+        try:
+            folder = get_log_dir()
+            os.makedirs(folder, exist_ok=True)
+            os.startfile(folder)
+        except Exception as e:
+            logger.error(f"Błąd otwierania folderu z logami: {e}")
+
     def _on_system_hotkey(self, hotkey_id: int):
         """Obsługa zdarzenia WM_HOTKEY z natywnego Win32 RegisterHotKey (np. z myszki MX Master / klawiatury)."""
         logger.info(f"Odebrano natywne zdarzenie Win32 WM_HOTKEY: id={hotkey_id}")
@@ -1368,6 +1530,8 @@ class DictationApp:
             self.toggle_dictation()
         elif hotkey_id == 102:
             self.toggle_meeting()
+        elif hotkey_id == 103:
+            self.restore_last_paste()
 
     def setup_hotkey(self):
         try:
@@ -1388,14 +1552,23 @@ class DictationApp:
         formatted = format_hotkey(raw_hotkey)
         raw_meeting = self.config.get("hotkey_meeting", "<ctrl>+<alt>+m")
         formatted_meeting = format_hotkey(raw_meeting)
-        logger.info(f"Rejestracja globalnych skrótów: Dyktowanie={formatted}, Spotkanie={formatted_meeting}")
+        raw_restore = self.config.get("hotkey_restore_paste", "<ctrl>+<alt>+v")
+        formatted_restore = format_hotkey(raw_restore)
+        logger.info(f"Rejestracja globalnych skrótów: Dyktowanie={formatted}, Spotkanie={formatted_meeting}, Przywracanie wklejki={formatted_restore}")
 
         # 1. Rejestracja w natywnym Win32 RegisterHotKey
         # Działa na poziomie jądra Windows – przechwytuje zdarzenia fizyczne oraz wysyłane przez Logi Options+ (MX Master)
         if self.overlay and self.overlay.hwnd:
             res_d = self.overlay.register_system_hotkey(101, raw_hotkey)
             res_m = self.overlay.register_system_hotkey(102, raw_meeting)
+            res_v = self.overlay.register_system_hotkey(103, raw_restore)
             logger.info(f"Win32 RegisterHotKey: Dyktowanie({raw_hotkey})={'Aktywny' if res_d else 'Pominięty/Zajęty'}, Spotkanie({raw_meeting})={'Aktywny' if res_m else 'Pominięty/Zajęty'}")
+            if not res_v:
+                # Ctrl+Alt+V bywa zajęte (np. przez Visual Studio), a cicha porażka
+                # oznaczałaby skrót, który po prostu nie istnieje i nikt nie wie dlaczego.
+                logger.warning(f"Skrót przywracania wklejki ({formatted_restore}) jest zajęty przez inną aplikację – zostaje pozycja w menu widżetu i w zasobniku.")
+            else:
+                logger.info(f"Win32 RegisterHotKey: Przywracanie wklejki({raw_restore})=Aktywny")
 
         def _async_toggle_dictation():
             threading.Thread(target=self.toggle_dictation, daemon=True).start()
@@ -1403,9 +1576,13 @@ class DictationApp:
         def _async_toggle_meeting():
             threading.Thread(target=self.toggle_meeting, daemon=True).start()
 
+        def _async_restore_paste():
+            threading.Thread(target=self.restore_last_paste, daemon=True).start()
+
         hotkey_map = {
             formatted: _async_toggle_dictation,
-            formatted_meeting: _async_toggle_meeting
+            formatted_meeting: _async_toggle_meeting,
+            formatted_restore: _async_restore_paste
         }
 
         # 2. Rejestracja w UniversalGlobalHotKeys (fallback + wsparcie zdarzeń wstrzykiwanych injected=True z myszy)
@@ -1697,7 +1874,18 @@ class DictationApp:
             user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
 
             # 5. Spotkania (start/stop głównym przyciskiem w trybie "Transkrypcja rozmowy" albo skrótem)
+            # Pamięć wklejek: pozycja jest tu także dlatego, że skrót Ctrl+Alt+V może być
+            # zajęty przez inną aplikację i wtedy menu jest jedyną drogą.
+            ma_wklejke = not self.paste_memory.pusta()
+            user32.AppendMenuW(h_menu, MF_STRING | (0 if ma_wklejke else 0x0002), 121,
+                               self._etykieta_pamieci_wklejek())
+            if ma_wklejke:
+                user32.AppendMenuW(h_menu, MF_STRING, 124, "Wyczyść pamięć wklejek")
+
+            user32.AppendMenuW(h_menu, MF_SEPARATOR, 0, "")
+
             user32.AppendMenuW(h_menu, MF_STRING, 105, "Otwórz folder transkrypcji spotkań")
+            user32.AppendMenuW(h_menu, MF_STRING, 110, "Otwórz folder z logami")
 
             # 6. Zarządzanie oknem / Aplikacją
             user32.AppendMenuW(h_menu, MF_STRING, 601, "Zminimalizuj widżet (do paska)")
@@ -1749,6 +1937,12 @@ class DictationApp:
                 self.set_widget_mode("dictation")
             elif cmd == 112:
                 self.set_widget_mode("meeting")
+            elif cmd == 121:
+                self.restore_last_paste()
+            elif cmd == 124:
+                self.clear_paste_memory()
+            elif cmd == 110:
+                self.open_logs_folder()
             elif cmd == 105:
                 self.open_transcripts_folder()
             elif cmd == 106:
@@ -2136,6 +2330,20 @@ class DictationApp:
                 checked=lambda item: self.state == "meeting_recording"
             ),
             pystray.MenuItem("Otwórz folder z transkrypcjami spotkań", self.open_transcripts_folder),
+            pystray.MenuItem("Otwórz folder z logami", self.open_logs_folder),
+            pystray.Menu.SEPARATOR,
+            # text jako callable: pystray buduje menu raz, a etykieta musi pokazywać
+            # aktualny wpis (godzinę, status, początek treści).
+            pystray.MenuItem(
+                lambda item: self._etykieta_pamieci_wklejek(),
+                self.restore_last_paste,
+                enabled=lambda item: not self.paste_memory.pusta()
+            ),
+            pystray.MenuItem(
+                "Wyczyść pamięć wklejek",
+                self.clear_paste_memory,
+                enabled=lambda item: not self.paste_memory.pusta()
+            ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Korekta AI (LLM)", ai_menu),
             pystray.MenuItem("Styl widżetu", theme_menu),
@@ -2279,7 +2487,7 @@ if __name__ == "__main__":
         try:
             ctypes.windll.user32.MessageBoxW(
                 0,
-                f"Wystąpił błąd podczas uruchamiania Whiscribe:\n\n{e}\n\nSzczegóły zapisano w pliku app.log.",
+                f"Wystąpił błąd podczas uruchamiania Whiscribe:\n\n{e}\n\nSzczegóły zapisano w pliku:\n{LOG_FILE}",
                 "Błąd Whiscribe",
                 0x00000010 | 0x00040000
             )
