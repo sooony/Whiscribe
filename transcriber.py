@@ -900,7 +900,9 @@ class Transcriber:
                     self.last_llm_status = 'ok'
                     self.last_llm_engine = etykieta
                     self.last_llm_duration = time.monotonic() - t_korekta
-                    if ":" in (etykieta or ""):
+                    # Zapas poznajemy po liscie kandydatow, nie po dwukropku w etykiecie:
+                    # etykieta glownego Groqa tez go ma (groq:openai/gpt-oss-20b).
+                    if etykieta in {k.etykieta for k in zapas}:
                         logger.info(f"Korekta AI: odpowiedział zapasowy silnik {etykieta} "
                                     f"po {self.last_llm_duration:.2f}s.")
                     return poprawiony
