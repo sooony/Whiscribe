@@ -206,3 +206,20 @@ def test_zaden_plik_nie_trzyma_wlasnej_listy_modeli():
             # gemini-flash-lite-latest zostaje w config.py jako cel migracji wycofanych
             # modeli Google; tu pilnujemy tylko app.py i meeting_manager.py
             assert nazwa not in zrodlo, f"{plik} trzyma nazwe modelu {nazwa} na sztywno"
+
+
+def test_etykiety_menu_nie_obiecuja_konkretnego_modelu():
+    """Etykieta z nazwą modelu kłamie w dniu, w którym dostawca ten model wycofa.
+
+    Tak było z "Groq Cloud (Llama 3.3)": Groq zdjął Llamę z oferty, a menu nadal ją
+    obiecywało. Nazwa modelu należy do listy w transcriber.py, nie do napisu w menu.
+    """
+    katalog = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(katalog, "app.py"), encoding="utf-8") as f:
+        linie = f.readlines()
+
+    zakazane = ("Llama 3", "GPT-4", "Llama-3", "gpt-oss")
+    trafienia = [(nr, tekst.strip()) for nr, tekst in enumerate(linie, 1)
+                 if "MenuItem" in tekst or "AppendMenuW" in tekst or ", 71" in tekst or ", 72" in tekst
+                 for slowo in zakazane if slowo in tekst]
+    assert not trafienia, f"etykieta menu obiecuje konkretny model: {trafienia}"

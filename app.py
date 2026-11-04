@@ -2105,7 +2105,7 @@ class DictationApp:
                 ("ollama", "Ollama (Lokalne / 100% Offline)", 711),
                 ("local", "LM Studio (Lokalne / 100% Offline)", 712),
                 ("groq", "Groq Cloud (darmowy limit)", 713),
-                ("openai", "OpenAI (GPT-4o-mini)", 714),
+                ("openai", "OpenAI (płatne)", 714),
             ]
             for p_code, p_name, p_id in providers:
                 chk = MF_CHECKED if cur_provider == p_code else MF_UNCHECKED
@@ -2765,7 +2765,7 @@ class DictationApp:
             pystray.MenuItem("Google Gemini", set_provider_action("gemini"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "gemini"),
             pystray.MenuItem("Ollama (Lokalne / 100% Offline)", set_provider_action("ollama"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "ollama"),
             pystray.MenuItem("LM Studio (Lokalne / 100% Offline)", set_provider_action("local"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "local"),
-            pystray.MenuItem("Groq Cloud (Llama 3.3)", set_provider_action("groq"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "groq"),
+            pystray.MenuItem("Groq Cloud (darmowy limit)", set_provider_action("groq"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "groq"),
             pystray.MenuItem("OpenAI (ChatGPT)", set_provider_action("openai"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "openai"),
         )
 
