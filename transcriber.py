@@ -38,8 +38,11 @@ GEMINI_PROBA_PO_AWARII_S = 4.0
 # dyktowaniu pytany jest kolejny.
 ZAPASOWI_DOSTAWCY = {
     "gemini": (None, GEMINI_FALLBACK_MODELS),
+    # Kolejnosc sprawdzona na zywym koncie 4.11.2026: obie Llamy oddaly 404 (Groq zdjal je
+    # z listy), gpt-oss-20b odpowiedzial w 0,83 s. Llama zostaje na koncu, bo kosztuje tylko
+    # wtedy, gdy obie pozycje przed nia takze znikna.
     "groq": ("https://api.groq.com/openai/v1",
-             ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b")),
+             ("openai/gpt-oss-20b", "openai/gpt-oss-120b", "llama-3.3-70b-versatile")),
     "cerebras": ("https://api.cerebras.ai/v1",
                  ("llama-3.3-70b", "llama3.1-8b", "gpt-oss-120b")),
     "openai": ("https://api.openai.com/v1", ("gpt-4o-mini",)),

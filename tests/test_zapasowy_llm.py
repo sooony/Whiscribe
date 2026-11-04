@@ -175,7 +175,7 @@ def test_wycofany_model_zapasu_ustepuje_nastepnemu(monkeypatch):
     """Groq zmienia listę modeli co kwartał: 404 ma przestawić zapas na kolejny model."""
     def handler(request):
         if _jest_groq(request):
-            if "llama-3.3-70b-versatile" in request.content.decode("utf-8"):
+            if "openai/gpt-oss-20b" in request.content.decode("utf-8"):
                 return httpx.Response(404, json={"error": {"message": "model_not_found"}})
             return _openai_ok("Gotowe.")
         return httpx.Response(503, json={"error": "high demand"})
@@ -184,11 +184,11 @@ def test_wycofany_model_zapasu_ustepuje_nastepnemu(monkeypatch):
 
     # Pierwsze dyktowanie: model z listy odpada na 404
     t._post_process_with_llm("tekst surowy")
-    assert "groq:llama-3.3-70b-versatile" in t._dead_llm_models
+    assert "groq:openai/gpt-oss-20b" in t._dead_llm_models
 
     # Drugie: zapas pyta już następny model i korekta wchodzi
     assert t._post_process_with_llm("tekst surowy") == "Gotowe."
-    assert t.last_llm_engine == "groq:llama-3.1-8b-instant"
+    assert t.last_llm_engine == "groq:openai/gpt-oss-120b"
 
 
 def test_klucz_zapasu_nie_laduje_w_config_json(monkeypatch, tmp_path):
