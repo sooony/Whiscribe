@@ -15,6 +15,7 @@ from meeting_recorder import MeetingRecorder, MeetingAudioSegment
 from diarizer import AudioToneDiarizer
 from notepad_manager import NotepadManager
 from config import get_app_dir
+from transcriber import ZAPASOWI_DOSTAWCY, LOKALNI_DOSTAWCY, GEMINI_MODELE_PODSUMOWANIA
 
 logger = logging.getLogger("whiscribe.meeting")
 
@@ -224,7 +225,7 @@ class MeetingManager:
 
         provider = self.config.get("llm_provider", "gemini").lower()
         api_key = self.config.get("llm_api_key", "").strip()
-        is_local = provider in ("ollama", "local", "lmstudio")
+        is_local = provider in LOKALNI_DOSTAWCY
         if not api_key and not is_local:
             return
 
@@ -240,9 +241,9 @@ class MeetingManager:
             summary_text = ""
 
             if provider == "gemini":
-                primary_model = self.config.get('llm_model', 'gemini-flash-latest')
-                candidate_models = [primary_model]
-                for fb in ("gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest"):
+                primary_model = (self.config.get("llm_model") or "").strip()
+                candidate_models = [m for m in [primary_model] if m]
+                for fb in GEMINI_MODELE_PODSUMOWANIA:
                     if fb not in candidate_models:
                         candidate_models.append(fb)
                 payload = {
@@ -271,18 +272,19 @@ class MeetingManager:
                             logger.debug(f"Błąd połączenia Gemini ({model_name}): {req_err}")
                             continue
             else:
-                if provider == "groq":
-                    base_url = "https://api.groq.com/openai/v1"
-                    default_model = "llama-3.3-70b-versatile"
-                elif provider == "openai":
-                    base_url = "https://api.openai.com/v1"
-                    default_model = "gpt-4o-mini"
-                elif provider == "ollama":
-                    base_url = self.config.get("llm_endpoint", "http://localhost:11434/v1").rstrip("/")
-                    default_model = "llama3.2"
-                else:
-                    base_url = self.config.get("llm_endpoint", "http://localhost:1234/v1").rstrip("/")
-                    default_model = "local-model"
+                # Adres i kolejka modeli z jednej listy (transcriber.ZAPASOWI_DOSTAWCY):
+                # nazwy modeli u dostawcow chmurowych zmieniaja sie co kilka miesiecy,
+                # a wpisana tu na sztywno Llama 3.3 byla martwa (404 na koncie Filipa).
+                adres, modele_dostawcy = ZAPASOWI_DOSTAWCY.get(provider, (None, ()))
+                if is_local:
+                    adres = (self.config.get("llm_endpoint") or "").strip() or adres
+                if not adres:
+                    logger.warning(f"Podsumowanie AI: nieznany dostawca {provider} - pomijam.")
+                    return
+                base_url = adres.rstrip("/")
+                wybrany = (self.config.get("llm_model") or "").strip()
+                kolejka = [m for m in [wybrany] if m]
+                kolejka += [m for m in modele_dostawcy if m != wybrany]
 
                 headers = {}
                 if api_key:
@@ -290,18 +292,31 @@ class MeetingManager:
                 elif is_local:
                     headers["Authorization"] = "Bearer ollama"
 
-                payload = {
-                    "model": self.config.get("llm_model", default_model),
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.2
-                }
                 with httpx.Client(timeout=12.0 if is_local else 8.0) as client:
-                    resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        choices = data.get("choices", [])
-                        if choices:
-                            summary_text = choices[0].get("message", {}).get("content", "")
+                    for model_name in kolejka:
+                        payload = {
+                            "model": model_name,
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0.2
+                        }
+                        try:
+                            resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                        except Exception as req_err:
+                            logger.debug(f"Blad polaczenia {provider} ({model_name}): {req_err}")
+                            continue
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            choices = data.get("choices", [])
+                            if choices:
+                                summary_text = choices[0].get("message", {}).get("content", "")
+                                if summary_text:
+                                    break
+                        elif resp.status_code in (401, 403):
+                            logger.error(f"Blad autoryzacji {provider} dla podsumowania (kod {resp.status_code})")
+                            break
+                        else:
+                            # Wycofany model oddaje 404 albo 400 "model_not_found" - pytamy kolejny
+                            logger.warning(f"{provider} ({model_name}) zwrocilo kod {resp.status_code}")
 
             if summary_text:
                 provider_tag = "LOKALNE AI (OLLAMA)" if provider == "ollama" else ("LOKALNE AI" if is_local else f"AI ({provider.upper()})")

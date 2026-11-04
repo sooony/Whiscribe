@@ -224,7 +224,7 @@ from pynput import keyboard
 
 from config import load_config, save_config, save_secret_key, CONFIG_FILE, get_app_dir, APP_NAME, APP_VERSION, APP_RELEASE_DATE, GITHUB_URL
 from recorder import AudioRecorder
-from transcriber import Transcriber
+from transcriber import Transcriber, ZAPASOWI_DOSTAWCY
 from injector import (inject_text, sync_text, send_unicode_string, send_enter, ForwardStreamCommitter,
                       WYNIK_WKLEJONY, WYNIK_WPISANY)
 from paste_memory import (PasteMemory, STATUS_WKLEJONY, STATUS_WPISANY, STATUS_W_TOKU,
@@ -513,7 +513,8 @@ class DictationApp:
             "log": LOG_INFO["path"],
             "poziom": LOG_INFO["level"],
             "model": f"{self.config.get('model_size')}/{self.config.get('device')}/{self.config.get('compute_type')}",
-            "llm": (f"{self.config.get('llm_provider')}:{self.config.get('llm_model')}"
+            "llm": (f"{self.config.get('llm_provider')}"
+                    f":{self.config.get('llm_model') or 'domyślny'}"
                     f" (klucz: {self.config.get('_llm_key_source', 'brak')})"
                     if self.config.get("use_llm") else "wyłączony"),
             "zapas_llm": (f"{self.config.get('llm_fallback_provider')}"
@@ -2103,7 +2104,7 @@ class DictationApp:
                 ("gemini", "Google Gemini", 710),
                 ("ollama", "Ollama (Lokalne / 100% Offline)", 711),
                 ("local", "LM Studio (Lokalne / 100% Offline)", 712),
-                ("groq", "Groq Cloud (Llama 3.3)", 713),
+                ("groq", "Groq Cloud (darmowy limit)", 713),
                 ("openai", "OpenAI (GPT-4o-mini)", 714),
             ]
             for p_code, p_name, p_id in providers:
@@ -2322,21 +2323,18 @@ class DictationApp:
         """Ustawia dostawcę korekty LLM (gemini, groq, openai, ollama, local)."""
         provider = provider.lower()
         self.config["llm_provider"] = provider
-        if provider == "gemini":
-            if not self.config.get("llm_model") or "llama" in self.config.get("llm_model", ""):
-                self.config["llm_model"] = "gemini-flash-lite-latest"
-        elif provider == "ollama":
-            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
-                self.config["llm_model"] = "llama3.2"
-        elif provider == "local":
-            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
-                self.config["llm_model"] = "local-model"
-        elif provider == "groq":
-            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
-                self.config["llm_model"] = "llama-3.3-70b-versatile"
-        elif provider == "openai":
-            if not self.config.get("llm_model") or "gemini" in self.config.get("llm_model", ""):
-                self.config["llm_model"] = "gpt-4o-mini"
+        # Model zostaje tylko wtedy, gdy nalezy do nowego dostawcy. Puste pole znaczy
+        # "domyslna kolejka tego dostawcy", wiec wycofany model sam ustepuje kolejnemu
+        # i zadna nazwa modelu nie jest tu wpisana na sztywno (byla tu martwa Llama 3.3).
+        obecny = (self.config.get("llm_model") or "").strip()
+        _, modele_dostawcy = ZAPASOWI_DOSTAWCY.get(provider, (None, ()))
+        if obecny not in modele_dostawcy:
+            self.config["llm_model"] = ""
+        if hasattr(self, "transcriber") and self.transcriber:
+            # Dostawca odrzucony w tej sesji (zly klucz) ma dostac druga szanse po zmianie
+            padli = getattr(self.transcriber, "_dead_llm_providers", None)
+            if padli is not None:
+                padli.discard(provider)
 
         save_config(self.config)
         if hasattr(self, "transcriber") and self.transcriber:

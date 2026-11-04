@@ -53,6 +53,12 @@ ZAPASOWI_DOSTAWCY = {
 
 LOKALNI_DOSTAWCY = ("ollama", "local", "lmstudio")
 
+# Podsumowanie spotkania powstaje raz i moze chwile potrwac, wiec pasuja tu mocniejsze
+# modele niz do korekty dyktowania: te "myslace" sa za wolne na wklejanie w locie, ale
+# na streszczenie godzinnej rozmowy sa wyrazne lepsze. Lista stoi tutaj, zeby wszystkie
+# nazwy modeli byly w jednym pliku (poprzednio rozjechaly sie na trzy).
+GEMINI_MODELE_PODSUMOWANIA = ("gemini-flash-latest", "gemini-3.8-flash", "gemini-flash-lite-latest")
+
 
 class KandydatKorekty:
     """Jedna proba korekty w wyscigu: etykieta do logow i cooldownow plus samo zapytanie.
@@ -682,7 +688,9 @@ class Transcriber:
                 for m in kolejka
             ]
 
-        base_url = ((endpoint or "").strip() or adres).rstrip("/")
+        # Adres z configu dotyczy tylko serwera lokalnego: llm_endpoint ma domyslnie
+        # wpisana Ollame, wiec dla Groqa i OpenAI szedlby na localhost zamiast do API.
+        base_url = (((endpoint or "").strip() if lokalny else "") or adres).rstrip("/")
         headers = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
