@@ -178,6 +178,8 @@ class TestV2Features(unittest.TestCase):
                 self.paste_memory = PasteMemory(1)
                 self.paste_memory.dodaj("zapamiętany tekst z dyktowania", STATUS_BRAK_FOKUSU)
 
+            NAZWY_DOSTAWCOW = getattr(app.DictationApp, 'NAZWY_DOSTAWCOW', {})
+            _opis_zapasu = getattr(app.DictationApp, '_opis_zapasu', None)
             _show_settings_menu = getattr(app.DictationApp, '_show_settings_menu', None)
             _show_fallback_win32_menu = getattr(app.DictationApp, '_show_fallback_win32_menu', None)
             _etykieta_pamieci_wklejek = getattr(app.DictationApp, '_etykieta_pamieci_wklejek', None)

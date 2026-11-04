@@ -140,8 +140,9 @@ def test_gemini_uses_header_not_query_param():
     import transcriber
     import meeting_manager
 
-    transcriber_src = inspect.getsource(transcriber.Transcriber._post_process_with_llm)
-    assert "?key=" not in transcriber_src, "W transcriber._post_process_with_llm klucz jest nadal przekazywany w query string!"
+    # Cała klasa, bo żądanie do Gemini buduje się w _kandydaci_dostawcy, a leci z _gemini_attempt
+    transcriber_src = inspect.getsource(transcriber.Transcriber)
+    assert "?key=" not in transcriber_src, "W Transcriber klucz jest nadal przekazywany w query string!"
     assert "x-goog-api-key" in transcriber_src, "Transcriber musi używać nagłówka x-goog-api-key"
 
     meeting_src = inspect.getsource(meeting_manager.MeetingManager._generate_llm_meeting_summary)
@@ -154,8 +155,11 @@ def test_local_llm_allowed_without_api_key():
     import transcriber
     import meeting_manager
 
+    assert set(transcriber.LOKALNI_DOSTAWCY) >= {"ollama", "local", "lmstudio"}
     t_src = inspect.getsource(transcriber.Transcriber._post_process_with_llm)
-    assert 'provider in ("ollama", "local", "lmstudio")' in t_src or "provider in ('ollama', 'local', 'lmstudio')" in t_src
+    assert "LOKALNI_DOSTAWCY" in t_src, "Rozpoznanie lokalnego dostawcy musi iść przez LOKALNI_DOSTAWCY"
+    k_src = inspect.getsource(transcriber.Transcriber._kandydaci_dostawcy)
+    assert "if not api_key and not lokalny" in k_src, "Lokalny dostawca nie może wymagać klucza API"
 
     m_src = inspect.getsource(meeting_manager.MeetingManager.stop_meeting)
     assert 'in ("ollama", "local", "lmstudio")' in m_src or "in ('ollama', 'local', 'lmstudio')" in m_src
@@ -223,7 +227,9 @@ def test_build_abort_safeguard_in_spec():
     with open(spec_path, "r", encoding="utf-8") as f:
         spec_content = f.read()
 
-    assert "BUILD ABORTED: klucz API w" in spec_content, "W whiscribe.spec brakuje bezpiecznika przerywającego build!"
+    assert "BUILD ABORTED: klucz API" in spec_content, "W whiscribe.spec brakuje bezpiecznika przerywającego build!"
+    # Zapasowy silnik ma własny klucz, więc bezpiecznik musi patrzeć na oba pola
+    assert "llm_fallback_api_key" in spec_content, "Bezpiecznik buildu nie sprawdza klucza zapasowego silnika!"
     assert "config.example.json" in spec_content, "whiscribe.spec musi pakować config.example.json!"
     assert "shutil.copy('config.json', out_dir)" not in spec_content, "whiscribe.spec nie może kopiować config.json do katalogu paczki!"
 

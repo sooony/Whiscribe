@@ -516,6 +516,10 @@ class DictationApp:
             "llm": (f"{self.config.get('llm_provider')}:{self.config.get('llm_model')}"
                     f" (klucz: {self.config.get('_llm_key_source', 'brak')})"
                     if self.config.get("use_llm") else "wyłączony"),
+            "zapas_llm": (f"{self.config.get('llm_fallback_provider')}"
+                          f":{self.config.get('llm_fallback_model') or 'domyślny'}"
+                          f" (klucz: {self.config.get('_llm_fallback_key_source', 'brak')})"
+                          if (self.config.get("llm_fallback_provider") or "").strip() else "brak"),
             "stream": self.config.get("stream_realtime"),
             "schowek_czyszczony": self.config.get("restore_clipboard"),
             "enter_po_dyktowaniu": self.config.get("auto_enter_after_dictation"),
@@ -1275,8 +1279,11 @@ class DictationApp:
                     czas_korekty = 0.0
                 # Rozbicie, bo przy wolnej korekcie z samej sumy nie widać, co trwało:
                 # Whisper na GPU to ułamek sekundy, a odpowiedź modelu bywa kilkanaście
+                # Etykieta silnika, bo przy włączonym zapasie sam czas nie mówi, czyja to korekta
+                silnik_korekty = getattr(self.transcriber, "last_llm_engine", None)
+                opis_silnika = f", silnik {silnik_korekty}" if silnik_korekty else ""
                 logger.info(f"Finalny czas: {duration:.2f}s (mowa->tekst {max(0.0, duration - czas_korekty):.2f}s, "
-                            f"korekta AI {czas_korekty:.2f}s) | Długość tekstu: {len(final_text)} znaków")
+                            f"korekta AI {czas_korekty:.2f}s{opis_silnika}) | Długość tekstu: {len(final_text)} znaków")
                 logger.debug(f"Tekst transkrypcji: '{final_text}'")
 
                 if not self._is_current_job(job):
@@ -1988,12 +1995,13 @@ class DictationApp:
             h_sound_stop_sub = user32.CreatePopupMenu()
             h_silence_sub = user32.CreatePopupMenu()
             h_ai_sub = user32.CreatePopupMenu()
+            h_zapas_sub = user32.CreatePopupMenu()
             # DestroyMenu(h_menu) niszczy kaskadowo tylko te podmenu, ktore zdazyly sie
             # dolaczyc przez MF_POPUP. Pozostale trzeba zwolnic samemu, inaczej blad w
             # budowaniu menu zostawia uchwyty przy kazdym otwarciu.
             self._menu_glowne = h_menu
             self._menu_podmenu = [h_theme_sub, h_sound_sub, h_sound_start_sub,
-                                  h_sound_stop_sub, h_silence_sub, h_ai_sub]
+                                  h_sound_stop_sub, h_silence_sub, h_ai_sub, h_zapas_sub]
             self._menu_dolaczone = set()
 
             def dolacz_podmenu(h_rodzic, h_pod, etykieta):
@@ -2101,6 +2109,28 @@ class DictationApp:
             for p_code, p_name, p_id in providers:
                 chk = MF_CHECKED if cur_provider == p_code else MF_UNCHECKED
                 user32.AppendMenuW(h_ai_sub, MF_STRING | chk, p_id, p_name)
+
+            user32.AppendMenuW(h_ai_sub, MF_SEPARATOR, 0, "")
+
+            # Zapasowy silnik: pytany równolegle, gdy główny milczy albo oddaje 503
+            cur_zapas = (self.config.get("llm_fallback_provider") or "").strip().lower()
+            zapasy = [
+                ("", "Wyłączony", 720),
+                ("groq", "Groq Cloud (darmowy limit)", 721),
+                ("cerebras", "Cerebras (darmowy limit)", 722),
+                ("openai", "OpenAI (płatne)", 723),
+                ("ollama", "Ollama (Lokalne / 100% Offline)", 724),
+                ("local", "LM Studio (Lokalne / 100% Offline)", 725),
+                ("gemini", "Google Gemini", 726),
+            ]
+            for z_code, z_name, z_id in zapasy:
+                if z_code and z_code == cur_provider:
+                    continue      # ten sam silnik co główny nie jest żadnym zapasem
+                chk = MF_CHECKED if cur_zapas == z_code else MF_UNCHECKED
+                user32.AppendMenuW(h_zapas_sub, MF_STRING | chk, z_id, z_name)
+            user32.AppendMenuW(h_zapas_sub, MF_SEPARATOR, 0, "")
+            user32.AppendMenuW(h_zapas_sub, MF_STRING, 705, "Klucz API zapasowego silnika...")
+            dolacz_podmenu(h_ai_sub, h_zapas_sub, f"Zapasowy silnik ({self._opis_zapasu()})")
 
             user32.AppendMenuW(h_ai_sub, MF_SEPARATOR, 0, "")
             user32.AppendMenuW(h_ai_sub, MF_STRING, 702, "Klucz API chmury (Gemini / Groq / OpenAI)...")
@@ -2263,6 +2293,12 @@ class DictationApp:
                 self.set_llm_provider("groq")
             elif cmd == 714:
                 self.set_llm_provider("openai")
+            elif cmd == 705:
+                self.prompt_and_set_llm_fallback_api_key()
+            elif cmd in (720, 721, 722, 723, 724, 725, 726):
+                zapas_map = {720: "", 721: "groq", 722: "cerebras", 723: "openai",
+                             724: "ollama", 725: "local", 726: "gemini"}
+                self.set_llm_fallback(zapas_map[cmd])
             elif cmd == 801:
                 self.open_github_repo()
             elif cmd == 802:
@@ -2315,6 +2351,148 @@ class DictationApp:
         }
         name = prov_labels.get(provider, provider)
         logger.info(f"Zmieniono silnik korekty AI na: {name}")
+
+    # Nazwy dostawców do menu i logów; "" to wyłączony zapas
+    NAZWY_DOSTAWCOW = {
+        "": "Wyłączony",
+        "gemini": "Google Gemini",
+        "groq": "Groq Cloud",
+        "cerebras": "Cerebras",
+        "openai": "OpenAI",
+        "ollama": "Ollama (Lokalne)",
+        "local": "LM Studio (Lokalne)",
+        "lmstudio": "LM Studio (Lokalne)",
+    }
+
+    # Początki kluczy API. Służą tylko do wyłapania pomyłki "wklejony klucz innego
+    # dostawcy", bo to jedyny realny błąd przy dwóch polach na klucze.
+    PREFIKSY_KLUCZY = {
+        "gemini": ("AIza", "AQ."),
+        "groq": ("gsk_",),
+        "cerebras": ("csk-",),
+        "openai": ("sk-",),
+    }
+
+    def _opis_zapasu(self) -> str:
+        """Etykieta zapasowego silnika do menu: nazwa plus informacja o kluczu."""
+        zapas = (self.config.get("llm_fallback_provider") or "").strip().lower()
+        if not zapas:
+            return "Wyłączony"
+        nazwa = self.NAZWY_DOSTAWCOW.get(zapas, zapas.upper())
+        if zapas in ("ollama", "local", "lmstudio"):
+            return nazwa
+        if (self.config.get("llm_fallback_api_key") or "").strip():
+            return nazwa
+        return f"{nazwa}, brak klucza"
+
+    def set_llm_fallback(self, provider: str):
+        """
+        Ustawia zapasowy silnik korekty (pusty tekst wyłącza).
+
+        Zapas nie zmienia dostawcy głównego ani jego klucza: wchodzi do tego samego
+        wyścigu co modele zapasowe Gemini, więc awaria głównego nie wydłuża czekania.
+        """
+        provider = (provider or "").strip().lower()
+        if provider and provider == self.config.get("llm_provider", "gemini").strip().lower():
+            logger.info("Zapasowy silnik musi być inny niż główny – pomijam.")
+            if self.overlay:
+                self.overlay.show_balloon("info", "Zapasowy silnik musi być inny niż główny")
+            return
+
+        poprzedni = (self.config.get("llm_fallback_provider") or "").strip().lower()
+        self.config["llm_fallback_provider"] = provider
+        if provider != poprzedni:
+            # Model i adres należały do poprzedniego dostawcy; puste = domyślny tego nowego
+            self.config["llm_fallback_model"] = ""
+            self.config["llm_fallback_endpoint"] = ""
+        save_config(self.config)
+        if hasattr(self, "transcriber") and self.transcriber:
+            self.transcriber.config = self.config
+            # Dostawca odrzucony w tej sesji (zły klucz) ma dostać drugą szansę po zmianie
+            padli = getattr(self.transcriber, "_dead_llm_providers", None)
+            if padli is not None:
+                padli.discard(provider)
+
+        if not provider:
+            logger.info("Zapasowy silnik korekty AI: wyłączony.")
+            if self.overlay:
+                self.overlay.show_balloon("info", "Zapasowy silnik AI wyłączony")
+            return
+
+        nazwa = self.NAZWY_DOSTAWCOW.get(provider, provider.upper())
+        logger.info(f"Zapasowy silnik korekty AI: {nazwa}.")
+        lokalny = provider in ("ollama", "local", "lmstudio")
+        if not lokalny and not (self.config.get("llm_fallback_api_key") or "").strip():
+            # Bez klucza zapas jest tylko wpisem w configu, więc od razu pytamy o klucz
+            self.prompt_and_set_llm_fallback_api_key()
+        elif self.overlay:
+            self.overlay.show_balloon("info", f"Zapasowy silnik AI: {nazwa}")
+
+    def prompt_and_set_llm_fallback_api_key(self):
+        """Okno wprowadzania klucza API dla zapasowego silnika (osobny klucz, nie główny)."""
+        def _dialog():
+            try:
+                zapas = (self.config.get("llm_fallback_provider") or "").strip().lower()
+                if not zapas:
+                    if self.overlay:
+                        self.overlay.show_balloon("info", "Najpierw wybierz zapasowy silnik")
+                    return
+                if zapas in ("ollama", "local", "lmstudio"):
+                    if self.overlay:
+                        self.overlay.show_balloon("info", "Serwer lokalny nie potrzebuje klucza API")
+                    return
+
+                nazwa = self.NAZWY_DOSTAWCOW.get(zapas, zapas.upper())
+                ma_klucz = bool((self.config.get("llm_fallback_api_key") or "").strip())
+
+                def _pytaj(root):
+                    from tkinter import simpledialog
+                    # Pole zawsze puste: wklejony klucz nie dokleja się do starego
+                    return simpledialog.askstring(
+                        f"Klucz API zapasowego silnika — {nazwa}",
+                        f"Wklej klucz API dla {nazwa}"
+                        + (" (puste pole = bez zmian):" if ma_klucz else ":"),
+                        parent=root
+                    )
+
+                status, new_key = self._zapytaj_w_okienku(f"Klucz API zapasowy {nazwa}", _pytaj)
+                if status != "ok":
+                    return
+                cleaned = (new_key or "").strip()
+                if not cleaned:
+                    return
+
+                # Jedyny realny błąd przy dwóch polach na klucze: klucz wklejony w złe pole.
+                for inny, prefiksy in self.PREFIKSY_KLUCZY.items():
+                    if inny != zapas and cleaned.startswith(tuple(prefiksy)):
+                        nazwa_innego = self.NAZWY_DOSTAWCOW.get(inny, inny.upper())
+                        logger.warning(f"Odrzucono klucz: wygląda na klucz {nazwa_innego}, a pole jest dla {nazwa}.")
+                        if self.overlay:
+                            self.overlay.show_balloon("info", f"To klucz {nazwa_innego}, nie {nazwa} – nie zapisano")
+                        return
+                if len(cleaned) < 20:
+                    logger.warning(f"Odrzucono klucz zapasowego silnika: za krótki ({len(cleaned)} znaków).")
+                    if self.overlay:
+                        self.overlay.show_balloon("info", "To nie wygląda na klucz API – nie zapisano")
+                    return
+
+                self.config["llm_fallback_api_key"] = cleaned
+                # Klucz z okienka zawsze wprost do secrets.json, tak jak klucz główny
+                save_secret_key(cleaned, "llm_fallback_api_key")
+                self.config["_llm_fallback_key_source"] = "secrets_file"
+                save_config(self.config)
+                if hasattr(self, "transcriber") and self.transcriber:
+                    self.transcriber.config = self.config
+                    padli = getattr(self.transcriber, "_dead_llm_providers", None)
+                    if padli is not None:
+                        padli.discard(zapas)
+                logger.info(f"Zapisano klucz API zapasowego silnika ({nazwa}).")
+                if self.overlay:
+                    self.overlay.show_balloon("info", f"Zapasowy silnik gotowy: {nazwa}")
+            except Exception as e:
+                logger.error(f"Błąd okna klucza API zapasowego silnika: {e}", exc_info=True)
+
+        threading.Thread(target=_dialog, daemon=True, name="klucz-zapasowy").start()
 
     def toggle_llm_correction(self):
         """Włącza lub wyłącza korektę AI bez nadpisywania skonfigurowanego dostawcy."""
@@ -2593,6 +2771,26 @@ class DictationApp:
             pystray.MenuItem("OpenAI (ChatGPT)", set_provider_action("openai"), checked=lambda item: self.config.get("llm_provider", "gemini").lower() == "openai"),
         )
 
+        def set_fallback_action(p):
+            def handler(icon=None, item=None):
+                self.set_llm_fallback(p)
+            return handler
+
+        def zapas_wybrany(p):
+            return lambda item: (self.config.get("llm_fallback_provider") or "").strip().lower() == p
+
+        fallback_sub = pystray.Menu(
+            pystray.MenuItem("Wyłączony", set_fallback_action(""), checked=zapas_wybrany("")),
+            pystray.MenuItem("Groq Cloud (darmowy limit)", set_fallback_action("groq"), checked=zapas_wybrany("groq")),
+            pystray.MenuItem("Cerebras (darmowy limit)", set_fallback_action("cerebras"), checked=zapas_wybrany("cerebras")),
+            pystray.MenuItem("OpenAI (płatne)", set_fallback_action("openai"), checked=zapas_wybrany("openai")),
+            pystray.MenuItem("Ollama (Lokalne / 100% Offline)", set_fallback_action("ollama"), checked=zapas_wybrany("ollama")),
+            pystray.MenuItem("LM Studio (Lokalne / 100% Offline)", set_fallback_action("local"), checked=zapas_wybrany("local")),
+            pystray.MenuItem("Google Gemini", set_fallback_action("gemini"), checked=zapas_wybrany("gemini")),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Klucz API zapasowego silnika...", lambda icon=None, item=None: self.prompt_and_set_llm_fallback_api_key()),
+        )
+
         ai_menu = pystray.Menu(
             pystray.MenuItem(
                 lambda item: f"Włącz korektę AI ({self.config.get('llm_provider', 'gemini').upper()})",
@@ -2600,6 +2798,7 @@ class DictationApp:
                 checked=lambda item: self.config.get("use_llm", False)
             ),
             pystray.MenuItem("Wybór silnika AI", provider_sub),
+            pystray.MenuItem(lambda item: f"Zapasowy silnik ({self._opis_zapasu()})", fallback_sub),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Klucz API chmury (Gemini / Groq / OpenAI)...", lambda icon=None, item=None: self.prompt_and_set_llm_api_key()),
             pystray.MenuItem("Adres serwera lokalnego (Ollama / LM Studio)...", lambda icon=None, item=None: self.prompt_and_set_local_endpoint()),

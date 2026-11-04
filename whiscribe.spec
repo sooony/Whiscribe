@@ -136,8 +136,11 @@ for p in glob.glob(os.path.join('dist', 'Whiscribe-Portable', '**', 'config*.jso
         continue
     try:
         cfg = json.load(open(p, encoding='utf-8'))
-        if cfg.get('llm_api_key'):
-            sys.exit(f'BUILD ABORTED: klucz API w {p}')
+        # Oba pola: od 2.2.24 zapasowy silnik ma wlasny klucz i tak samo nie ma prawa
+        # pojechac w paczce portable
+        for pole in ('llm_api_key', 'llm_fallback_api_key'):
+            if cfg.get(pole):
+                sys.exit(f'BUILD ABORTED: klucz API ({pole}) w {p}')
     except (json.JSONDecodeError, OSError):
         pass
 

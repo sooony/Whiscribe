@@ -88,7 +88,11 @@ flowchart LR
     A["Głos użytkownika"] --> B["Lokalny model Whisper GPU"]
     B -->|"Surowy tekst transkrypcji"| C["Zewnętrzny model językowy<br/>(Gemini, Groq lub OpenAI)"]
     C -->|"Poprawiony tekst docelowy"| D["Aktywne pole tekstowe"]
+    B -->|"Gdy dostawca główny milczy"| E["Zapasowy silnik<br/>(inna firma)"]
+    E -->|"Pierwsza dobra odpowiedź wygrywa"| D
 ```
+
+Awaria dostawcy to zwykle awaria całej jego puli: 3.11.2026 między 18:05 i 18:09 Gemini oddawało 503 "high demand" i ReadTimeout na wszystkich trzech lekkich modelach naraz, więc pięć dyktowań pod rząd dostało surową transkrypcję Whispera. Dlatego kolejka modeli jednego dostawcy nie wystarcza i doszedł `llm_fallback_provider`: zapasowy silnik innej firmy w tym samym wyścigu.
 
 #### Rola i budowa promptu systemowego (llm_system_prompt)
 Domyślna treść instrukcji dla modułu korekty:
@@ -174,6 +178,8 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
   "llm_provider": "gemini",
   "llm_api_key": "",
   "llm_model": "gemini-flash-lite-latest",
+  "llm_fallback_provider": "",
+  "llm_fallback_model": "",
   "llm_system_prompt": "Jesteś polskim korektorem tekstu dyktowanego. Popraw zająknięcia (np. yyy, eee), błędy interpunkcyjne i formatowanie. Nie zmieniaj sensu wypowiedzi. Zwróć WYŁĄCZNIE poprawiony tekst, bez żadnych dodatkowych komentarzy ani cudzysłowów."
 }
 ```
@@ -187,6 +193,9 @@ Plik konfiguracyjny `config.json` tworzony jest automatycznie przy pierwszym uru
 - `paste_memory_size`: liczba ostatnich dyktowań trzymanych w pamięci wklejek (domyślnie 1).
 - `max_paste_delay_seconds`: po ilu sekundach od zatrzymania nagrania wynik przestaje być wklejany automatycznie (domyślnie 8). Korekta AI potrafi trwać kilkanaście sekund, gdy modele są przeciążone, a tekst wklejony po takim czasie wpada w środek tego, co właśnie piszesz. Taki spóźniony tekst trafia do pamięci wklejek i czeka na `Ctrl+Alt+V`. Limit rośnie z długością nagrania (35 procent czasu mowy), bo na dłuższe dyktowanie czeka się świadomie, i jest 2,5 raza hojniejszy, gdy korekta AI się udała: tekst poprawiony po dziesięciu sekundach jest tego wart, a surowy po piętnastu, bo modele padły, już nie. `0` wyłącza kontrolę i przywraca wklejanie zawsze.
 - `gemini_hedge_after_seconds`: po ilu sekundach milczenia pierwszego modelu Gemini pytane są równolegle pozostałe (domyślnie 1). Z pomiarów na żywej aplikacji pierwszy pytany model regularnie milczy dłużej, a wynik daje model dosłany, więc dłuższe czekanie było czystym kosztem: jedno dyktowanie skróciło się z 3,0 do około 1,5 sekundy. Krótszy próg oznacza częściej trzy zapytania zamiast jednego, więc przy ciasnych limitach API warto go podnieść.
+- `llm_fallback_provider`: zapasowy silnik korekty na wypadek awarii dostawcy głównego. Puste wyłącza, inaczej `groq`, `cerebras`, `openai`, `ollama`, `local` albo `gemini`. Zapas nie jest kolejką po awarii, tylko zwyczajnym uczestnikiem tego samego wyścigu: wchodzi po progu `gemini_hedge_after_seconds`, a gdy wszystkie modele dostawcy głównego siedzą w pięciominutowym cooldownie po awarii, pytany jest pierwszy. Dzięki temu awaria Gemini nie wydłuża czekania na tekst, a przy działającym Gemini zapas nie dostaje ani jednego żądania. Klucz ustawia się osobno (zasobnik: Korekta AI, Zapasowy silnik, Klucz API zapasowego silnika) i trzyma go `secrets.json`, więc wpisanie klucza Groqa nie kasuje klucza Gemini.
+- `llm_fallback_model`: model zapasowego silnika; puste bierze pierwszy znany model tego dostawcy. Nazwy modeli u dostawców chmurowych zmieniają się co kilka miesięcy, więc model, który odpowie kodem 404, jest pomijany do końca sesji, a przy następnym dyktowaniu pytany jest kolejny z listy.
+- `llm_fallback_endpoint`: adres zapasowego serwera lokalnego (tylko dla `ollama` i `local`).
 - `hotkey_restore_paste`: skrót przywracania ostatniej wklejki (domyślnie `<ctrl>+<alt>+v`).
 - `log_level`: `normal` (domyślnie) albo `diag`. Tryb `diag` zapisuje do logu także treść dyktowania, więc włącza się go tylko na czas diagnozy.
 

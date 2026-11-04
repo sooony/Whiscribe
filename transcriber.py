@@ -1,3 +1,4 @@
+import functools
 import os
 import re
 import queue
@@ -27,6 +28,46 @@ GEMINI_HEDGE_AFTER_S = 1.0
 # Limit na probe, gdy wszystkie modele swiezo sie wysypaly: lepiej wkleic surowy
 # tekst po 4 s niz skorygowany po kilkunastu, gdy uzytkownik dawno robi cos innego.
 GEMINI_PROBA_PO_AWARII_S = 4.0
+
+# Zapasowy silnik korekty: inny dostawca w tym samym wyscigu. Awaria Gemini to zwykle
+# awaria CALEJ puli Google (503 "high demand" i ReadTimeout leca na wszystkie trzy modele
+# naraz, log z 3.11.2026 18:05-18:09), wiec kolejka modeli w obrebie Gemini korekty nie
+# ratuje; ratuje ja dopiero druga firma. Dostawca -> (adres API, modele w kolejnosci prob).
+# Nazwy modeli u dostawcow chmurowych zmieniaja sie co kilka miesiecy, dlatego kazdy ma
+# kilka pozycji: model, ktory odpowie 404, idzie na liste wycofanych i przy nastepnym
+# dyktowaniu pytany jest kolejny.
+ZAPASOWI_DOSTAWCY = {
+    "gemini": (None, GEMINI_FALLBACK_MODELS),
+    "groq": ("https://api.groq.com/openai/v1",
+             ("llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b")),
+    "cerebras": ("https://api.cerebras.ai/v1",
+                 ("llama-3.3-70b", "llama3.1-8b", "gpt-oss-120b")),
+    "openai": ("https://api.openai.com/v1", ("gpt-4o-mini",)),
+    "ollama": ("http://localhost:11434/v1", ("llama3.2",)),
+    "local": ("http://localhost:1234/v1", ("local-model",)),
+    "lmstudio": ("http://localhost:1234/v1", ("local-model",)),
+}
+
+LOKALNI_DOSTAWCY = ("ollama", "local", "lmstudio")
+
+
+class KandydatKorekty:
+    """Jedna proba korekty w wyscigu: etykieta do logow i cooldownow plus samo zapytanie.
+
+    Etykieta Gemini to sama nazwa modelu (tak jak dotad, bo po niej chodza cooldowny
+    i lista wycofanych), a u pozostalych dostawcow "dostawca:model" - inaczej dwa
+    silniki z modelem o tej samej nazwie dzielilyby cooldown.
+    """
+
+    __slots__ = ("etykieta", "rodzina", "zapytaj", "bez_limitu_proby")
+
+    def __init__(self, etykieta: str, rodzina: str, zapytaj, bez_limitu_proby: bool = False):
+        self.etykieta = etykieta
+        self.rodzina = rodzina
+        self.zapytaj = zapytaj
+        # Lokalny serwer (Ollama / LM Studio) dostaje caly pozostaly budzet: na CPU
+        # korekta trwa dziesiatki sekund, a 12 s obcinaloby ja zawsze.
+        self.bez_limitu_proby = bez_limitu_proby
 
 
 def llm_time_budget(text: str, is_local: bool) -> float:
@@ -183,7 +224,12 @@ class Transcriber:
         self._dead_llm_models = set()
         # Modele chwilowo przeciążone: {nazwa: time.monotonic() do kiedy omijać}
         self._slow_llm_models = {}
+        # Dostawcy odrzuceni do końca sesji (zły klucz API): pytanie ich przy każdym
+        # dyktowaniu to trzy spalone żądania i kilka sekund czekania na nic
+        self._dead_llm_providers = set()
         self.last_llm_duration = 0.0
+        # Etykieta silnika, który dał ostatnią korektę ('gemini-flash-lite-latest', 'groq:...')
+        self.last_llm_engine = None
         self._init_model()
 
     def _init_model(self):
@@ -402,11 +448,15 @@ class Transcriber:
         use_llm = self.config.get("use_llm", False)
         provider = self.config.get("llm_provider", "gemini").lower()
         api_key = self.config.get("llm_api_key", "").strip()
-        is_local_llm = provider in ("ollama", "local", "lmstudio")
+        is_local_llm = provider in LOKALNI_DOSTAWCY
+        # Sam zapasowy silnik też wystarcza: bez tego usunięcie klucza głównego cicho
+        # wyłączałoby korektę, mimo skonfigurowanego zapasu
+        ma_zapas = bool((self.config.get("llm_fallback_provider") or "").strip())
 
-        if use_llm and (api_key or is_local_llm):
+        if use_llm and (api_key or is_local_llm or ma_zapas):
             self.last_llm_status = None
             self.last_llm_duration = 0.0
+            self.last_llm_engine = None
             cleaned_text = self._post_process_with_llm(raw_text)
             if not cleaned_text:
                 return raw_text
@@ -460,6 +510,11 @@ class Transcriber:
         które najdawniej się wysypały. Samo "przeciążony na koniec" nie działało, bo gdy
         wszystkie trzy modele były oznaczone, kolejność nie zmieniała się wcale i ten
         zawieszony dostawał pierwszeństwo przy każdym kolejnym dyktowaniu.
+
+        Działa na nazwach modeli i na kandydatach: ta sama reguła ustawia też zapasowy
+        silnik przed Gemini, gdy wszystkie modele Gemini siedzą w cooldownie po awarii.
+        Sortowanie jest stabilne, więc przy równym stanie zostaje kolejność wejściowa,
+        czyli dostawca główny przed zapasowym.
         """
         slow = getattr(self, "_slow_llm_models", None)
         if slow is None:
@@ -467,12 +522,27 @@ class Transcriber:
         last_good = getattr(self, "_last_good_llm_model", None)
         now = time.monotonic()
 
-        def klucz(model_name):
-            if model_name == last_good and slow.get(model_name, 0.0) <= now:
+        def klucz(pozycja):
+            etykieta = pozycja.etykieta if isinstance(pozycja, KandydatKorekty) else pozycja
+            if etykieta == last_good and slow.get(etykieta, 0.0) <= now:
                 return (0, 0.0)
-            return (1, slow.get(model_name, 0.0))
+            return (1, slow.get(etykieta, 0.0))
 
         return sorted(models, key=klucz)
+
+    def _padli_dostawcy(self) -> set:
+        """Zbiór dostawców odrzuconych w tej sesji (getattr, bo testy tworzą obiekt bez __init__)."""
+        padli = getattr(self, "_dead_llm_providers", None)
+        if padli is None:
+            padli = self._dead_llm_providers = set()
+        return padli
+
+    def _padle_modele(self) -> set:
+        """Modele z 404 w tej sesji. Przez getattr, bo brak pola nie ma prawa wywrócić korekty."""
+        padle = getattr(self, "_dead_llm_models", None)
+        if padle is None:
+            padle = self._dead_llm_models = set()
+        return padle
 
     def _gemini_attempt(self, model_name: str, payload: dict, headers: dict, timeout):
         """
@@ -499,47 +569,205 @@ class Transcriber:
             return '404', resp.status_code
         return 'http', (resp.status_code, resp.text[:200])
 
-    def _gemini_correct_hedged(self, models: list, payload: dict, headers: dict, deadline: float, budget: float):
+    def _openai_attempt(self, base_url: str, headers: dict, payload: dict, timeout):
         """
-        Pyta pierwszy model, a jeśli ten milczy dłużej niż GEMINI_HEDGE_AFTER_S albo odpada
-        od razu, dosyła pozostałe równolegle i bierze pierwszą dobrą odpowiedź. W normalnym
-        przypadku (odpowiedź w ~1 s) leci dokładnie jedno zapytanie, jak dotąd.
-        Zwraca poprawiony tekst albo None.
+        Jedno zapytanie do API w standardzie OpenAI (Groq, Cerebras, OpenAI, Ollama, LM Studio).
+        Zwraca (status, wartość) w tym samym słowniku co _gemini_attempt i niczego nie zmienia
+        w obiekcie, bo leci z osobnego wątku.
+        """
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload, timeout=timeout)
+        if resp.status_code == 200:
+            data = resp.json()
+            choices = data.get("choices") or []
+            if choices:
+                out = (choices[0].get("message") or {}).get("content", "")
+                out = (out or "").strip()
+                if out:
+                    return 'ok', out
+            return 'empty', f"brak treści w odpowiedzi: {str(data)[:200]}"
+        if resp.status_code in (401, 403):
+            return 'auth', resp.status_code
+        tresc = resp.text[:200]
+        # Wycofany model: Groq i Cerebras zwracają na to 404, ale też 400 z "model_not_found"
+        # albo "decommissioned". Taki model trafia na listę wycofanych i nie jest już pytany.
+        if resp.status_code == 404 or (resp.status_code == 400 and "model" in tresc.lower()):
+            return '404', resp.status_code
+        return 'http', (resp.status_code, tresc)
+
+    def _payload_gemini(self, text: str, system_prompt: str) -> dict:
+        return {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": f"{system_prompt}\n\nTekst do poprawy:\n{text}"}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                # Limit musi pomieścić całą wypowiedź z marginesem – przy zbyt niskiej
+                # wartości model ucina tekst, a w trybie podglądu to jego wynik jest wklejany.
+                "maxOutputTokens": max(2048, len(text) // 2 + 1024)
+            }
+        }
+
+    def _payload_openai(self, model: str, text: str, system_prompt: str, ollama: bool) -> dict:
+        # Ollama domyślnie ogranicza odpowiedź do ~128 tokenów (num_predict), co ucinałoby
+        # dłuższe wypowiedzi. Limit wyliczamy z długości tekstu wejściowego.
+        out_tokens = max(2048, len(text) // 2 + 1024)
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ],
+            "temperature": 0.1,
+            "max_tokens": out_tokens
+        }
+        if ollama:
+            payload["options"] = {"num_predict": out_tokens}
+        return payload
+
+    def _kandydaci_dostawcy(self, dostawca: str, api_key: str, text: str, system_prompt: str,
+                            model_wybrany: str = "", endpoint: str = "",
+                            wszystkie_modele: bool = False) -> list:
+        """
+        Buduje listę prób dla jednego dostawcy. Pusta lista znaczy "nie ma czym pytać"
+        (brak klucza, nieznany dostawca albo dostawca odrzucony w tej sesji).
+
+        wszystkie_modele=True daje całą kolejkę modeli (tak pracuje dostawca główny),
+        False tylko pierwszy zdrowy model: zapasowy silnik ma być ratunkiem, a nie drugim
+        kompletem trzech żądań przy każdym dyktowaniu.
+        """
+        dostawca = (dostawca or "").strip().lower()
+        if not dostawca or dostawca not in ZAPASOWI_DOSTAWCY or dostawca in self._padli_dostawcy():
+            return []
+
+        adres, modele_domyslne = ZAPASOWI_DOSTAWCY[dostawca]
+        lokalny = dostawca in LOKALNI_DOSTAWCY
+        api_key = (api_key or "").strip()
+        if not api_key and not lokalny:
+            return []
+
+        prefiks = "" if dostawca == "gemini" else f"{dostawca}:"
+        kolejka = [m for m in [(model_wybrany or "").strip()] if m]
+        kolejka += [m for m in modele_domyslne if m not in kolejka]
+        if dostawca == "gemini":
+            kolejka = [m for m in kolejka if m not in DEPRECATED_GEMINI_MODELS]
+        padle = self._padle_modele()
+        zdrowe = [m for m in kolejka if f"{prefiks}{m}" not in padle]
+        # Gdy wszystkie modele dostawcy dostały 404, pytamy mimo to: lepiej jedno żądanie
+        # na darmo niż cicha utrata korekty, gdy model wrócił pod tą samą nazwą.
+        kolejka = zdrowe or list(modele_domyslne)
+        # Równoległe dosyłanie kilku modeli ma sens tylko w Gemini: tam modele są lekkie,
+        # darmowe i zmierzone. U innych dostawców pytamy jeden model, bo drugi to albo
+        # dodatkowy koszt (OpenAI), albo model, którego nikt lokalnie nie ma (Ollama).
+        if dostawca != "gemini" or not wszystkie_modele:
+            kolejka = kolejka[:1]
+        if not kolejka:
+            return []
+
+        if dostawca == "gemini":
+            payload = self._payload_gemini(text, system_prompt)
+            headers = {"x-goog-api-key": api_key}
+            kolejka = self._order_gemini_models(kolejka)
+            return [
+                KandydatKorekty(m, "gemini",
+                                functools.partial(self._gemini_attempt, m, payload, headers))
+                for m in kolejka
+            ]
+
+        base_url = ((endpoint or "").strip() or adres).rstrip("/")
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        elif lokalny:
+            headers["Authorization"] = "Bearer ollama"
+
+        kandydaci = []
+        for m in kolejka:
+            payload = self._payload_openai(m, text, system_prompt, dostawca == "ollama")
+            kandydaci.append(
+                KandydatKorekty(f"{dostawca}:{m}", dostawca,
+                                functools.partial(self._openai_attempt, base_url, headers, payload),
+                                bez_limitu_proby=lokalny)
+            )
+        return kandydaci
+
+    def _kandydaci_zapasowe(self, text: str, system_prompt: str, dostawca_glowny: str) -> list:
+        """Kandydaci zapasowego silnika; pusta lista, gdy zapas jest wyłączony albo bez klucza."""
+        zapas = (self.config.get("llm_fallback_provider") or "").strip().lower()
+        if not zapas or zapas == (dostawca_glowny or "").strip().lower():
+            return []
+        return self._kandydaci_dostawcy(
+            zapas,
+            self.config.get("llm_fallback_api_key", ""),
+            text,
+            system_prompt,
+            model_wybrany=self.config.get("llm_fallback_model", ""),
+            endpoint=self.config.get("llm_fallback_endpoint", ""),
+        )
+
+    def _gemini_correct_hedged(self, models: list, payload: dict, headers: dict, deadline: float, budget: float):
+        """Wyścig na samych modelach Gemini ze wspólnym payloadem i nagłówkami."""
+        kandydaci = [
+            KandydatKorekty(m, "gemini", functools.partial(self._gemini_attempt, m, payload, headers))
+            for m in models
+        ]
+        tekst, _ = self._korekta_wyscig(kandydaci, deadline, budget)
+        return tekst
+
+    def _korekta_wyscig(self, kandydaci: list, deadline: float, budget: float):
+        """
+        Pyta pierwszego kandydata, a jeśli ten milczy dłużej niż GEMINI_HEDGE_AFTER_S albo
+        odpada od razu, dosyła pozostałych równolegle i bierze pierwszą dobrą odpowiedź.
+        W normalnym przypadku (odpowiedź w ~1 s) leci dokładnie jedno zapytanie, jak dotąd.
+
+        Na liście mogą stać modele dwóch różnych dostawców. Zapasowy silnik jest wtedy
+        zwyczajnym uczestnikiem wyścigu, więc awaria całego Gemini nie wydłuża czekania:
+        po progu hedge pytanie leci do drugiej firmy, a nie do kolejnego modelu Google.
+
+        Zwraca (poprawiony tekst, etykieta silnika) albo (None, None).
         """
         slow = getattr(self, "_slow_llm_models", None)
         if slow is None:
             slow = self._slow_llm_models = {}
+        self._powod_nieudanej_korekty = 'failed'
         # 12 s na próbę: w szczytach Gemini odpowiada po 7-10 s, przy krótszym limicie
         # korekta odpadała, mimo że model zdążyłby odpowiedzieć.
         attempt_cap = max(12.0, budget * 0.4)
         # ...ale gdy KAŻDY kandydat wysypał się w ostatnich minutach, czekanie po 12 s na
         # każdego to kilkanaście sekund na wynik, który i tak wejdzie surowy.
         teraz = time.monotonic()
-        if models and all(slow.get(m, 0.0) > teraz for m in models):
+        if kandydaci and all(slow.get(k.etykieta, 0.0) > teraz for k in kandydaci):
             attempt_cap = min(attempt_cap, GEMINI_PROBA_PO_AWARII_S)
-            logger.info(f"Korekta Gemini: wszystkie modele świeżo niedostępne – skracam próbę do {attempt_cap:.0f} s.")
+            logger.info(f"Korekta AI: wszystkie silniki świeżo niedostępne – skracam próbę do {attempt_cap:.0f} s.")
         wyniki = queue.Queue()
 
-        def probuj(model_name, timeout):
+        def probuj(kandydat, timeout):
             try:
-                status, wartosc = self._gemini_attempt(model_name, payload, headers, timeout)
+                status, wartosc = kandydat.zapytaj(timeout)
             except Exception as err:
                 status, wartosc = 'conn', err
-            wyniki.put((model_name, status, wartosc))
+            wyniki.put((kandydat.etykieta, status, wartosc))
 
-        def odpal(model_name) -> bool:
-            timeout = _request_timeout(deadline, attempt_cap)
+        def odpal(kandydat) -> bool:
+            cap = None if kandydat.bez_limitu_proby else attempt_cap
+            timeout = _request_timeout(deadline, cap)
             if timeout is None:
                 return False
-            threading.Thread(target=probuj, args=(model_name, timeout), daemon=True,
-                             name=f"gemini-{model_name}").start()
+            threading.Thread(target=probuj, args=(kandydat, timeout), daemon=True,
+                             name=f"korekta-{kandydat.etykieta}").start()
             return True
 
-        oczekujace = list(models)
+        oczekujace = list(kandydaci)
         if not oczekujace or not odpal(oczekujace.pop(0)):
-            logger.warning("Korekta Gemini: budżet czasu wyczerpany przed pierwszym zapytaniem.")
-            return None
-        pierwszy = models[0]
+            logger.warning("Korekta AI: budżet czasu wyczerpany przed pierwszym zapytaniem.")
+            self._powod_nieudanej_korekty = 'timeout'
+            return None, None
+        pierwszy = kandydaci[0].etykieta
         try:
             prog_hedge = float(self.config.get("gemini_hedge_after_seconds", GEMINI_HEDGE_AFTER_S))
         except (TypeError, ValueError):
@@ -548,14 +776,15 @@ class Transcriber:
         uruchomione = 1
         odpowiedzi = 0
         rozeslane = False
+        po_etykiecie = {k.etykieta: k for k in kandydaci}
 
         def rozeslij(powod: str):
             nonlocal rozeslane
             rozeslane = True
-            logger.info(f"Korekta Gemini: {powod} – pytam równolegle {', '.join(oczekujace)}.")
+            logger.info(f"Korekta AI: {powod} – pytam równolegle {', '.join(k.etykieta for k in oczekujace)}.")
             dosylane = 0
-            for m in oczekujace:
-                if odpal(m):
+            for k in oczekujace:
+                if odpal(k):
                     dosylane += 1
             oczekujace.clear()
             return dosylane
@@ -563,11 +792,12 @@ class Transcriber:
         while odpowiedzi < uruchomione:
             pozostalo = deadline - time.monotonic()
             if pozostalo <= 0:
-                logger.warning("Korekta Gemini przekroczyła łączny limit czasu.")
+                logger.warning("Korekta AI przekroczyła łączny limit czasu.")
+                self._powod_nieudanej_korekty = 'timeout'
                 break
             czekaj = pozostalo if rozeslane else min(pozostalo, prog_hedge)
             try:
-                model_name, status, wartosc = wyniki.get(timeout=czekaj)
+                etykieta, status, wartosc = wyniki.get(timeout=czekaj)
             except queue.Empty:
                 if not rozeslane and oczekujace:
                     uruchomione += rozeslij(f"{pierwszy} milczy ponad {prog_hedge:.1f} s")
@@ -575,143 +805,99 @@ class Transcriber:
 
             odpowiedzi += 1
             if status == 'ok':
-                self._last_good_llm_model = model_name
-                return wartosc
+                self._last_good_llm_model = etykieta
+                return wartosc, etykieta
             if status == 'auth':
-                logger.error(f"Błąd autoryzacji Gemini API (kod {wartosc}): Niepoprawny klucz API!")
-                break
-            if status == '404':
-                self._dead_llm_models.add(model_name)
-                logger.warning(f"Model Gemini {model_name} jest niedostępny (404) – pomijam go do końca sesji.")
+                kandydat = po_etykiecie.get(etykieta)
+                rodzina = kandydat.rodzina if kandydat else None
+                logger.error(f"Błąd autoryzacji {etykieta} (kod {wartosc}): niepoprawny klucz API!")
+                if rodzina:
+                    # Zły klucz nie naprawi się sam, więc tego dostawcy nie pytamy do końca
+                    # sesji. Reszta wyścigu leci dalej: po to właśnie jest zapasowy silnik.
+                    self._padli_dostawcy().add(rodzina)
+                    odrzucone = [k.etykieta for k in oczekujace if k.rodzina == rodzina]
+                    if odrzucone:
+                        logger.warning(f"Pomijam pozostałe modele {rodzina}: {', '.join(odrzucone)}.")
+                    oczekujace[:] = [k for k in oczekujace if k.rodzina != rodzina]
+            elif status == '404':
+                self._padle_modele().add(etykieta)
+                logger.warning(f"Model {etykieta} jest niedostępny (404) – pomijam go do końca sesji.")
             elif status == 'empty':
-                logger.warning(f"Gemini ({model_name}) zwrócił pustą odpowiedź ({wartosc}).")
+                logger.warning(f"Silnik {etykieta} zwrócił pustą odpowiedź ({wartosc}).")
             elif status == 'http':
                 kod, tresc = wartosc
                 if kod == 429 or kod >= 500:
-                    slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
-                logger.warning(f"Gemini API ({model_name}) zwróciło kod {kod}: {tresc}")
+                    slow[etykieta] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
+                logger.warning(f"Silnik {etykieta} zwrócił kod {kod}: {tresc}")
             else:
-                slow[model_name] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
-                logger.warning(f"Błąd połączenia z modelem {model_name}: {type(wartosc).__name__}: {wartosc}")
+                slow[etykieta] = time.monotonic() + LLM_SLOW_MODEL_COOLDOWN_S
+                logger.warning(f"Błąd połączenia z modelem {etykieta}: {type(wartosc).__name__}: {wartosc}")
 
             if oczekujace and not rozeslane:
-                uruchomione += rozeslij(f"{model_name} odpadł")
+                uruchomione += rozeslij(f"{etykieta} odpadł")
 
-        return None
+        return None, None
 
     def _post_process_with_llm(self, text: str) -> str:
-        """Opcjonalna korekta językowa przez LLM (Gemini, Groq, OpenAI lub lokalną Ollama/LM Studio)."""
+        """
+        Opcjonalna korekta językowa przez LLM: dostawca główny z ustawień i, gdy jest
+        włączony, zapasowy silnik innej firmy w tym samym wyścigu.
+
+        Zapas nie wydłuża oczekiwania, bo nie czeka na wyczerpanie budżetu dostawcy
+        głównego: wchodzi po tym samym progu hedge co modele zapasowe Gemini (1 s),
+        a gdy wszystkie modele głównego siedzą w cooldownie po awarii, jest pytany
+        pierwszy, bo kolejność kandydatów ustawia _order_gemini_models.
+        """
         provider = self.config.get("llm_provider", "gemini").lower()
         api_key = self.config.get("llm_api_key", "").strip()
         system_prompt = self.config.get("llm_system_prompt", "")
-        is_local = provider in ("ollama", "local", "lmstudio")
+        is_local = provider in LOKALNI_DOSTAWCY
+        zapas_wlaczony = bool((self.config.get("llm_fallback_provider") or "").strip())
 
-        if not api_key and not is_local:
+        if not api_key and not is_local and not zapas_wlaczony:
             return text
+
+        # Przed try, bo linia podsumowania na dole liczy z niego czas korekty także wtedy,
+        # gdy wyjątek wyleci z wyliczania budżetu.
+        t_korekta = time.monotonic()
+        self._powod_nieudanej_korekty = 'failed'
 
         try:
             # Jeden budżet czasu na całą korektę: po jego przekroczeniu wklejamy surowy tekst,
             # zamiast wisieć w "przetwarzaniu" przez kolejne próby i modele zapasowe.
             budget = llm_time_budget(text, is_local)
             deadline = time.monotonic() + budget
-            t_korekta = time.monotonic()
 
-            if provider == "gemini":
-                # Google Gemini API
-                primary_model = self.config.get('llm_model', 'gemini-flash-lite-latest')
-                candidate_models = [] if primary_model in DEPRECATED_GEMINI_MODELS else [primary_model]
-                for fallback_m in GEMINI_FALLBACK_MODELS:
-                    if fallback_m not in candidate_models:
-                        candidate_models.append(fallback_m)
-                candidate_models = [m for m in candidate_models if m not in self._dead_llm_models] or list(GEMINI_FALLBACK_MODELS)
-                candidate_models = self._order_gemini_models(candidate_models)
+            kandydaci = self._kandydaci_dostawcy(
+                provider, api_key, text, system_prompt,
+                model_wybrany=self.config.get("llm_model", ""),
+                endpoint=self.config.get("llm_endpoint", ""),
+                wszystkie_modele=True,
+            )
+            zapas = self._kandydaci_zapasowe(text, system_prompt, provider)
+            if zapas:
+                logger.debug(f"Korekta AI: zapasowy silnik w wyścigu ({zapas[0].etykieta}).")
+            # Kolejność: dostawca główny przed zapasowym, ale model świeżo po awarii idzie
+            # na koniec. Gdy całe Gemini jest w cooldownie, zapas wychodzi na pierwsze miejsce.
+            kandydaci = self._order_gemini_models(kandydaci + zapas)
 
-                payload = {
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [
-                                {"text": f"{system_prompt}\n\nTekst do poprawy:\n{text}"}
-                            ]
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.1,
-                        # Limit musi pomieścić całą wypowiedź z marginesem – przy zbyt niskiej
-                        # wartości model ucina tekst, a w trybie podglądu to jego wynik jest wklejany.
-                        "maxOutputTokens": max(2048, len(text) // 2 + 1024)
-                    }
-                }
-                headers = {"x-goog-api-key": api_key}
-                poprawiony = self._gemini_correct_hedged(candidate_models, payload, headers, deadline, budget)
+            if not kandydaci:
+                logger.warning("Korekta AI: brak silnika do zapytania (sprawdź klucz API).")
+            else:
+                poprawiony, etykieta = self._korekta_wyscig(kandydaci, deadline, budget)
                 if poprawiony:
                     self.last_llm_status = 'ok'
+                    self.last_llm_engine = etykieta
                     self.last_llm_duration = time.monotonic() - t_korekta
+                    if ":" in (etykieta or ""):
+                        logger.info(f"Korekta AI: odpowiedział zapasowy silnik {etykieta} "
+                                    f"po {self.last_llm_duration:.2f}s.")
                     return poprawiony
-
-            elif provider in ("groq", "openai", "ollama", "local", "lmstudio"):
-                # OpenAI-compatible API (Chmura lub 100% lokalna Ollama / LM Studio)
-                if provider == "groq":
-                    base_url = "https://api.groq.com/openai/v1"
-                    default_model = "llama-3.3-70b-versatile"
-                elif provider == "openai":
-                    base_url = "https://api.openai.com/v1"
-                    default_model = "gpt-4o-mini"
-                elif provider == "ollama":
-                    base_url = self.config.get("llm_endpoint", "http://localhost:11434/v1").rstrip("/")
-                    default_model = "llama3.2"
-                else:  # local / lmstudio
-                    base_url = self.config.get("llm_endpoint", "http://localhost:1234/v1").rstrip("/")
-                    default_model = "local-model"
-
-                headers = {}
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
-                elif is_local:
-                    headers["Authorization"] = "Bearer ollama"
-
-                # Ollama domyślnie ogranicza odpowiedź do ~128 tokenów (num_predict), co ucinałoby
-                # dłuższe wypowiedzi. Limit wyliczamy z długości tekstu wejściowego.
-                out_tokens = max(2048, len(text) // 2 + 1024)
-                payload = {
-                    "model": self.config.get("llm_model", default_model),
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": text}
-                    ],
-                    "temperature": 0.1,
-                    "max_tokens": out_tokens
-                }
-                if provider == "ollama":
-                    payload["options"] = {"num_predict": out_tokens}
-
-                limit = _request_timeout(deadline)
-                if limit is None:
-                    # Budzet korekty wyczerpany. Bez tej bramki httpx dostawal timeout=None,
-                    # czyli zadanie bez limitu - na lokalnej Ollamie finalizacja wisiala bez konca.
-                    self.last_llm_status = 'timeout'
-                    logger.warning("Pomijam korektę AI: budżet czasu wyczerpany przed wysłaniem żądania.")
-                    return text
-
-                with httpx.Client(timeout=limit) as client:
-                    resp = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        choices = data.get("choices", [])
-                        if choices:
-                            out = choices[0].get("message", {}).get("content", "").strip()
-                            if out:
-                                self.last_llm_status = 'ok'
-                                return out
-                    elif resp.status_code in (401, 403):
-                        logger.error(f"Błąd autoryzacji {provider} (kod {resp.status_code}): niepoprawny klucz API!")
-                    else:
-                        logger.warning(f"{provider} zwrócił kod {resp.status_code}: {resp.text[:200]}")
 
         except Exception as e:
             logger.warning(f"Błąd korekty LLM ({provider}): {e}. Zwracam surowy tekst.")
 
-        self.last_llm_status = 'failed'
+        self.last_llm_status = getattr(self, "_powod_nieudanej_korekty", 'failed') or 'failed'
         self.last_llm_duration = time.monotonic() - t_korekta
         logger.warning("Korekta LLM nie powiodła się – zwracam surową transkrypcję Whispera.")
         return text
